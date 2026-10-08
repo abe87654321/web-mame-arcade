@@ -16,7 +16,7 @@ Build the native verifier binary from the **same commit** (`make SUBTARGET=... -
 | Tool | Pinned value | Where |
 | --- | --- | --- |
 | emsdk / Emscripten | `6.0.2` | build scripts, CI |
-| Node.js | `22` | `.nvmrc`, `engines` |
+| Node.js | `24` | `.nvmrc`, `engines` |
 | MAME fork commit | `b67e5bc` | `mame/` submodule, recorded per build |
 
 Every WASM and native build is keyed by its output sha256 and the MAME commit; the pair is stored as

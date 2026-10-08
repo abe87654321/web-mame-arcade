@@ -6,7 +6,7 @@ Mark done by changing `[ ]` to `[x]` in the same PR.
 Each task: read the listed docs only, plan first (Plan agent), then build, then run `/review-task <id>`.
 
 ## Phase 0 · Foundations and determinism spike
-- [ ] **T00 Repo scaffold** – pnpm workspace (`pnpm-workspace.yaml`) with `packages/protocol`, `web`, `relay`,
+- [x] **T00 Repo scaffold** – pnpm workspace (`pnpm-workspace.yaml`) with `packages/protocol`, `web`, `relay`,
   `api`, `verifier`; TS strict, eslint, vitest; CI workflow (lint + typecheck + test); `.gitignore`
   (`node_modules`, `roms/`, `*.wasm`, `core/out/`, `.env`); `.nvmrc`; and the `.opencode/` agents
   (`reviewer`, `determinism-auditor`) + commands (`/next-task`, `/review-task`, `/netplay-check`) that the

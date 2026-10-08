@@ -1,0 +1,10 @@
+node_modules/
+roms/
+*.wasm
+core/out/
+.env
+.env.*
+dist/
+coverage/
+*.log
+.DS_Store
