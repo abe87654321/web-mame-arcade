@@ -6,6 +6,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAME_DIR="$REPO_ROOT/mame"
 
+# MAME commit every native build must come from (see docs/02-emulation-core.md).
+PINNED_MAME_COMMIT="b67e5bcb0b895c0e451e342068b6651af1307d0d"
+
 # driver -> comma-separated SOURCES. Free ROMs: https://www.mamedev.org/roms/
 declare -A DRIVER_SOURCES=(
   [gridlee]="src/mame/bally/gridlee.cpp,src/mame/bally/gridlee_a.cpp,src/mame/bally/gridlee_v.cpp"
@@ -48,7 +51,7 @@ SOURCES="${DRIVER_SOURCES[$DRIVER]}"
 if command -v nproc >/dev/null 2>&1; then JOBS="$(nproc)"; else JOBS=4; fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES -j$JOBS"
+  echo "make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES SYMBOLS=0 STRIP_SYMBOLS=1 NEW_GIT_VERSION=$PINNED_MAME_COMMIT -j$JOBS"
   exit 0
 fi
 
@@ -56,11 +59,26 @@ if [[ ! -e "$MAME_DIR/makefile" ]]; then
   echo "error: mame/ submodule not initialised (run: git submodule update --init --depth 1)" >&2
   exit 3
 fi
-for tool in make gcc g++ python3; do
+for tool in make gcc g++ python3 strip; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: missing build tool: $tool" >&2; exit 3; }
 done
 
-make -C "$MAME_DIR" SUBTARGET="$DRIVER" SOURCES="$SOURCES" -j"$JOBS"
+MAME_SHA="$(git -C "$MAME_DIR" rev-parse HEAD)"
+if [[ "$MAME_SHA" != "$PINNED_MAME_COMMIT" ]]; then
+  echo "error: mame/ is at $MAME_SHA but the pinned commit is $PINNED_MAME_COMMIT" >&2
+  echo "       run: git -C mame checkout $PINNED_MAME_COMMIT" >&2
+  exit 5
+fi
+
+# SYMBOLS=0/STRIP_SYMBOLS=1 remove debug info (which embeds the absolute build path);
+# NEW_GIT_VERSION fixes the embedded BARE_VCS_REVISION instead of git-describe output,
+# so the same commit + toolchain yields the same binary sha256 across checkout paths.
+make -C "$MAME_DIR" \
+  SUBTARGET="$DRIVER" \
+  SOURCES="$SOURCES" \
+  SYMBOLS=0 STRIP_SYMBOLS=1 \
+  NEW_GIT_VERSION="$MAME_SHA" \
+  -j"$JOBS"
 
 BIN=""
 for cand in "$MAME_DIR/$DRIVER" "$MAME_DIR/$DRIVER.exe" "$MAME_DIR/mame$DRIVER"; do
@@ -71,10 +89,10 @@ if [[ -z "$BIN" ]]; then
   exit 4
 fi
 
-MAME_SHA="$(git -C "$MAME_DIR" rev-parse HEAD)"
 HASH="$(sha256sum "$BIN" | cut -d' ' -f1)"
 echo "driver:      $DRIVER"
 echo "mame commit: $MAME_SHA"
+echo "toolchain:   $(uname -m), gcc $(gcc -dumpversion)"
 echo "binary:      $BIN"
 echo "sha256:      $HASH"
 echo "$HASH  $BIN"

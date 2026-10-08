@@ -25,11 +25,13 @@ test("--list-drivers includes gridlee", () => {
   assert.match(r.stdout, /\bgridlee\b/);
 });
 
-test("--dry-run gridlee prints the make command", () => {
+test("--dry-run gridlee prints a reproducible make command", () => {
   const r = run("--dry-run", "gridlee");
   assert.equal(r.status, 0);
   assert.match(r.stdout, /SUBTARGET=gridlee/);
   assert.match(r.stdout, /src\/mame\/bally\/gridlee\.cpp/);
+  assert.match(r.stdout, /SYMBOLS=0 STRIP_SYMBOLS=1/);
+  assert.match(r.stdout, /NEW_GIT_VERSION=b67e5bc/);
 });
 
 test("--help exits 0", () => {

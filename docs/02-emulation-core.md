@@ -22,11 +22,13 @@ first validated with `gridlee` at pinned commit `b67e5bc`.
 | --- | --- | --- |
 | emsdk / Emscripten | `6.0.2` | build scripts, CI |
 | Node.js | `24` | `.nvmrc`, `engines` |
-| MAME fork commit | `b67e5bc` | `mame/` submodule, recorded per build |
+| MAME commit | `b67e5bc` | `mame/` submodule (upstream `mamedev/mame`; the project fork starts at T20) |
 
 Every WASM and native build is keyed by its output sha256 and the MAME commit; the pair is stored as
 `core_version` on `games` and `matches` (`contracts/db-schema.sql`) and must match between every peer and the
-verifier. A different value means a desync and a failed replay.
+verifier. A different value means a desync and a failed replay. The native build is made reproducible for a
+fixed commit+toolchain by stripping symbols (debug info embeds the absolute build path) and pinning the
+embedded version to the commit (`NEW_GIT_VERSION`); the toolchain/arch is printed next to the hash.
 
 ## Netplay patch (`core/patches/`, keep it small and in its own files)
 1. **Frame gate** – in `running_machine::emscripten_main_loop()`, call `netplay_ready(frame)` before
