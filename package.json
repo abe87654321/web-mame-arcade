@@ -9,7 +9,6 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
   },
-  "pnpm": { "onlyBuiltDependencies": ["esbuild"] },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@types/node": "^24.0.0",

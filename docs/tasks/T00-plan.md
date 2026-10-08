@@ -510,18 +510,22 @@ git commit -m "feat(T00): scaffold @wma/web (vite) with smoke test"
 ## Task 8: Install, verify and commit lockfile
 
 **Files:**
-- Modify: `package.json` (add the `pnpm.onlyBuiltDependencies` allow-list)
+- Modify: `pnpm-workspace.yaml` (add the pnpm 11 `allowBuilds` entry)
 - Create: `pnpm-lock.yaml` (generated)
 
 - [ ] **Step 1: Allow esbuild's build script (pnpm 11 gate)**
 
-pnpm 11 refuses to run when a dependency has an unapproved build script, failing with
-`ERR_PNPM_IGNORED_BUILDS: esbuild@...`. Add this top-level block to the root `package.json` (keep all
-existing fields):
+pnpm 11.5.2 refuses to run when a dependency has an unapproved build script, failing with
+`ERR_PNPM_IGNORED_BUILDS: esbuild@...`. On pnpm 11 the `pnpm` field in `package.json` is ignored and
+`onlyBuiltDependencies` was replaced by an `allowBuilds` map that must live in `pnpm-workspace.yaml`. Add:
 
-```json
-"pnpm": { "onlyBuiltDependencies": ["esbuild"] }
+```yaml
+allowBuilds:
+  esbuild: true
 ```
+
+(If pnpm auto-appends a placeholder `allowBuilds: { esbuild: set this to true or false }`, replace it with
+the entry above; do not keep the placeholder.)
 
 - [ ] **Step 2: Install dependencies**
 
@@ -547,7 +551,7 @@ Expected: 5 packages, 5 passing tests, exit 0.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add package.json pnpm-lock.yaml
+git add pnpm-workspace.yaml pnpm-lock.yaml
 git commit -m "chore(T00): add pnpm lockfile and esbuild build allow-list"
 ```
 
