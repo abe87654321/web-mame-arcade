@@ -19,10 +19,8 @@ read_pin() {
     "$VERSIONS_FILE" "$1"
 }
 
-# driver -> comma-separated SOURCES. Free ROMs: https://www.mamedev.org/roms/
-declare -A DRIVER_SOURCES=(
-  [gridlee]="src/mame/bally/gridlee.cpp,src/mame/bally/gridlee_a.cpp,src/mame/bally/gridlee_v.cpp"
-)
+# Shared driver -> comma-separated SOURCES map (same source list as the native build).
+source "$REPO_ROOT/core/drivers.sh"
 
 usage() {
   cat <<EOF
