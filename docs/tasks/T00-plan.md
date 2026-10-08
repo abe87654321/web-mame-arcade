@@ -510,33 +510,45 @@ git commit -m "feat(T00): scaffold @wma/web (vite) with smoke test"
 ## Task 8: Install, verify and commit lockfile
 
 **Files:**
+- Modify: `package.json` (add the `pnpm.onlyBuiltDependencies` allow-list)
 - Create: `pnpm-lock.yaml` (generated)
 
-- [ ] **Step 1: Install dependencies**
+- [ ] **Step 1: Allow esbuild's build script (pnpm 11 gate)**
+
+pnpm 11 refuses to run when a dependency has an unapproved build script, failing with
+`ERR_PNPM_IGNORED_BUILDS: esbuild@...`. Add this top-level block to the root `package.json` (keep all
+existing fields):
+
+```json
+"pnpm": { "onlyBuiltDependencies": ["esbuild"] }
+```
+
+- [ ] **Step 2: Install dependencies**
 
 Run: `pnpm install`
-Expected: lockfile written, `node_modules` populated. If a listed dependency range does not resolve, run `pnpm add -D -w <pkg>@latest` for that package and re-run.
+Expected: lockfile written, `node_modules` populated, no `ERR_PNPM_IGNORED_BUILDS`. If a listed dependency
+range does not resolve, run `pnpm add -D -w <pkg>@latest` for that package and re-run.
 
-- [ ] **Step 2: Lint**
+- [ ] **Step 3: Lint**
 
 Run: `pnpm lint`
 Expected: no errors.
 
-- [ ] **Step 3: Typecheck**
+- [ ] **Step 4: Typecheck**
 
 Run: `pnpm typecheck`
 Expected: `tsc --noEmit` succeeds in all five packages, no errors.
 
-- [ ] **Step 4: Test**
+- [ ] **Step 5: Test**
 
 Run: `pnpm test`
 Expected: 5 packages, 5 passing tests, exit 0.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add pnpm-lock.yaml
-git commit -m "chore(T00): add pnpm lockfile"
+git add package.json pnpm-lock.yaml
+git commit -m "chore(T00): add pnpm lockfile and esbuild build allow-list"
 ```
 
 ## Task 9: CI workflow
