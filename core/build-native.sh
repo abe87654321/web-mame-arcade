@@ -18,10 +18,8 @@ read_pinned_mame_commit() {
   node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).mameCommit)' "$VERSIONS_FILE"
 }
 
-# driver -> comma-separated SOURCES. Free ROMs: https://www.mamedev.org/roms/
-declare -A DRIVER_SOURCES=(
-  [gridlee]="src/mame/bally/gridlee.cpp,src/mame/bally/gridlee_a.cpp,src/mame/bally/gridlee_v.cpp"
-)
+# Shared driver -> comma-separated SOURCES map (same source list as the WASM build).
+source "$REPO_ROOT/core/drivers.sh"
 
 usage() {
   cat <<EOF

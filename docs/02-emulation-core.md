@@ -7,10 +7,22 @@ sudo apt install build-essential git python3 \
   qt6-base-dev qt6-base-dev-tools qmake6
 git clone https://github.com/emscripten-core/emsdk && cd emsdk
 ./emsdk install 6.0.2 && ./emsdk activate 6.0.2 && source ./emsdk_env.sh
-embuilder build sdl3 sdl3_ttf
-cd mame && emmake make SUBTARGET=<name> SOURCES=src/mame/<path>/<driver>.cpp -j$(nproc)
-# output <name>.js + <name>.wasm → static/cores/<driver>/<git-sha>/
+# from the repo root, with emsdk sourced and mame/ initialised:
+core/build-wasm.sh gridlee
+# writes core/out/gridlee/<core_hash>/{mamegridlee.js,mamegridlee.wasm,manifest.json}
 ```
+
+`core/build-wasm.sh <driver>` verifies the pinned emsdk (6.0.2) and MAME commit, runs
+`embuilder build sdl3 sdl3_ttf`, then `emmake make SUBTARGET=<driver> SOURCES=... IGNORE_GIT=1
+NEW_GIT_VERSION=<commit> STRIP_SYMBOLS=1`. It publishes the bundle under
+`core/out/<driver>/<core_hash>/`, where `<core_hash>` is the sha256 of the `.wasm` — the
+byte-identical cross-peer key (`contracts/core-version.md`) — and writes a `manifest.json`
+recording the driver, `core_hash`, `mame_commit`, `emsdk` and a sha256 per artifact (so the
+`.js` loader/glue is covered too, not just the `.wasm`). The script refuses to build if `mame/`
+is at a different commit or has uncommitted changes to tracked files, and it exports the exact
+emsdk it verified. `STRIP_SYMBOLS=1` is required: it triggers MAME's emscripten finalize step
+that emits the `.js`/`.wasm`/`.html` bundle. `core/out/` is gitignored; publish it to
+`/static/cores/<driver>/<core_hash>/` at deploy time.
 Host deps above cover the emscripten build and the native build (MAME needs Qt6's `qmake6`/`moc`
 to generate the single-driver Makefile even for the default SDL build).
 Build the native verifier binary from the **same commit** (`make SUBTARGET=... -j$(nproc)`).
