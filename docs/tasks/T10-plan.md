@@ -36,7 +36,18 @@ emsdk and MAME commit and publishes it under `core/out/<driver>/<core_hash>/`. D
   `core/out/gridlee/<core_hash>/{mamegridlee.js,mamegridlee.wasm,manifest.json}`.
 - `pnpm lint && pnpm typecheck && pnpm test` pass; no hardcoded emsdk/commit literals.
 
-## Risks
-- WASM reproducibility across machines is not yet proven; `core_hash` is only a valid
-  cross-peer key if a fixed commit + toolchain yields identical bytes. Validate by
-  rebuilding and comparing `core_hash`; may need `-s DETERMINISTIC`.
+## Review follow-ups (determinism-auditor)
+Applied in this branch: `LC_ALL=C`; refuse uncommitted tracked changes in `mame/`; export the
+verified `EMSDK`/`EMSCRIPTEN` so the make uses the checked toolchain (`--emsdk` no longer
+diverges from `$EMSDK`); record a sha256 per artifact in `manifest.json`.
+
+Still open (not T10 blockers; track for T11/T42):
+- WASM reproducibility across machines is unproven — `core_hash` is only a valid cross-peer key
+  if a fixed commit + toolchain yields identical bytes. Validate with two clean builds at
+  different checkout paths and `-j` values; add `-ffile-prefix-map` if path leakage shows up.
+  (Note: `-sDETERMINISTIC` is unsupported in emsdk 6.x, so the earlier risk note is stale.)
+- Build tree is reused in place (`mame/build`, `scripts/`); a stale tree from another
+  `CONFIG`/`SOURCES`/toolchain can change bytes. Prefer a clean worktree/BUILDDIR per core build.
+- `-j$(nproc)` is host-dependent; pin or record it.
+- `embuilder` port libs (`sdl3`, `sdl3_ttf`) come from a mutable cache; hash the linked libs or
+  build ports in a pinned container.

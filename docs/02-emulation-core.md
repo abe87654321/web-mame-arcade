@@ -17,9 +17,12 @@ core/build-wasm.sh gridlee
 NEW_GIT_VERSION=<commit> STRIP_SYMBOLS=1`. It publishes the bundle under
 `core/out/<driver>/<core_hash>/`, where `<core_hash>` is the sha256 of the `.wasm` — the
 byte-identical cross-peer key (`contracts/core-version.md`) — and writes a `manifest.json`
-recording the driver, `core_hash`, `mame_commit` and `emsdk`. `STRIP_SYMBOLS=1` is required: it
-triggers MAME's emscripten finalize step that emits the `.js`/`.wasm`/`.html` bundle. `core/out/`
-is gitignored; publish it to `/static/cores/<driver>/<core_hash>/` at deploy time.
+recording the driver, `core_hash`, `mame_commit`, `emsdk` and a sha256 per artifact (so the
+`.js` loader/glue is covered too, not just the `.wasm`). The script refuses to build if `mame/`
+is at a different commit or has uncommitted changes to tracked files, and it exports the exact
+emsdk it verified. `STRIP_SYMBOLS=1` is required: it triggers MAME's emscripten finalize step
+that emits the `.js`/`.wasm`/`.html` bundle. `core/out/` is gitignored; publish it to
+`/static/cores/<driver>/<core_hash>/` at deploy time.
 Host deps above cover the emscripten build and the native build (MAME needs Qt6's `qmake6`/`moc`
 to generate the single-driver Makefile even for the default SDL build).
 Build the native verifier binary from the **same commit** (`make SUBTARGET=... -j$(nproc)`).

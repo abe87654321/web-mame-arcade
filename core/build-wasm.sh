@@ -4,6 +4,9 @@
 # Usage: core/build-wasm.sh <driver> [--dry-run] | --list-drivers | --help
 set -euo pipefail
 
+# Deterministic string handling regardless of the caller's locale.
+export LC_ALL=C
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAME_DIR="$REPO_ROOT/mame"
 OUT_ROOT="$REPO_ROOT/core/out"
@@ -91,25 +94,47 @@ if [[ "$MAME_SHA" != "$MAME_PIN" ]]; then
   echo "       run: git -C mame checkout $MAME_PIN" >&2
   exit 5
 fi
-
-# Resolve emcc/emmake/embuilder from a sourced emsdk or the PATH.
-EMCC=""
-EMMAKE=""
-EMBUILDER=""
-if [[ -n "$EMSDK_DIR" ]]; then
-  EMCC="$EMSDK_DIR/upstream/emscripten/emcc"
-  EMMAKE="$EMSDK_DIR/upstream/emscripten/emmake"
-  EMBUILDER="$EMSDK_DIR/upstream/emscripten/embuilder"
+# Uncommitted changes to tracked sources would silently produce a different core
+# than the recorded mame_commit. Untracked build outputs are expected and ignored.
+if ! git -C "$MAME_DIR" diff --quiet || ! git -C "$MAME_DIR" diff --cached --quiet; then
+  echo "error: mame/ has uncommitted changes to tracked files; not reproducible from $MAME_PIN" >&2
+  echo "       run: git -C mame checkout -- . && git -C mame reset" >&2
+  exit 5
 fi
-[[ -x "$EMCC" ]] || EMCC="$(command -v emcc || true)"
-[[ -x "$EMMAKE" ]] || EMMAKE="$(command -v emmake || true)"
-[[ -x "$EMBUILDER" ]] || EMBUILDER="$(command -v embuilder || true)"
 
-if [[ -z "$EMCC" || -z "$EMMAKE" || -z "$EMBUILDER" ]]; then
+# Resolve the emsdk root: --emsdk, $EMSDK, or derived from emcc on the PATH.
+if [[ -z "$EMSDK_DIR" ]]; then
+  emcc_path="$(command -v emcc || true)"
+  if [[ -n "$emcc_path" ]]; then
+    emcc_real="$(readlink -f "$emcc_path")"
+    if [[ "$emcc_real" == */upstream/emscripten/emcc ]]; then
+      EMSDK_DIR="$(cd "$(dirname "$emcc_real")/../.." && pwd)"
+    fi
+  fi
+fi
+if [[ -z "$EMSDK_DIR" ]]; then
   echo "error: emsdk not found; source it first (source emsdk_env.sh) or pass --emsdk <dir>" >&2
   echo "       pinned version: $EMSDK_PIN" >&2
   exit 6
 fi
+
+EMSCRIPTEN_DIR="$EMSDK_DIR/upstream/emscripten"
+EMCC="$EMSCRIPTEN_DIR/emcc"
+EMMAKE="$EMSCRIPTEN_DIR/emmake"
+EMBUILDER="$EMSCRIPTEN_DIR/embuilder"
+for tool in "$EMCC" "$EMMAKE" "$EMBUILDER" \
+  "$EMSCRIPTEN_DIR/em++" "$EMSCRIPTEN_DIR/emar"; do
+  if [[ ! -x "$tool" ]]; then
+    echo "error: expected emsdk tool not found: $tool" >&2
+    exit 6
+  fi
+done
+
+# MAME's generated Makefile compiles via $(EMSDK)/emcc and the finalize step via
+# $(EMSCRIPTEN)/emcc (scripts/toolchain.lua:110-112,620), so export exactly the
+# toolchain we verify below rather than trusting the ambient environment.
+export EMSDK="$EMSDK_DIR"
+export EMSCRIPTEN="$EMSCRIPTEN_DIR"
 
 EMCC_VERSION="$("$EMCC" --version 2>/dev/null | sed -n '1s/.*) \([0-9][0-9.]*\).*/\1/p')"
 if [[ "$EMCC_VERSION" != "$EMSDK_PIN" ]]; then
@@ -151,18 +176,29 @@ mkdir -p "$OUT_DIR"
 ARTIFACTS=()
 for ext in js wasm html data; do
   if [[ -f "$BASE.$ext" ]]; then
-    cp "$BASE.$ext" "$OUT_DIR/$(basename "$BASE.$ext")"
-    ARTIFACTS+=("$(basename "$BASE.$ext")")
+    name="$(basename "$BASE.$ext")"
+    cp "$BASE.$ext" "$OUT_DIR/$name"
+    ARTIFACTS+=("$name")
   fi
 done
 
+# The manifest records a sha256 per artifact so the loader/glue (.js) is covered
+# too, not just the .wasm that defines core_hash.
 {
   printf '{\n'
   printf '  "driver": "%s",\n' "$DRIVER"
   printf '  "core_hash": "%s",\n' "$CORE_HASH"
   printf '  "mame_commit": "%s",\n' "$MAME_SHA"
   printf '  "emsdk": "%s",\n' "$EMSDK_PIN"
-  printf '  "artifacts": [%s]\n' "$(printf '"%s", ' "${ARTIFACTS[@]}" | sed 's/, $//')"
+  printf '  "artifacts": {\n'
+  last=$((${#ARTIFACTS[@]} - 1))
+  for i in "${!ARTIFACTS[@]}"; do
+    name="${ARTIFACTS[$i]}"
+    sum="$(sha256sum "$OUT_DIR/$name" | cut -d' ' -f1)"
+    if [[ "$i" -eq "$last" ]]; then comma=""; else comma=","; fi
+    printf '    "%s": "%s"%s\n' "$name" "$sum" "$comma"
+  done
+  printf '  }\n'
   printf '}\n'
 } > "$OUT_DIR/manifest.json"
 
