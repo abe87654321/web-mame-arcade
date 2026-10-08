@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["docs/00-overview.md", "docs/tasks/README.md"],
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "pnpm *": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "rm -rf *": "deny",
+      "git push*": "ask"
+    }
+  }
+}
