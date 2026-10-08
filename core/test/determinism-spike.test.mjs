@@ -63,6 +63,12 @@ test("--dry-run honours --frames/--rounds/--replays", () => {
   assert.match(r.stdout, /run\("record", 120/);
 });
 
+test("invalid --timeout is rejected", () => {
+  const r = run("gridlee", "--timeout", "0");
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /--timeout must be a positive integer/);
+});
+
 test("integration: strict short spike is deterministic", { skip: haveMame ? false : "mame/gridlee or roms/gridlee.zip missing" }, () => {
   const r = run("--frames", "120", "--rounds", "2", "--replays", "2");
   assert.equal(r.status, 0, r.stdout + r.stderr);

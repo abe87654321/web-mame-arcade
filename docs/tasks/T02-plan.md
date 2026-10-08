@@ -44,7 +44,7 @@ replayed, yields the same RAM hash every time. Phase 0 gate (docs/08).
 A hung MAME run that caught SIGTERM left orphaned `gridlee` processes spinning at 100% CPU,
 which then held the ALSA/DRM devices and starved later runs. `core/determinism-spike.sh` now
 runs each emulator in its own process group (`setsid`), cancels it with a same-group watchdog
-(SIGKILL) on a per-run `--timeout`, and kills the group from `EXIT`/`INT`/`TERM` traps, so an
-interrupted test can never leave an orphan. Two regression tests cover the timeout and the
-interrupt paths using a SIGTERM-ignoring fake emulator; the interrupt test fails without the
+(SIGKILL) on a per-run `--timeout`, and kills the group from `EXIT`/`INT`/`TERM`/`HUP`/`QUIT`
+traps, so an interrupted test cannot leave an orphan. Two regression tests cover the timeout and
+the interrupt paths using a SIGTERM-ignoring fake emulator; the interrupt test fails without the
 group-kill.

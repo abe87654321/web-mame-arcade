@@ -209,6 +209,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
+trap 'exit 131' QUIT
 
 hashes=()
 labels=()
@@ -240,7 +242,7 @@ EOF
       > "$RUN/mame.log" 2>&1 &
     MAME_PID=$!
     # Watchdog in its own process group: cancelling it below kills its sleep too,
-    # so it can never fire against a reused pgid after the run has finished.
+    # so it practically cannot fire against a reused pgid after the run finishes.
     setsid bash -c 'sleep "$1"; kill -KILL -"$2" 2>/dev/null || true' \
       _ "$RUN_TIMEOUT" "$MAME_PID" &
     WATCHDOG_PID=$!
