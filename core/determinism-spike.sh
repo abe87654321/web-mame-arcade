@@ -27,6 +27,7 @@ ROUNDS=10
 REPLAYS=2
 ROMPATH="$REPO_ROOT/roms"
 BINARY=""
+RUN_TIMEOUT_OVERRIDE=""
 KEEP=0
 DRY_RUN=0
 DRIVER=""
@@ -45,6 +46,7 @@ Options:
   --replays <n>    playback runs per round (default $REPLAYS)
   --rompath <dir>  ROM directory (default $ROMPATH)
   --binary <path>  MAME binary (default <repo>/mame/<driver>)
+  --timeout <secs> per-run wall-clock limit (default $((FRAMES / 10 + 120)))
   --keep           keep the temporary working directory
   --dry-run        print the commands that would run, then exit
   --help           show this help
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --replays)  REPLAYS="${2:?--replays needs a value}"; shift 2 ;;
     --rompath)  ROMPATH="${2:?--rompath needs a value}"; shift 2 ;;
     --binary)   BINARY="${2:?--binary needs a value}"; shift 2 ;;
+    --timeout)  RUN_TIMEOUT_OVERRIDE="${2:?--timeout needs a value}"; shift 2 ;;
     --keep)     KEEP=1; shift ;;
     --dry-run)  DRY_RUN=1; shift ;;
     --help|-h)  usage; exit 0 ;;
@@ -84,6 +87,10 @@ for pair in "frames:$FRAMES" "rounds:$ROUNDS" "replays:$REPLAYS"; do
     exit 2
   fi
 done
+if [[ -n "$RUN_TIMEOUT_OVERRIDE" && ! "$RUN_TIMEOUT_OVERRIDE" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: --timeout must be a positive integer (got '$RUN_TIMEOUT_OVERRIDE')" >&2
+  exit 2
+fi
 BINARY="${BINARY:-$REPO_ROOT/mame/$DRIVER}"
 
 TOTAL=$((ROUNDS * (1 + REPLAYS)))
@@ -154,10 +161,15 @@ if [[ ! -f "$LUA" ]]; then
   exit 3
 fi
 
+if ! command -v setsid >/dev/null 2>&1; then
+  echo "error: setsid is required to run MAME in its own process group" >&2
+  exit 3
+fi
+
 BIN_SHA="$(sha256sum "$BINARY" | cut -d' ' -f1)"
 ROM_SHA="$(sha256sum "$ROM_FILE" | cut -d' ' -f1)"
 MAME_SHA="$(git -C "$REPO_ROOT/mame" rev-parse HEAD 2>/dev/null || echo unknown)"
-RUN_TIMEOUT=$(( FRAMES / 10 + 120 ))
+RUN_TIMEOUT="${RUN_TIMEOUT_OVERRIDE:-$(( FRAMES / 10 + 120 ))}"
 
 echo "driver:      $DRIVER"
 echo "binary:      $BINARY"
@@ -167,13 +179,27 @@ echo "mame commit: $MAME_SHA"
 echo "frames:      $FRAMES"
 echo "rounds:      $ROUNDS"
 echo "replays:     $REPLAYS"
+echo "timeout:     ${RUN_TIMEOUT}s per run"
 echo "total runs:  $TOTAL"
 echo
 
 TMP="$(mktemp -d)"
 INPUT_DIR="$TMP/inp"
 mkdir -p "$INPUT_DIR"
+
+# MAME catches SIGTERM and can spin at 100% CPU forever, so a hung run must be
+# stopped with SIGKILL. Each run therefore gets its own process group (setsid)
+# and the whole group is killed on timeout and on any exit of this script, so an
+# interrupted test can never leave orphaned emulator processes behind.
+MAME_PID=""
+WATCHDOG_PID=""
+kill_group() {
+  [[ -n "$1" ]] || return 0
+  kill -KILL -"$1" 2>/dev/null || true
+}
 cleanup() {
+  kill_group "$WATCHDOG_PID"
+  kill_group "$MAME_PID"
   if [[ "$KEEP" -eq 1 ]]; then
     echo "kept working directory: $TMP"
   else
@@ -181,6 +207,10 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+trap 'exit 131' QUIT
 
 hashes=()
 labels=()
@@ -207,9 +237,24 @@ EOF
     fi
 
     printf 'round %2d %-9s (%d/%d) ... ' "$r" "$MODE" "$i" "$REPLAYS"
-    if ! timeout -s KILL "$RUN_TIMEOUT" "$BINARY" "$DRIVER" "${COMMON_ARGS[@]}" \
-        -autoboot_script "$RUN/spike-run.lua" "${MODE_ARGS[@]}" \
-        > "$RUN/mame.log" 2>&1; then
+    setsid "$BINARY" "$DRIVER" "${COMMON_ARGS[@]}" \
+      -autoboot_script "$RUN/spike-run.lua" "${MODE_ARGS[@]}" \
+      > "$RUN/mame.log" 2>&1 &
+    MAME_PID=$!
+    # Watchdog in its own process group: cancelling it below kills its sleep too,
+    # so it practically cannot fire against a reused pgid after the run finishes.
+    setsid bash -c 'sleep "$1"; kill -KILL -"$2" 2>/dev/null || true' \
+      _ "$RUN_TIMEOUT" "$MAME_PID" &
+    WATCHDOG_PID=$!
+
+    MAME_RC=0
+    wait "$MAME_PID" || MAME_RC=$?
+    kill_group "$WATCHDOG_PID"
+    wait "$WATCHDOG_PID" 2>/dev/null || true
+    MAME_PID=""
+    WATCHDOG_PID=""
+
+    if [[ "$MAME_RC" -ne 0 ]]; then
       echo "FAILED"
       echo "--- mame.log (tail) ---" >&2
       tail -n 20 "$RUN/mame.log" >&2 || true
