@@ -7,7 +7,7 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test && node --test \"core/test/*.test.mjs\""
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

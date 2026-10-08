@@ -12,7 +12,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   (`reviewer`, `determinism-auditor`) + commands (`/next-task`, `/review-task`, `/netplay-check`) that the
   loop in `DEVELOPMENT.md` needs. Docs: 00, contracts/db-schema. Done when `pnpm test` passes in CI and the
   documented workflows actually exist. This unblocks everything below.
-- [ ] **T01 MAME submodule + native build script** – add fork as `mame/`, `core/build-native.sh <driver>` builds one
+- [x] **T01 MAME submodule + native build script** – add fork as `mame/`, `core/build-native.sh <driver>` builds one
   free driver (from mamedev.org/roms) and prints the binary sha256. Docs: 01, 02. Human runs the first full build.
 - [ ] **T02 Determinism spike** – script records a 10-min session with MAME `-record`, plays it back twice with
   `-playback`, and compares a RAM hash from a Lua script at the end. Docs: 01, 08. Done when 10/10 runs match.
