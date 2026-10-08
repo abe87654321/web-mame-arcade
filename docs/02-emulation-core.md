@@ -2,15 +2,20 @@
 
 ## Build (Ubuntu 24.04)
 ```bash
-sudo apt install build-essential git python3 libsdl2-dev
+sudo apt install build-essential git python3 \
+  libsdl2-dev libsdl2-ttf-dev libfontconfig-dev libpulse-dev \
+  qt6-base-dev qt6-base-dev-tools qmake6
 git clone https://github.com/emscripten-core/emsdk && cd emsdk
 ./emsdk install 6.0.2 && ./emsdk activate 6.0.2 && source ./emsdk_env.sh
 embuilder build sdl3 sdl3_ttf
 cd mame && emmake make SUBTARGET=<name> SOURCES=src/mame/<path>/<driver>.cpp -j$(nproc)
 # output <name>.js + <name>.wasm → static/cores/<driver>/<git-sha>/
 ```
+Host deps above cover the emscripten build and the native build (MAME needs Qt6's `qmake6`/`moc`
+to generate the single-driver Makefile even for the default SDL build).
 Build the native verifier binary from the **same commit** (`make SUBTARGET=... -j$(nproc)`).
-`core/build-wasm.sh` and `core/build-native.sh` wrap these and print the output hash.
+`core/build-native.sh <driver>` wraps this for one free driver and prints the binary sha256; it was
+first validated with `gridlee` at pinned commit `b67e5bc`.
 
 ## Pinned versions (never use "latest")
 | Tool | Pinned value | Where |

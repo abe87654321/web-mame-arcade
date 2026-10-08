@@ -19,7 +19,9 @@ Usage: core/build-native.sh <driver> [--dry-run]
 
 Builds a single driver (make SUBTARGET=<driver> SOURCES=...) and prints
 "sha256  <path>" plus the pinned MAME commit. --dry-run only prints the make
-command. Requires build-essential python3 libsdl2-dev and an initialised mame/.
+command. Requires an initialised mame/ and the MAME Ubuntu build deps:
+build-essential python3 libsdl2-dev libsdl2-ttf-dev libfontconfig-dev
+libpulse-dev qt6-base-dev qt6-base-dev-tools qmake6.
 
 Known drivers: ${!DRIVER_SOURCES[*]}
 EOF
