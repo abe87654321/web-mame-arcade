@@ -18,15 +18,20 @@ Build the native verifier binary from the **same commit** (`make SUBTARGET=... -
 first validated with `gridlee` at pinned commit `b67e5bc`.
 
 ## Pinned versions (never use "latest")
+The machine-readable source of truth is `core/versions.json`; this table mirrors it and a test
+(`core/test/version-pins.test.mjs`) keeps the two equal.
+
 | Tool | Pinned value | Where |
 | --- | --- | --- |
-| emsdk / Emscripten | `6.0.2` | build scripts, CI |
-| Node.js | `24` | `.nvmrc`, `engines` |
-| MAME commit | `b67e5bc` | `mame/` submodule (upstream `mamedev/mame`; the project fork starts at T20) |
+| emsdk / Emscripten | `6.0.2` | `core/versions.json`, build scripts, CI |
+| Node.js | `24` | `core/versions.json`, `.nvmrc`, `engines` |
+| MAME commit | `b67e5bc` (short) | `core/versions.json` (full 40-hex), `mame/` submodule (upstream `mamedev/mame`; the project fork starts at T20) |
 
-Every WASM and native build is keyed by its output sha256 and the MAME commit; the pair is stored as
-`core_version` on `games` and `matches` (`contracts/db-schema.sql`) and must match between every peer and the
-verifier. A different value means a desync and a failed replay. The native build is made reproducible for a
+Every WASM build is identified by its output sha256 — `core_hash`, the byte-identical cross-peer key — and the
+MAME commit it was built from. `core_version` stores the WASM hash and `mame_commit` the commit
+(`contracts/core-version.md`, `contracts/db-schema.sql`); peers and viewers must agree on `core_hash`, and the
+native verifier must be built from the same `mame_commit` (its own binary hash need not match). A different
+`core_hash` between peers is a desync; a different `mame_commit` invalidates the replay. The native build is made reproducible for a
 fixed commit+toolchain by stripping debug info (it embeds the absolute build path) and the link-time
 build-id (hashed over that path), and by pinning the embedded version to the commit (`NEW_GIT_VERSION`).
 `core/build-native.sh` prints the arch and gcc version next to the hash, so a hash is only meaningful for

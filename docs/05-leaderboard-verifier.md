@@ -9,7 +9,7 @@ score from RAM. Clients never submit a trusted score.
 - Relay broadcasts to players and viewers.
 
 ## Verified leaderboard
-1. On game end the relay closes the input log (core hash, ROM hash, DIP settings, start state, per-frame inputs)
+1. On game end the relay closes the input log (core hash, MAME commit, ROM hash, DIP settings, start state, per-frame inputs)
    and pushes a job to Redis list `verify:jobs`.
 2. Worker runs: `mame <driver> -video none -sound none -nothrottle -autoboot_script core/verify.lua`
    with the log path in an env var.

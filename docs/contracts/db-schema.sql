@@ -3,7 +3,7 @@ CREATE TABLE games (
   id            serial PRIMARY KEY,
   driver        text UNIQUE NOT NULL,      -- e.g. 'gridlee'
   title         text NOT NULL,
-  core_version  text NOT NULL,             -- git sha of the fork
+  core_version  text NOT NULL,             -- core_hash: sha256 of the served core (contracts/core-version.md)
   supports_save boolean NOT NULL,
   netplay_mode  text NOT NULL CHECK (netplay_mode IN ('none','lockstep','rollback')),
   max_players   smallint NOT NULL DEFAULT 2,
@@ -19,7 +19,8 @@ CREATE TABLE matches (
   id           bigserial PRIMARY KEY,
   game_id      int NOT NULL REFERENCES games(id),
   mode         text NOT NULL CHECK (mode IN ('solo','coop','versus')),
-  core_version text NOT NULL,
+  core_version text NOT NULL,              -- core_hash: sha256 of the core that played it
+  mame_commit  text NOT NULL,              -- mame/ commit the core was built from (verifier rebuilds from it)
   rom_hash     text NOT NULL,
   dip_settings jsonb NOT NULL,
   started_at   timestamptz NOT NULL,
