@@ -9,8 +9,8 @@ Ubuntu server verifies every leaderboard score by replaying the match in native 
 - `core/`            netplay patch (`patches/`), build scripts for WASM + native builds, `verify.lua`.
 - `packages/protocol/` shared TypeScript types + encoders for input packets and WS messages. Single source of truth.
 - `web/`             frontend (TypeScript, Vite). Loads WASM cores, netplay loop, viewer, leaderboard UI.
-- `relay/`           room relay (Node 22, uWebSockets.js): signalling, input log, spectator fan-out, chat, live scores.
-- `api/`             REST API (Node 22, Fastify): accounts, catalogue, rooms, leaderboards.
+- `relay/`           room relay (Node 24, uWebSockets.js): signalling, input log, spectator fan-out, chat, live scores.
+- `api/`             REST API (Node 24, Fastify): accounts, catalogue, rooms, leaderboards.
 - `verifier/`        worker that pulls jobs from Redis and runs headless native MAME.
 - `deploy/`          docker-compose, nginx, coturn, livekit configs for Ubuntu 24.04.
 - `docs/`            design docs. Read only what the task needs (see below).

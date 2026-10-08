@@ -21,7 +21,7 @@ references or an orchestrator (Nx/Turbo) are deferred (YAGNI) until packages act
 
 ## Tech stack
 
-- Node.js 22 (pinned via `.nvmrc`), pnpm (pinned via `packageManager`), corepack.
+- Node.js 24 (pinned via `.nvmrc`), pnpm 11.5.2 (pinned via `packageManager`), corepack.
 - TypeScript (strict), ESLint 9 flat config + typescript-eslint, Vitest.
 - Vite for `@wma/web` only (no build run in CI at T00).
 - CI: GitHub Actions, single `ubuntu-latest` job.
@@ -54,7 +54,7 @@ Not created here: `core/`, `mame/`, `deploy/`, `docs/contracts/input-log.md` (T0
 ## Root configuration
 
 - `pnpm-workspace.yaml`: `packages: ["packages/*"]`.
-- `package.json`: `private: true`, `"packageManager": "pnpm@11.5.2"`, `engines.node: ">=22"`,
+- `package.json`: `private: true`, `"packageManager": "pnpm@11.5.2"`, `engines.node: ">=24"`,
   scripts `lint` (`eslint .`), `typecheck` (`pnpm -r typecheck`), `test` (`pnpm -r test`).
 - `tsconfig.base.json`: `target ES2022`, `module ESNext`, `moduleResolution Bundler`, `strict`,
   `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax`, `isolatedModules`,
@@ -107,9 +107,7 @@ opencode loads project agents from `.opencode/agent(s)/<name>.md` and commands f
 
 - `.gitignore`: `node_modules/`, `roms/`, `*.wasm`, `core/out/`, `.env`, `.env.*`, `dist/`, `coverage/`,
   `*.log`, `.DS_Store`.
-- `.nvmrc`: `22` (per `docs/06`). Note: the current dev machine has Node **v24.16.0** on PATH, so local
-  work should run `nvm install 22 && nvm use` (or accept v24 locally while CI stays on 22). Confirm the
-  intended pin — see Open question.
+- `.nvmrc`: `24` (matches the dev machine and the pinned Node in `docs/06`).
 
 ## Acceptance criteria
 
@@ -124,11 +122,10 @@ opencode loads project agents from `.opencode/agent(s)/<name>.md` and commands f
 - Any real protocol message encoding (T21), core wrapper (T11), netplay patch (T20), or services logic.
 - Turborepo/Nx, TypeScript project references, publishing, formatting tooling.
 
-## Open question
+## Decisions
 
-- **Node version.** `docs/06` says Node 22 and this design pins `.nvmrc` to `22`, but the current dev
-  machine runs Node **v24.16.0**. Pick one: (a) keep `.nvmrc` = 22 and install/switch locally (docs stay
-  authoritative, CI = 22), or (b) bump the pin and `docs/06` to the Node actually used. Recommend (a).
+- **Node pinned to 24.** `docs/06` previously said Node 22; the pin and the docs are bumped to Node 24 to
+  match the actual dev/target environment.
 
 ## Risks / notes
 
