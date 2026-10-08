@@ -27,8 +27,11 @@ first validated with `gridlee` at pinned commit `b67e5bc`.
 Every WASM and native build is keyed by its output sha256 and the MAME commit; the pair is stored as
 `core_version` on `games` and `matches` (`contracts/db-schema.sql`) and must match between every peer and the
 verifier. A different value means a desync and a failed replay. The native build is made reproducible for a
-fixed commit+toolchain by stripping symbols (debug info embeds the absolute build path) and pinning the
-embedded version to the commit (`NEW_GIT_VERSION`); the toolchain/arch is printed next to the hash.
+fixed commit+toolchain by stripping debug info (it embeds the absolute build path) and the link-time
+build-id (hashed over that path), and by pinning the embedded version to the commit (`NEW_GIT_VERSION`).
+`core/build-native.sh` prints the arch and gcc version next to the hash, so a hash is only meaningful for
+its recorded `(commit, toolchain, arch)` triple. Byte-identical native binaries across architectures require
+the pinned build container in T42; the cross-peer key is the WASM core hash (T10/T11).
 
 ## Netplay patch (`core/patches/`, keep it small and in its own files)
 1. **Frame gate** – in `running_machine::emscripten_main_loop()`, call `netplay_ready(frame)` before

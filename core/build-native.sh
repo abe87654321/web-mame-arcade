@@ -51,7 +51,7 @@ SOURCES="${DRIVER_SOURCES[$DRIVER]}"
 if command -v nproc >/dev/null 2>&1; then JOBS="$(nproc)"; else JOBS=4; fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES SYMBOLS=0 STRIP_SYMBOLS=1 NEW_GIT_VERSION=$PINNED_MAME_COMMIT -j$JOBS"
+  echo "make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$PINNED_MAME_COMMIT -j$JOBS"
   exit 0
 fi
 
@@ -70,13 +70,18 @@ if [[ "$MAME_SHA" != "$PINNED_MAME_COMMIT" ]]; then
   exit 5
 fi
 
-# SYMBOLS=0/STRIP_SYMBOLS=1 remove debug info (which embeds the absolute build path);
-# NEW_GIT_VERSION fixes the embedded BARE_VCS_REVISION instead of git-describe output,
-# so the same commit + toolchain yields the same binary sha256 across checkout paths.
+# Remove any previous binary so make relinks from cached objects. `strip` is not
+# idempotent on an already-stripped binary, so it must always run on a fresh link.
+rm -f "$MAME_DIR/$DRIVER" "$MAME_DIR/$DRIVER.exe" "$MAME_DIR/mame$DRIVER"
+
+# SYMBOLS=0/STRIP_SYMBOLS=1 are not used: MAME only re-runs genie when its makefile/scripts
+# change, so changed sym/stop params would be ignored on an existing build tree. Instead we
+# strip after linking (below). IGNORE_GIT silences a failing `git describe` in the shallow
+# submodule; NEW_GIT_VERSION pins the embedded revision to the exact commit.
 make -C "$MAME_DIR" \
   SUBTARGET="$DRIVER" \
   SOURCES="$SOURCES" \
-  SYMBOLS=0 STRIP_SYMBOLS=1 \
+  IGNORE_GIT=1 \
   NEW_GIT_VERSION="$MAME_SHA" \
   -j"$JOBS"
 
@@ -88,6 +93,11 @@ if [[ -z "$BIN" ]]; then
   echo "error: binary not found; looked for $DRIVER, $DRIVER.exe, mame$DRIVER in $MAME_DIR" >&2
   exit 4
 fi
+
+# Strip debug info (which embeds the absolute build path) and the link-time build-id
+# (also hashed over that path), so a fixed commit + toolchain yields the same sha256
+# regardless of the checkout directory.
+strip -R .note.gnu.build-id "$BIN"
 
 HASH="$(sha256sum "$BIN" | cut -d' ' -f1)"
 echo "driver:      $DRIVER"

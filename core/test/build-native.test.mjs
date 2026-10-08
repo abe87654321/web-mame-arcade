@@ -30,7 +30,7 @@ test("--dry-run gridlee prints a reproducible make command", () => {
   assert.equal(r.status, 0);
   assert.match(r.stdout, /SUBTARGET=gridlee/);
   assert.match(r.stdout, /src\/mame\/bally\/gridlee\.cpp/);
-  assert.match(r.stdout, /SYMBOLS=0 STRIP_SYMBOLS=1/);
+  assert.match(r.stdout, /IGNORE_GIT=1/);
   assert.match(r.stdout, /NEW_GIT_VERSION=b67e5bc/);
 });
 
