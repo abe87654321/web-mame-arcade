@@ -6,7 +6,7 @@ replayed, yields the same RAM hash every time. Phase 0 gate (docs/08).
 
 **Decisions (confirmed):**
 - Strict mode: 10 independent recordings, each played back twice.
-- Session length: 36 000 emulated frames (~10 min at gridlee's ~59 Hz).
+- Session length: 36 000 emulated frames (~10.1 min at gridlee's ~59 Hz).
 
 ## Files
 - `core/determinism/spike.lua` — returns `run(mode, frames, out)`; drives a

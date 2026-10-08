@@ -155,12 +155,14 @@ if [[ ! -f "$LUA" ]]; then
 fi
 
 BIN_SHA="$(sha256sum "$BINARY" | cut -d' ' -f1)"
+ROM_SHA="$(sha256sum "$ROM_FILE" | cut -d' ' -f1)"
 MAME_SHA="$(git -C "$REPO_ROOT/mame" rev-parse HEAD 2>/dev/null || echo unknown)"
 RUN_TIMEOUT=$(( FRAMES / 10 + 120 ))
 
 echo "driver:      $DRIVER"
 echo "binary:      $BINARY"
 echo "binary sha:  $BIN_SHA"
+echo "rom sha:     $ROM_SHA"
 echo "mame commit: $MAME_SHA"
 echo "frames:      $FRAMES"
 echo "rounds:      $ROUNDS"

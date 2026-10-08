@@ -12,7 +12,7 @@
 
 ## Method
 `core/determinism-spike.sh --frames 36000 --rounds 10 --replays 2`
-(exactly 600 s of emulated time at gridlee's ~59 Hz refresh).
+(≈608 s / ~10.1 min of emulated time at gridlee's ~59.2 Hz refresh).
 
 Each round records a 36 000-frame session with MAME `-record` while a Lua
 autoboot script injects a fixed input schedule, then replays that `.inp`
@@ -40,3 +40,13 @@ All 10 independent recordings and all 20 playbacks share the hash
 - `-record`/`-playback` filenames are always resolved under `-input_directory`
   (a leading `/` is stripped), so all runs share one input directory and refer
   to the `.inp` by basename.
+
+## Scope / follow-ups
+- The hash is a **RAM hash** (memory shares + regions), sampled once at the end,
+  as the task specifies. It is not full machine-state; the netplay/verifier
+  desync hash (T25/T20) should hash the canonical save state instead.
+- The binary/ROM/MAME-commit hashes are printed as evidence but not yet pinned
+  or asserted; pinning (and recording the core hash per match) is T03's scope.
+- The integration test is skipped when the binary/ROM are absent, so CI only
+  exercises the CLI/`--dry-run` paths for now; the 10-minute gate is a manual run.
+

@@ -68,18 +68,35 @@ return function(mode, frames, out)
 
   -- Deterministic input schedule. Digital controller fields toggle on a fixed
   -- phase derived from their mask; coin/start are pulsed once so the game leaves
-  -- attract mode. All values are a function of the frame counter only.
+  -- attract mode. Fields are applied in a sorted order (independent of Lua table
+  -- iteration order) and each value is a function of the frame counter only.
   local function drive(frame)
     local ports = manager.machine.ioport.ports
+    local seen = {}
+    local fields = {}
     for _, port in pairs(ports) do
       for _, field in pairs(port.fields) do
         if field.type_class == "controller" and not field.is_analog then
-          local pressed = ((frame + field.mask) % 120) < 60
-          field:set_value(pressed and 1 or 0)
+          local key = field.port.tag .. ":" .. field.mask
+          if not seen[key] then
+            seen[key] = true
+            fields[#fields + 1] = field
+          end
         end
       end
     end
+    table.sort(fields, function(a, b)
+      if a.port.tag ~= b.port.tag then
+        return a.port.tag < b.port.tag
+      end
+      return a.mask < b.mask
+    end)
+    for _, field in ipairs(fields) do
+      local pressed = ((frame + field.mask) % 120) < 60
+      field:set_value(pressed and 1 or 0)
+    end
 
+    -- Coin/start are INPUT_CLASS_MISC, so they are not covered above; pulse them.
     local in1 = ports[":IN1"] or ports["IN1"]
     if in1 then
       local coin1 = in1:field(0x01)
