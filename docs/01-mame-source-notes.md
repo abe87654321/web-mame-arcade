@@ -1,6 +1,7 @@
 # 01 · Findings in the MAME source
 
-Studied `mamedev/mame` master, commit `b67e5bc` (7 Oct 2026). Re-check line numbers when bumping the submodule.
+Studied `mamedev/mame` master, commit `b67e5bc` (7 Oct 2026); this is the **pinned** submodule commit for
+v1 — bump it only as a deliberate, replay-tested change. Re-check line numbers when bumping the submodule.
 
 | Area | Location | Meaning for us |
 | --- | --- | --- |

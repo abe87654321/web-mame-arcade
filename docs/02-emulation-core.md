@@ -4,13 +4,24 @@
 ```bash
 sudo apt install build-essential git python3 libsdl2-dev
 git clone https://github.com/emscripten-core/emsdk && cd emsdk
-./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
+./emsdk install 6.0.2 && ./emsdk activate 6.0.2 && source ./emsdk_env.sh
 embuilder build sdl3 sdl3_ttf
 cd mame && emmake make SUBTARGET=<name> SOURCES=src/mame/<path>/<driver>.cpp -j$(nproc)
 # output <name>.js + <name>.wasm → static/cores/<driver>/<git-sha>/
 ```
 Build the native verifier binary from the **same commit** (`make SUBTARGET=... -j$(nproc)`).
 `core/build-wasm.sh` and `core/build-native.sh` wrap these and print the output hash.
+
+## Pinned versions (never use "latest")
+| Tool | Pinned value | Where |
+| --- | --- | --- |
+| emsdk / Emscripten | `6.0.2` | build scripts, CI |
+| Node.js | `22` | `.nvmrc`, `engines` |
+| MAME fork commit | `b67e5bc` | `mame/` submodule, recorded per build |
+
+Every WASM and native build is keyed by its output sha256 and the MAME commit; the pair is stored as
+`core_version` on `games` and `matches` (`contracts/db-schema.sql`) and must match between every peer and the
+verifier. A different value means a desync and a failed replay.
 
 ## Netplay patch (`core/patches/`, keep it small and in its own files)
 1. **Frame gate** – in `running_machine::emscripten_main_loop()`, call `netplay_ready(frame)` before

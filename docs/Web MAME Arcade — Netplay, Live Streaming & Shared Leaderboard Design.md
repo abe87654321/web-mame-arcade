@@ -65,7 +65,7 @@ Build one small WASM bundle per driver family on an Ubuntu build machine, add a 
 ```bash
 sudo apt install build-essential git python3 libsdl2-dev
 git clone https://github.com/emscripten-core/emsdk && cd emsdk
-./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
+./emsdk install 6.0.2 && ./emsdk activate 6.0.2 && source ./emsdk_env.sh
 embuilder build sdl3 sdl3_ttf
 cd ~/mame   # your fork with the netplay patch
 emmake make SUBTARGET=pacman SOURCES=src/mame/pacman/pacman.cpp -j$(nproc)
@@ -90,13 +90,11 @@ Start with delay-based lockstep (2–3 frames of input delay over WebRTC data ch
 
 **Transport.** Players connect peer-to-peer with WebRTC data channels in unreliable, unordered mode (lowest latency). A signalling service exchanges SDP offers; `coturn` on your Ubuntu server provides STUN/TURN for players behind strict NAT. Every input packet also goes to the room relay over a WebSocket, which feeds spectators and the score verifier.
 
-**Input packet** (about 12 bytes, sent every frame):
+**Input packet** (variable length, sent every frame): the authoritative byte layout lives in
+`docs/contracts/input-packet.md` — `version u8`, `player u8`, `ack_frame u32`, `first_frame u32`,
+`count u8`, then `count` × `u16` button masks (newest last).
 
-```text
-room_seq:u32  frame:u32  player:u8  buttons:u16  ack_frame:u32
-```
-
-Each packet repeats the last 8 frames of that player's input, so a lost packet costs nothing.
+Each packet repeats up to the last 8 frames of that player's input, so a lost packet costs nothing.
 
 **Lockstep loop, per frame N:**
 
@@ -164,7 +162,7 @@ Six small services on one Ubuntu 24.04 server are enough for launch; each runs i
 **Core tables:**
 
 ```sql
-games(id, rom_set, driver, core_version, supports_save, netplay_mode, max_players)
+games(id, driver, title, core_version, supports_save, netplay_mode, max_players, rom_licensed)
 users(id, name, country, created_at)
 matches(id, game_id, mode, core_version, rom_hash, dip_settings, started_at, ended_at, replay_key, status)
 match_players(match_id, user_id, slot)

@@ -17,7 +17,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [ ] **T02 Determinism spike** – script records a 10-min session with MAME `-record`, plays it back twice with
   `-playback`, and compares a RAM hash from a Lua script at the end. Docs: 01, 08. Done when 10/10 runs match.
   Note: T00/T01 are prerequisites; this is the first gate that must pass before any netplay work.
-- [ ] **T03 Contracts & version pinning** – make `docs/contracts/` the single source of truth: reconcile the
+- [x] **T03 Contracts & version pinning** – make `docs/contracts/` the single source of truth: reconcile the
   outdated `design.md` input packet (L95) and `games.rom_set` (L167) with `contracts/input-packet.md` /
   `contracts/db-schema.sql`, and pin emsdk (replace "latest" in docs/02), Node and MAME commit. Record how the
   core hash is stored per match. Docs: 00, 02, contracts/*. Depends: T00.
