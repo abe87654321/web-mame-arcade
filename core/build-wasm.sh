@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Build one free MAME driver to WebAssembly with the pinned emsdk and MAME
+# commit, and publish it under core/out/<driver>/<core_hash>/.
+# Usage: core/build-wasm.sh <driver> [--dry-run] | --list-drivers | --help
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MAME_DIR="$REPO_ROOT/mame"
+OUT_ROOT="$REPO_ROOT/core/out"
+
+# Single source of truth for the pins (mirrored in docs/02-emulation-core.md).
+VERSIONS_FILE="$REPO_ROOT/core/versions.json"
+read_pin() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "error: node is required to read pinned versions from $VERSIONS_FILE" >&2
+    exit 3
+  fi
+  node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[process.argv[2]] || "")' \
+    "$VERSIONS_FILE" "$1"
+}
+
+# driver -> comma-separated SOURCES. Free ROMs: https://www.mamedev.org/roms/
+declare -A DRIVER_SOURCES=(
+  [gridlee]="src/mame/bally/gridlee.cpp,src/mame/bally/gridlee_a.cpp,src/mame/bally/gridlee_v.cpp"
+)
+
+usage() {
+  cat <<EOF
+Usage: core/build-wasm.sh <driver> [--dry-run]
+       core/build-wasm.sh --list-drivers
+       core/build-wasm.sh --help
+
+Builds a single driver to WebAssembly (emmake make SUBTARGET=<driver> SOURCES=...)
+with the pinned emsdk and MAME commit, then copies the artifacts to
+core/out/<driver>/<core_hash>/ and writes manifest.json. <core_hash> is the
+sha256 of the .wasm file (the cross-peer identity key, contracts/core-version.md).
+
+Requires a sourced emsdk (source emsdk_env.sh) providing emcc/emmake at the
+pinned version, prepared SDL libs, and an initialised mame/.
+
+Known drivers: ${!DRIVER_SOURCES[*]}
+EOF
+}
+
+DRY_RUN=0
+EMSDK_DIR="${EMSDK:-}"
+DRIVER=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)      DRY_RUN=1; shift ;;
+    --emsdk)        EMSDK_DIR="${2:?--emsdk needs a value}"; shift 2 ;;
+    --list-drivers) printf '%s\n' "${!DRIVER_SOURCES[@]}"; exit 0 ;;
+    --help|-h)      usage; exit 0 ;;
+    -*)             echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)              DRIVER="$1"; shift ;;
+  esac
+done
+
+if [[ -z "$DRIVER" ]]; then usage >&2; exit 2; fi
+if [[ -z "${DRIVER_SOURCES[$DRIVER]:-}" ]]; then
+  echo "unknown driver: $DRIVER" >&2; usage >&2; exit 2
+fi
+
+SOURCES="${DRIVER_SOURCES[$DRIVER]}"
+if command -v nproc >/dev/null 2>&1; then JOBS="$(nproc)"; else JOBS=4; fi
+
+EMSDK_PIN="$(read_pin emsdk)"
+MAME_PIN="$(read_pin mameCommit)"
+
+# MAME names the single-driver project "mame" + SUBTARGET (makefile:959-962),
+# so with the default TARGET the artifacts are mame<driver>.{js,wasm,html}.
+PREFIX="mame$DRIVER"
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "driver:      $DRIVER"
+  echo "mame commit: $MAME_PIN"
+  echo "emsdk:       $EMSDK_PIN"
+  echo "output:      $OUT_ROOT/$DRIVER/<core_hash>/"
+  echo
+  echo "embuilder build sdl3 sdl3_ttf"
+  echo "emmake make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$MAME_PIN STRIP_SYMBOLS=1 -j$JOBS"
+  exit 0
+fi
+
+if [[ ! -e "$MAME_DIR/makefile" ]]; then
+  echo "error: mame/ submodule not initialised (run: git submodule update --init --depth 1)" >&2
+  exit 3
+fi
+
+MAME_SHA="$(git -C "$MAME_DIR" rev-parse HEAD)"
+if [[ "$MAME_SHA" != "$MAME_PIN" ]]; then
+  echo "error: mame/ is at $MAME_SHA but the pinned commit is $MAME_PIN" >&2
+  echo "       run: git -C mame checkout $MAME_PIN" >&2
+  exit 5
+fi
+
+# Resolve emcc/emmake/embuilder from a sourced emsdk or the PATH.
+EMCC=""
+EMMAKE=""
+EMBUILDER=""
+if [[ -n "$EMSDK_DIR" ]]; then
+  EMCC="$EMSDK_DIR/upstream/emscripten/emcc"
+  EMMAKE="$EMSDK_DIR/upstream/emscripten/emmake"
+  EMBUILDER="$EMSDK_DIR/upstream/emscripten/embuilder"
+fi
+[[ -x "$EMCC" ]] || EMCC="$(command -v emcc || true)"
+[[ -x "$EMMAKE" ]] || EMMAKE="$(command -v emmake || true)"
+[[ -x "$EMBUILDER" ]] || EMBUILDER="$(command -v embuilder || true)"
+
+if [[ -z "$EMCC" || -z "$EMMAKE" || -z "$EMBUILDER" ]]; then
+  echo "error: emsdk not found; source it first (source emsdk_env.sh) or pass --emsdk <dir>" >&2
+  echo "       pinned version: $EMSDK_PIN" >&2
+  exit 6
+fi
+
+EMCC_VERSION="$("$EMCC" --version 2>/dev/null | sed -n '1s/.*) \([0-9][0-9.]*\).*/\1/p')"
+if [[ "$EMCC_VERSION" != "$EMSDK_PIN" ]]; then
+  echo "error: emcc reports '$EMCC_VERSION' but the pinned emsdk is '$EMSDK_PIN'" >&2
+  echo "       install/activate with: ./emsdk install $EMSDK_PIN && ./emsdk activate $EMSDK_PIN" >&2
+  exit 6
+fi
+
+# SDL libraries are required by MAME's browser build. Idempotent (cached).
+"$EMBUILDER" build sdl3 sdl3_ttf
+
+# STRIP_SYMBOLS=1 is what triggers MAME's asmjs finalize step (the emcc link
+# that emits .js/.wasm/.html); without it only intermediate objects are built
+# (scripts/toolchain.lua:584,617). IGNORE_GIT/NEW_GIT_VERSION pin the embedded
+# revision so a fixed commit builds reproducibly.
+"$EMMAKE" make -C "$MAME_DIR" \
+  SUBTARGET="$DRIVER" \
+  SOURCES="$SOURCES" \
+  IGNORE_GIT=1 \
+  NEW_GIT_VERSION="$MAME_SHA" \
+  STRIP_SYMBOLS=1 \
+  -j"$JOBS"
+
+# Locate the emitted artifacts (mame<driver>.* primary, <driver>.* fallback).
+BASE=""
+WASM=""
+for cand in "$MAME_DIR/$PREFIX" "$MAME_DIR/$DRIVER"; do
+  if [[ -f "$cand.wasm" ]]; then BASE="$cand"; WASM="$cand.wasm"; break; fi
+done
+if [[ -z "$WASM" ]]; then
+  echo "error: no .wasm artifact found; looked for $PREFIX.wasm and $DRIVER.wasm in $MAME_DIR" >&2
+  exit 4
+fi
+
+CORE_HASH="$(sha256sum "$WASM" | cut -d' ' -f1)"
+OUT_DIR="$OUT_ROOT/$DRIVER/$CORE_HASH"
+mkdir -p "$OUT_DIR"
+
+ARTIFACTS=()
+for ext in js wasm html data; do
+  if [[ -f "$BASE.$ext" ]]; then
+    cp "$BASE.$ext" "$OUT_DIR/$(basename "$BASE.$ext")"
+    ARTIFACTS+=("$(basename "$BASE.$ext")")
+  fi
+done
+
+{
+  printf '{\n'
+  printf '  "driver": "%s",\n' "$DRIVER"
+  printf '  "core_hash": "%s",\n' "$CORE_HASH"
+  printf '  "mame_commit": "%s",\n' "$MAME_SHA"
+  printf '  "emsdk": "%s",\n' "$EMSDK_PIN"
+  printf '  "artifacts": [%s]\n' "$(printf '"%s", ' "${ARTIFACTS[@]}" | sed 's/, $//')"
+  printf '}\n'
+} > "$OUT_DIR/manifest.json"
+
+echo "driver:      $DRIVER"
+echo "mame commit: $MAME_SHA"
+echo "emsdk:       $EMSDK_PIN"
+echo "core hash:   $CORE_HASH"
+echo "output:      $OUT_DIR"
+echo "$CORE_HASH  $OUT_DIR"
