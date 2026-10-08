@@ -1,10 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-const script = join(dirname(fileURLToPath(import.meta.url)), "..", "build-native.sh");
+const testDir = dirname(fileURLToPath(import.meta.url));
+const script = join(testDir, "..", "build-native.sh");
+const pins = JSON.parse(readFileSync(join(testDir, "..", "versions.json"), "utf8"));
 const run = (...args) => spawnSync("bash", [script, ...args], { encoding: "utf8" });
 
 test("no driver prints usage and exits non-zero", () => {
@@ -31,7 +34,7 @@ test("--dry-run gridlee prints a reproducible make command", () => {
   assert.match(r.stdout, /SUBTARGET=gridlee/);
   assert.match(r.stdout, /src\/mame\/bally\/gridlee\.cpp/);
   assert.match(r.stdout, /IGNORE_GIT=1/);
-  assert.match(r.stdout, /NEW_GIT_VERSION=b67e5bc/);
+  assert.match(r.stdout, new RegExp(`NEW_GIT_VERSION=${pins.mameCommit.slice(0, 7)}`));
 });
 
 test("--help exits 0", () => {

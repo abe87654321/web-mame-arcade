@@ -164,7 +164,7 @@ Six small services on one Ubuntu 24.04 server are enough for launch; each runs i
 ```sql
 games(id, driver, title, core_version, supports_save, netplay_mode, max_players, rom_licensed)
 users(id, name, country, created_at)
-matches(id, game_id, mode, core_version, rom_hash, dip_settings, started_at, ended_at, replay_key, status)
+matches(id, game_id, mode, core_version, mame_commit, rom_hash, dip_settings, started_at, ended_at, replay_key, status)
 match_players(match_id, user_id, slot)
 scores(id, match_id, user_id, game_id, score, verified_at)
 ```

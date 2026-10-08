@@ -6,8 +6,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAME_DIR="$REPO_ROOT/mame"
 
-# MAME commit every native build must come from (see docs/02-emulation-core.md).
-PINNED_MAME_COMMIT="b67e5bcb0b895c0e451e342068b6651af1307d0d"
+# MAME commit every native build must come from. Single source of truth:
+# core/versions.json (mirrored in docs/02-emulation-core.md). Read lazily, after
+# argument parsing, so --help/--list-drivers do not require node.
+VERSIONS_FILE="$REPO_ROOT/core/versions.json"
+read_pinned_mame_commit() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "error: node is required to read pinned versions from $VERSIONS_FILE" >&2
+    exit 3
+  fi
+  node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).mameCommit)' "$VERSIONS_FILE"
+}
 
 # driver -> comma-separated SOURCES. Free ROMs: https://www.mamedev.org/roms/
 declare -A DRIVER_SOURCES=(
@@ -49,6 +58,8 @@ fi
 
 SOURCES="${DRIVER_SOURCES[$DRIVER]}"
 if command -v nproc >/dev/null 2>&1; then JOBS="$(nproc)"; else JOBS=4; fi
+
+PINNED_MAME_COMMIT="$(read_pinned_mame_commit)"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$PINNED_MAME_COMMIT -j$JOBS"
