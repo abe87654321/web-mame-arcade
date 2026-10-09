@@ -118,7 +118,12 @@ describe("createRelayServer", () => {
     await b.next();
 
     a.send({ t: "rtc.signal", to: 1, sdp: { type: "offer" } });
-    expect(await b.next()).toEqual({ t: "rtc.signal", to: 1, sdp: { type: "offer" } });
+    expect(await b.next()).toEqual({
+      t: "rtc.signal",
+      from: 0,
+      to: 1,
+      sdp: { type: "offer" },
+    });
   });
 
   it("rejects an invalid token", async () => {

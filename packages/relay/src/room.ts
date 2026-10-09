@@ -128,16 +128,23 @@ export class RoomManager {
     return roomId;
   }
 
-  /** Return the connection seated in `message.to`'s slot, in the sender's room. */
-  signal(connectionId: string, message: RtcSignal): string {
+  /** Route `message` to the slot it names; returns the target and sender slots. */
+  signal(
+    connectionId: string,
+    message: RtcSignal,
+  ): { target: string; from: number } {
     const room = this.roomOf(connectionId, "signal");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can signal");
+    }
     const target = [...room.members.values()].find(
       (m) => m.slot !== null && m.slot === message.to,
     );
     if (!target) {
       throw new RelayError("unknown_peer", `no player in slot ${message.to}`);
     }
-    return target.connectionId;
+    return { target: target.connectionId, from: sender.slot };
   }
 
   /** A `room.state` snapshot for the connection's room. */
