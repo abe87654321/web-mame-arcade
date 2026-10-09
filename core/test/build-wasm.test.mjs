@@ -34,10 +34,18 @@ test("--dry-run gridlee prints a reproducible emmake command", () => {
   assert.match(r.stdout, /SUBTARGET=gridlee/);
   assert.match(r.stdout, /src\/mame\/bally\/gridlee\.cpp/);
   assert.match(r.stdout, /IGNORE_GIT=1/);
-  assert.match(r.stdout, /STRIP_SYMBOLS=1/);
+  // STRIP_SYMBOLS=1 triggers MAME's obsolete, broken "asmjs finalize" emcc pass
+  // (scripts/toolchain.lua:617), so the build must not request it.
+  assert.doesNotMatch(r.stdout, /STRIP_SYMBOLS/);
   assert.match(r.stdout, new RegExp(`NEW_GIT_VERSION=${pins.mameCommit.slice(0, 7)}`));
   assert.match(r.stdout, /core\/out\/gridlee\//);
   assert.match(r.stdout, new RegExp(`emsdk[^\\n]*${pins.emsdk.replace(/\./g, "\\.")}`));
+});
+
+test("build script silences clang-23 mismatched-tags without disabling -Werror", () => {
+  const src = readFileSync(script, "utf8");
+  assert.match(src, /EMCC_CFLAGS=.*-Wno-mismatched-tags/);
+  assert.doesNotMatch(src, /NOWERROR=1/);
 });
 
 test("--help exits 0", () => {
