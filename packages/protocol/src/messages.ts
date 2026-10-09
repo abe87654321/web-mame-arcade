@@ -40,6 +40,9 @@ export const roomJoin = z.strictObject({
 export const roomState = z.strictObject({
   t: z.literal("room.state"),
   room: z.string().min(1),
+  // The recipient's own slot (null for viewers), so a client can pick its
+  // role in a pair's negotiation; every member gets a personal snapshot.
+  self: slot.nullable(),
   players: z.array(z.strictObject({ slot, name: z.string() })),
   // Null until the host sets a game/DIPs; `dips` is `{}` and status `waiting`
   // pre-game (docs/contracts/ws-messages.md).

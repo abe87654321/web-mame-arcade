@@ -45,6 +45,7 @@ describe("createRelay", () => {
       message: {
         t: "room.state",
         room: "r",
+        self: 0,
         players: [{ slot: 0, name: "player" }],
         game: null,
         coreHash: null,
@@ -62,12 +63,13 @@ describe("createRelay", () => {
     expect(Object.keys(out).sort()).toEqual(["c1", "c2"]);
     expect(out.c1?.message).toMatchObject({
       t: "room.state",
+      self: 0,
       players: [
         { slot: 0, name: "player" },
         { slot: 1, name: "player" },
       ],
     });
-    expect(out.c2?.message).toEqual(out.c1?.message);
+    expect(out.c2?.message).toMatchObject({ t: "room.state", self: 1 });
   });
 
   it("routes rtc.signal only to the target slot, stamped with the sender", () => {

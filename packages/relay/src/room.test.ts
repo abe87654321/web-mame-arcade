@@ -193,6 +193,7 @@ describe("RoomManager.snapshot", () => {
     expect(rooms.snapshot("c1")).toEqual({
       t: "room.state",
       room: "r",
+      self: 1,
       players: [
         { slot: 0, name: "Bob" },
         { slot: 1, name: "Alice" },

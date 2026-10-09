@@ -157,6 +157,7 @@ export class RoomManager {
     return {
       t: "room.state",
       room: room.id,
+      self: room.members.get(connectionId)?.slot ?? null,
       players,
       game: null,
       coreHash: null,

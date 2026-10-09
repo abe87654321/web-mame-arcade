@@ -17,6 +17,7 @@ const validMessages: AnyMessage[] = [
   {
     t: "room.state",
     room: "r1",
+    self: 0,
     players: [{ slot: 0, name: "alice" }],
     game: "gridlee",
     coreHash: hash64,
@@ -27,6 +28,7 @@ const validMessages: AnyMessage[] = [
   {
     t: "room.state",
     room: "r1",
+    self: null,
     players: [{ slot: 0, name: "alice" }],
     game: null,
     coreHash: null,
