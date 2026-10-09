@@ -20,8 +20,10 @@ gamepad analog sticks are quantised to the four direction bits (deadzone + hyste
 as analog values. True analog inputs (wheels, paddles, spinners) require a protocol extension and
 are out of scope until then.
 
-Implementation: `packages/protocol/src/input.ts` (button bits) and `packages/web/src/input/`
-(devices → mask); `encodeInput`, `decodeInput` land in T21.
+Implementation: `packages/protocol/src/input.ts` — button bits plus `encodeInput`/`decodeInput`
+(little-endian, `INPUT_HEADER_SIZE = 11`, `MAX_FRAMES = 8`). `decodeInput` rejects a wrong
+`version`, a `player` outside 0-3, a `count` outside 1-8, and any length that disagrees with `count`.
+`packages/web/src/input/` turns devices into a mask. `InputPacket` is the decoded shape.
 
 ## Local input config vs host default
 Which physical key/button/axis feeds each bit is **per-browser local configuration**, never sent

@@ -18,3 +18,9 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `error` | relay → client | code, message | errors |
 
 Types live in `packages/protocol/src/messages.ts` (zod schemas). Both relay and web import them.
+Use `parseMessage` / `safeParseMessage` (the `anyMessage` discriminated union), or the narrower
+`clientMessage` / `serverMessage` unions for direction checks. Objects are strict: unknown fields are
+rejected. `input` is binary and deliberately **not** in the JSON union — tag it with `INPUT_TYPE`
+(`"input"`) and codec it with `encodeInput`/`decodeInput`. Fields the table does not pin
+(`room.state.players`, `dips`, `status`, RTC `sdp`/`candidate`) use provisional shapes and may tighten
+in T22.
