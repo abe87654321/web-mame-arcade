@@ -55,13 +55,28 @@ its recorded `(commit, toolchain, arch)` triple. Byte-identical native binaries 
 the pinned build container in T42; the cross-peer key is the WASM core hash (T10/T11).
 
 ## Netplay patch (`core/patches/`, keep it small and in its own files)
-1. **Frame gate** – in `running_machine::emscripten_main_loop()`, call `netplay_ready(frame)` before
-   stepping; if inputs for that frame are missing, return without stepping.
-2. **Input injection** – `EMSCRIPTEN_KEEPALIVE netplay_set_inputs(frame, p1, p2, p3, p4)`; at frame start
-   write bitmasks into ioport fields (C++ equivalent of `field:set_value`). Local input never reaches MAME directly.
-3. **State buffers** – `netplay_save_state(ptr)` / `netplay_load_state(ptr)` on `save_manager::write_buffer/read_buffer`.
-4. **State hash** – `netplay_hash()` = CRC32 of main RAM.
-5. **Frame clock** – step one emulated video frame (game's real screen period, e.g. 60.6 Hz), not fixed 1/60 s.
+The submodule stays **pristine**: the patch is a git-format series applied to the working tree by
+`core/patches/apply.sh {apply|revert|status|hash}`. `core/build-wasm.sh` and `core/build-native.sh`
+run `apply` after the clean-tree guard and `revert` from an `EXIT` trap, so `mame/` is always clean
+between builds. `apply.sh hash` is the sha256 of the series (patches + our sources) and is recorded
+as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact source
+(`contracts/core-version.md`). Files: `core/patches/netplay/netplay.{h,cpp}`, `netplay_post.js` (the
+`Module.netplay` glue), and `0001-machine` / `0002-ioport` / `0003-save` / `0004-build` patches.
+1. **Frame gate** – in `running_machine::emscripten_main_loop()`, once netplay is active, step one game
+   frame via `netplay_try_run_frame(frame)`; if that frame's inputs are missing, pump video and return
+   without stepping.
+2. **Input injection** – `netplay_set_inputs(frame, p1, p2, p3, p4)`; masks are written into the bound
+   `ioport_field`s (bits 0-3 joystick, 4-9 B1-B6, 10 start, 11 coin, by `field.player()`), and while
+   netplay is active `ioport_field::frame_update()` ignores the local OSD sequence so only injected
+   inputs count. Mapping to MAME ioport fields is generic in C++ (`core/inputmap/<driver>.json` is a
+   later, per-driver refinement).
+3. **State buffers** – `netplay_state_size()` + `netplay_save_state(ptr)` / `netplay_load_state(ptr)` on
+   `save_manager::write_buffer/read_buffer` (a new `save_manager::buffer_size()` sizes the buffer).
+4. **State hash** – `netplay_hash()` = CRC32 of the full registered machine state (the
+   `save_manager` buffer), a fully-initialised superset of main RAM. Hashing raw memory regions was
+   rejected: they are ROM regions that can hold uninitialised bytes (determinism-auditor, T20).
+5. **Frame clock** – one emulated video frame (the first screen's real `frame_period()`, e.g. 60.6 Hz),
+   not a fixed 1/60 s.
 
 ## Browser wrapper (`web/src/core/`)
 - Loads the core, mounts the ROM zip into Emscripten's FS, starts MAME with identical options on every peer:

@@ -30,7 +30,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T13 Game page + catalogue** – game list from a static JSON, play page, Nginx dev config with COOP/COEP. Depends: T11.
 
 ## Phase 2 · Two-player lockstep
-- [ ] **T20 Netplay patch** – frame gate, `netplay_set_inputs`, `netplay_save_state/load_state`, `netplay_hash`,
+- [x] **T20 Netplay patch** – frame gate, `netplay_set_inputs`, `netplay_save_state/load_state`, `netplay_hash`,
   frame clock, in `core/patches/`. Docs: 01, 02. Human reviews every C++ line. Depends: T10.
 - [ ] **T21 Protocol package** – `encodeInput/decodeInput`, zod message schemas, round-trip + fuzz tests. Docs: contracts/*. Depends: T00.
 - [ ] **T22 Relay: rooms + signalling** – `room.join`, `room.state`, `rtc.signal`, auth token check. Docs: 03, 06, contracts/ws-messages. Depends: T21.
