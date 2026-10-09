@@ -23,12 +23,15 @@ import { playerMaskFromKeys, type KeyState } from "./keyboard";
 export interface SampleState {
   axes: AxisState[];
   devices: (InputDevice | null)[];
+  /** Index of the live gamepad sampled in each slot last frame, or null. */
+  live: (number | null)[];
 }
 
 export function createSampleState(): SampleState {
   return {
     axes: Array.from({ length: PLAYER_SLOTS }, createAxisState),
     devices: Array.from({ length: PLAYER_SLOTS }, () => null),
+    live: Array.from({ length: PLAYER_SLOTS }, () => null),
   };
 }
 
@@ -64,16 +67,25 @@ export function sampleFrameInputs(
     if (!sameSlotDevice(state.devices[slot] ?? null, device)) {
       state.devices[slot] = device;
       state.axes[slot] = createAxisState();
+      state.live[slot] = null;
     }
     if (!device || !bindings) return 0;
     if (device.kind === "keyboard") {
       return playerMaskFromKeys(bindings, pressed);
     }
     const gamepad = findGamepad(gamepads, device.index);
-    if (!gamepad || !gamepad.connected) return 0;
+    const live = gamepad && gamepad.connected ? gamepad : null;
+    const liveId = live ? live.index : null;
+    // Reset when the live pad appears/disappears or is replaced, so a
+    // reconnect at the same index cannot inherit stale axis directions.
+    if ((state.live[slot] ?? null) !== liveId) {
+      state.live[slot] = liveId;
+      state.axes[slot] = createAxisState();
+    }
+    if (!live) return 0;
     const axisState = state.axes[slot] ?? createAxisState();
     state.axes[slot] = axisState;
-    return playerMaskFromPad(bindings, gamepad, axisState, options);
+    return playerMaskFromPad(bindings, live, axisState, options);
   });
   return [
     toWireMask(masks[0] ?? 0),

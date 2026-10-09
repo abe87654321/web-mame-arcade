@@ -138,4 +138,25 @@ describe("sampleFrameInputs", () => {
     );
     expect(second[1]).toBe(0);
   });
+
+  it("resets axis state when the same-index gamepad reconnects", () => {
+    const room: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
+      devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 0 }, null, null],
+    };
+    const state = createSampleState();
+    const keys = createKeyState();
+    // Frame 1: connected, engage the axis.
+    sampleFrameInputs(room, keys, [pad(0, { axes: [0, -0.6, 0, 0] })], state);
+    // Frame 2: the pad drops off the bus (no config change).
+    expect(sampleFrameInputs(room, keys, [null], state)[1]).toBe(0);
+    // Frame 3: same index reconnects, resting inside the hysteresis band.
+    const reconnected = sampleFrameInputs(
+      room,
+      keys,
+      [pad(0, { axes: [0, -0.45, 0, 0] })],
+      state,
+    );
+    expect(reconnected[1]).toBe(0);
+  });
 });
