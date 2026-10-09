@@ -123,6 +123,7 @@ export const clientMessage = z.discriminatedUnion("t", [
   roomJoin,
   rtcSignal,
   gameStart,
+  stateSnapshot,
   hashMessage,
   scoreLive,
   gameEnd,

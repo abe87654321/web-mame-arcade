@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { PLAYER_SLOTS } from "./input";
 import {
   INPUT_TYPE,
+  clientMessage,
   parseMessage,
   safeParseMessage,
+  serverMessage,
   type AnyMessage,
 } from "./messages";
 
@@ -96,6 +98,26 @@ describe("message schemas", () => {
   it("keeps the binary input packet out of the JSON union", () => {
     expect(INPUT_TYPE).toBe("input");
     expect(safeParseMessage({ t: "input", player: 0 }).success).toBe(false);
+  });
+
+  it("routes each message to the directions in the contract table", () => {
+    const byType = Object.fromEntries(validMessages.map((m) => [m.t, m]));
+    const clientOnly = ["room.join", "game.start", "hash", "game.end"] as const;
+    const serverOnly = ["room.state", "desync", "error"] as const;
+    const both = ["rtc.signal", "state.snapshot", "score.live", "chat"] as const;
+
+    for (const t of clientOnly) {
+      expect(clientMessage.safeParse(byType[t]).success, t).toBe(true);
+      expect(serverMessage.safeParse(byType[t]).success, t).toBe(false);
+    }
+    for (const t of serverOnly) {
+      expect(serverMessage.safeParse(byType[t]).success, t).toBe(true);
+      expect(clientMessage.safeParse(byType[t]).success, t).toBe(false);
+    }
+    for (const t of both) {
+      expect(clientMessage.safeParse(byType[t]).success, t).toBe(true);
+      expect(serverMessage.safeParse(byType[t]).success, t).toBe(true);
+    }
   });
 });
 
