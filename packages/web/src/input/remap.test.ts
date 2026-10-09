@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BINDINGS_VERSION,
   DEFAULT_ROOM_BINDINGS,
-  type RoomBindings,
 } from "./bindings";
 import {
   STORAGE_KEY,
