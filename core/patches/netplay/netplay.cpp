@@ -35,6 +35,9 @@ using frame_inputs = std::array<uint16_t, 4>;
 using field_table = std::array<std::array<std::vector<ioport_field *>, 12>, 4>;
 
 bool s_active = false;
+// Set by netplay_enable() even before the machine exists, so a netplay build
+// can be armed at load and activated on the first main-loop tick (docs/03).
+bool s_arm_requested = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
@@ -101,6 +104,20 @@ void build_bindings(running_machine &machine)
 	}
 }
 
+// Activate netplay once a machine exists. Safe to call before the machine has
+// been constructed: the request is remembered until activation is retried.
+void try_activate()
+{
+	if (s_active)
+		return;
+	running_machine *machine = current_machine();
+	if (machine == nullptr)
+		return;
+	build_bindings(*machine);
+	s_active = true;
+	s_next_frame = 0;
+}
+
 void inject(frame_inputs const &inputs)
 {
 	for (int player = 0; player < 4; ++player)
@@ -133,6 +150,12 @@ attotime frame_period(running_machine &machine)
 
 bool netplay_input_active()
 {
+	// A netplay core is armed at load, before the first main-loop tick, so the
+	// machine is frozen at boot and never free-runs ahead of the lockstep. This
+	// is polled at the top of emscripten_main_loop, so the first tick activates
+	// it before any frame can step (docs/03).
+	if (!s_active && s_arm_requested)
+		try_activate();
 	return s_active;
 }
 
@@ -155,12 +178,10 @@ uint32_t netplay_next_frame()
 
 void netplay_enable()
 {
-	running_machine *machine = current_machine();
-	if (machine == nullptr || s_active)
-		return;
-	build_bindings(*machine);
-	s_active = true;
-	s_next_frame = 0;
+	// May run before the machine is constructed (the JS glue arms a netplay core
+	// during runtime init); try now and let netplay_input_active() retry.
+	s_arm_requested = true;
+	try_activate();
 }
 
 

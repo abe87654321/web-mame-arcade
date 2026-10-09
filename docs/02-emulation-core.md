@@ -64,7 +64,10 @@ as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact sou
 `Module.netplay` glue), and `0001-machine` / `0002-ioport` / `0003-save` / `0004-build` patches.
 1. **Frame gate** – in `running_machine::emscripten_main_loop()`, once netplay is active, step one game
    frame via `netplay_try_run_frame(frame)`; if that frame's inputs are missing, pump video and return
-   without stepping.
+   without stepping. A netplay core is **armed at load** (`netplay_enable()` from the JS glue during
+   runtime init, before `main()` starts the loop); `netplay_input_active()` activates lazily on the first
+   tick, so the machine is frozen at frame 0 and cannot free-run ahead of the lockstep (T24, docs/03).
+   Solo loads the same build without arming it, so the stock loop still runs.
 2. **Input injection** – `netplay_set_inputs(frame, p1, p2, p3, p4)`; masks are written into the bound
    `ioport_field`s (bits 0-3 joystick, 4-9 B1-B6, 10 start, 11 coin, by `field.player()`), and while
    netplay is active `ioport_field::frame_update()` ignores the local OSD sequence so only injected

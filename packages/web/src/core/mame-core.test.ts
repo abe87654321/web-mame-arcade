@@ -48,6 +48,7 @@ describe("MameCore", () => {
 
   it("delegates to the netplay hooks when present", () => {
     const netplay: NetplayHooks = {
+      enable: vi.fn(),
       setInputs: vi.fn(),
       saveState: vi.fn(() => new Uint8Array([1, 2])),
       loadState: vi.fn(),

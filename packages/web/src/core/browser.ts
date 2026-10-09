@@ -14,6 +14,11 @@ export interface BrowserCoreInit {
   args: readonly string[];
   romPath: string;
   romZipName: string;
+  /**
+   * Arm the netplay frame gate at load so the machine freezes at boot and the
+   * lockstep drives every frame (T24, docs/03). Solo leaves this unset.
+   */
+  netplay?: boolean;
 }
 
 export interface BrowserCoreDeps {
@@ -80,8 +85,15 @@ export async function loadBrowserCore(
               romZip,
             ),
         ],
-        onRuntimeInitialized: () =>
-          settleReady(config as unknown as CoreModule),
+        onRuntimeInitialized: () => {
+          // Arm netplay before main() starts its loop; the machine then waits
+          // at frame 0 for the lockstep instead of free-running at boot.
+          if (init.netplay) {
+            const hooks = (config as { netplay?: { enable?(): void } }).netplay;
+            hooks?.enable?.();
+          }
+          settleReady(config as unknown as CoreModule);
+        },
         onAbort: (what: unknown) =>
           abortReady(new Error(`core runtime aborted: ${String(what)}`)),
       };

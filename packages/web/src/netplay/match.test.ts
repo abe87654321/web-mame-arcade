@@ -81,13 +81,18 @@ const flush = async (): Promise<void> => {
 };
 
 describe("createMatch", () => {
-  it("has the lowest-slot host send game.start once peers are ready", async () => {
+  it("lets the lowest-slot host start once peers are ready", async () => {
     const { socket, match } = harness();
     await flush();
 
     socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
     await flush();
 
+    expect(match.isHost()).toBe(true);
+    expect(match.canStart()).toBe(true);
+    expect(socket.sent.some((m) => String(m).includes("game.start"))).toBe(false);
+
+    expect(match.start()).toBe(true);
     expect(socket.sent).toContain(
       JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 2 }),
     );
@@ -95,13 +100,27 @@ describe("createMatch", () => {
     match.close();
   });
 
-  it("does not have a non-host send game.start", async () => {
+  it("lets a lone player start a solo netplay game", async () => {
+    const { socket, match } = harness();
+    await flush();
+
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+
+    expect(match.canStart()).toBe(true);
+    expect(match.start()).toBe(true);
+    match.close();
+  });
+
+  it("does not let a non-host start", async () => {
     const { socket, match } = harness();
     await flush();
 
     socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
     await flush();
 
+    expect(match.isHost()).toBe(false);
+    expect(match.start()).toBe(false);
     expect(socket.sent.some((m) => String(m).includes("game.start"))).toBe(false);
     match.close();
   });

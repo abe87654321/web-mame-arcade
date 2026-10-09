@@ -2,8 +2,10 @@
  * Netplay match orchestrator (T24). Owns the session and the lockstep loop and
  * connects them to one `Core`:
  *
- * - `room.state` → the roster and our own slot; once every peer's data channel
- *   is open and the core has booted, the lowest-slot host sends `game.start`.
+ * - `room.state` → the roster and our own slot. The lowest-slot host may then
+ *   call `start()` (the lobby "Start game" button) once every peer's data
+ *   channel is open, which sends `game.start`. Starting is manual so the first
+ *   player in a room does not lock out friends who join moments later.
  * - `game.start` (fanned out by the relay) → every peer starts its lockstep at
  *   the agreed `startFrame`/`inputDelay`.
  * - lockstep packets go out over the data channels (`broadcast`) and the relay
@@ -40,6 +42,12 @@ export interface NetplayMatch {
   /** Next frame to simulate, or `startFrame` before the match starts. */
   frame(): number;
   status(): MatchStatus;
+  /** True when this client is the lowest-slot host of the room. */
+  isHost(): boolean;
+  /** True when `start()` would succeed (host, booted, all peers connected). */
+  canStart(): boolean;
+  /** Host starts the game; false when not host/not ready/already started. */
+  start(): boolean;
   /** The underlying session (exposed for the play page / status UI). */
   session(): NetplaySession;
   close(): void;
@@ -96,13 +104,20 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     }
   }
 
-  function tryHostStart(): void {
-    if (closed || startSent || lockstep || !coreReady || self === null) return;
-    const host = roster.length > 0 ? Math.min(...roster) : self;
-    if (self !== host || !session.ready()) return;
-    if (session.send({ t: "game.start", startFrame, inputDelay })) {
-      startSent = true;
-    }
+  function hostSlot(): number | null {
+    if (self === null) return null;
+    return roster.length > 0 ? Math.min(...roster) : self;
+  }
+
+  function isHost(): boolean {
+    const host = hostSlot();
+    return self !== null && host !== null && self === host;
+  }
+
+  function canStart(): boolean {
+    return (
+      !closed && !startSent && !lockstep && coreReady && isHost() && session.ready()
+    );
   }
 
   const session = createSession({
@@ -114,7 +129,6 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       roster.splice(0, roster.length, ...message.players.map((p) => p.slot));
       if (!lockstep) setStatus("waiting-for-peers");
       maybeStartPending();
-      tryHostStart();
     },
     onGameStart: (message) => {
       // A start can outrace the first `room.state` or the core boot; hold it
@@ -126,7 +140,8 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       startLockstep(message.startFrame, message.inputDelay);
     },
     onInput: (bytes) => lockstep?.onBytes(bytes),
-    onChannelOpen: () => tryHostStart(),
+    // A start may have arrived while the core/channel was still coming up.
+    onChannelOpen: () => maybeStartPending(),
   });
 
   void deps.core
@@ -134,7 +149,6 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     .then(() => {
       coreReady = true;
       maybeStartPending();
-      tryHostStart();
     })
     .catch(() => {
       // A boot failure is surfaced by the play page's own load handling.
@@ -144,6 +158,14 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     tick: (localMask) => lockstep?.tick(localMask),
     frame: () => (lockstep ? lockstep.frame() : startFrame),
     status: () => status,
+    isHost,
+    canStart,
+    start: () => {
+      if (!canStart()) return false;
+      if (!session.send({ t: "game.start", startFrame, inputDelay })) return false;
+      startSent = true;
+      return true;
+    },
     session: () => session,
     close: () => {
       closed = true;

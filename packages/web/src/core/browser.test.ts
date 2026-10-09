@@ -101,6 +101,63 @@ describe("loadBrowserCore", () => {
     ).toEqual(["gridlee", "-skip_gameinfo"]);
   });
 
+  it("arms the netplay gate at runtime init when requested", async () => {
+    const wasm = new Uint8Array([1, 2, 3]);
+    const js = new Uint8Array([4, 5]);
+    const wasmHash = await sha256Hex(wasm);
+    const jsHash = await sha256Hex(js);
+    const manifest = {
+      driver: "gridlee",
+      core_hash: wasmHash,
+      mame_commit: "b".repeat(40),
+      emsdk: "6.0.2",
+      artifacts: { "mamegridlee.wasm": wasmHash, "mamegridlee.js": jsHash },
+    };
+    const enable = vi.fn();
+    const loadScript = async () => {
+      const mod = (globalThis as Record<string, unknown>).Module as TestModule;
+      mod.FS = {
+        mkdir: () => {},
+        writeFile: () => {},
+        readFile: () => new Uint8Array(),
+        unlink: () => {},
+      };
+      mod.JSMAME = {
+        save: () => {}, load: () => {}, soft_reset: () => {},
+        hard_reset: () => {}, exit: () => {},
+      };
+      mod.HEAPU8 = new Uint8Array(0);
+      mod._malloc = () => 0;
+      mod._free = () => {};
+      (mod as TestModule & { netplay?: { enable(): void } }).netplay = { enable };
+      mod.preRun[0]?.();
+      mod.onRuntimeInitialized();
+    };
+
+    await loadBrowserCore(
+      {
+        coreBaseUrl: "https://x/cores/gridlee",
+        romZipUrl: "https://x/roms/gridlee.zip",
+        driver: "gridlee",
+        args: ["gridlee"],
+        romPath: "/roms",
+        romZipName: "gridlee.zip",
+        netplay: true,
+      },
+      {
+        fetchImpl: fakeFetch({
+          "https://x/cores/gridlee/manifest.json": manifest,
+          "https://x/cores/gridlee/mamegridlee.wasm": wasm,
+          "https://x/cores/gridlee/mamegridlee.js": js,
+          "https://x/roms/gridlee.zip": new Uint8Array([6]),
+        }),
+        loadScript,
+      },
+    );
+
+    expect(enable).toHaveBeenCalledOnce();
+  });
+
   it("rejects when the runtime aborts instead of hanging", async () => {
     const wasm = new Uint8Array([1, 2, 3]);
     const js = new Uint8Array([4, 5]);

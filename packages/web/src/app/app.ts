@@ -22,6 +22,7 @@ import {
   wrapElement,
   type UiDocument,
   type UiElement,
+  type ViewNode,
 } from "../ui/view";
 import { buildList } from "./list-view";
 import {
@@ -76,10 +77,15 @@ function defaultRoomId(): string {
   return `room-${Date.now().toString(36)}`;
 }
 
+export interface LoadCoreOptions {
+  /** Arm netplay so the machine freezes at boot and the lockstep drives it. */
+  netplay: boolean;
+}
+
 export interface AppDeps {
   env: AppEnv;
   games: readonly GameEntry[];
-  loadCore: (entry: GameEntry) => Promise<Core>;
+  loadCore: (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
 }
 
 export interface AppController {
@@ -88,6 +94,22 @@ export interface AppController {
 
 function notFound(message: string): { tag: string; className: string; text: string } {
   return { tag: "p", className: "not-found", text: message };
+}
+
+/** Minimal lobby bar: the host's manual "Start game" control (T24). */
+function lobbyView(onStart: () => void): ViewNode {
+  return {
+    tag: "div",
+    className: "lobby",
+    children: [
+      {
+        tag: "button",
+        className: "start-game",
+        text: "Start game",
+        onClick: onStart,
+      },
+    ],
+  };
 }
 
 function matchStatusText(status: MatchStatus): string {
@@ -168,7 +190,7 @@ export function createApp(deps: AppDeps): AppController {
 
     setStatus(`loading ${entry.title}...`);
     void deps
-      .loadCore(entry)
+      .loadCore(entry, { netplay: Boolean(route.room) })
       .then((core) => {
         if (myToken !== token) {
           core.destroy();
@@ -200,6 +222,21 @@ export function createApp(deps: AppDeps): AppController {
           onStatus: setStatus,
           ...(match ? { lockstep: match } : {}),
         });
+        if (match) {
+          deps.env.root.append(
+            renderTree(
+              deps.env.doc,
+              lobbyView(() => {
+                if (match?.start()) return;
+                setStatus(
+                  match?.isHost()
+                    ? "waiting for players..."
+                    : "only the host can start the game",
+                );
+              }),
+            ),
+          );
+        }
         deps.env.root.append(play.screen);
       })
       .catch((error: unknown) => {
@@ -227,7 +264,7 @@ export function createApp(deps: AppDeps): AppController {
 export interface StartOptions {
   catalogueUrl?: string;
   loadGames?: (url: string) => Promise<GameEntry[]>;
-  loadCore?: (entry: GameEntry) => Promise<Core>;
+  loadCore?: (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
   doc?: Document;
   win?: Window;
   /** Overrides the relay wiring; by default it comes from `VITE_RELAY_*`. */
@@ -244,7 +281,7 @@ export function coreDirUrl(entry: GameEntry): string {
 }
 
 /** Default core loader: fixed args, ROM mounted under `-rompath`. */
-function browserCoreLoader(entry: GameEntry): Promise<Core> {
+function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<Core> {
   const romPath = "/roms";
   const sessionPath = "/session";
   return loadBrowserCore({
@@ -254,6 +291,7 @@ function browserCoreLoader(entry: GameEntry): Promise<Core> {
     args: buildMameArgs({ driver: entry.driver, romPath, sessionPath }),
     romPath,
     romZipName: `${entry.driver}.zip`,
+    netplay: options.netplay,
   });
 }
 

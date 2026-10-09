@@ -160,7 +160,7 @@ describe("createApp", () => {
     h.fire();
     await flush();
 
-    expect(h.loadCore).toHaveBeenCalledWith(entry);
+    expect(h.loadCore).toHaveBeenCalledWith(entry, { netplay: false });
     expect(h.root.children).toHaveLength(1);
     expect(h.root.children[0]?.className).toBe("screen");
     expect(h.status.textContent).toContain("Gridlee");
@@ -226,6 +226,7 @@ describe("createApp", () => {
     await flush();
     socket.open();
 
+    expect(h.loadCore).toHaveBeenCalledWith(entry, { netplay: true });
     expect(socket.sent).toContain(
       JSON.stringify({ t: "room.join", room: "abc", role: "player", token: "jwt" }),
     );

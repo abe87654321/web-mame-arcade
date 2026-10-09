@@ -48,7 +48,10 @@ export interface NetplaySession {
   self(): number | null;
   /** Player slots in the room, ascending, from the latest `room.state`. */
   players(): number[];
-  /** True when every peer's data channel is open (match can start). */
+  /**
+   * True when every current peer's data channel is open. A lone player has no
+   * peers, so this is vacuously true and they may start a solo netplay game.
+   */
   ready(): boolean;
   close(): void;
 }
@@ -165,11 +168,10 @@ export function createSession(options: SessionOptions): NetplaySession {
     self: () => selfSlot,
     players: () => [...roomPlayers],
     ready: () => {
+      // Not joined yet: we do not know our slot or peers.
+      if (selfSlot === null) return false;
       const slots = mesh ? mesh.peers() : [];
-      return (
-        slots.length > 0 &&
-        slots.every((slot) => mesh?.channelTo(slot)?.readyState === "open")
-      );
+      return slots.every((slot) => mesh?.channelTo(slot)?.readyState === "open");
     },
     close: () => {
       mesh?.close();
