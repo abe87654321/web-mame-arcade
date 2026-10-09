@@ -41,6 +41,25 @@ describe("buildList", () => {
     expect(onSelect).toHaveBeenCalledWith("gridlee");
   });
 
+  it("adds a Play online button for netplay games when wired", () => {
+    const onPlayOnline = vi.fn();
+    const tree = buildList([entry], { onSelect: vi.fn(), onPlayOnline });
+    const online = findAll(tree, "play-online")[0] as ViewNode;
+    online.onClick?.();
+    expect(onPlayOnline).toHaveBeenCalledWith("gridlee");
+  });
+
+  it("omits the Play online button without a handler", () => {
+    const tree = buildList([entry], { onSelect: vi.fn() });
+    expect(findAll(tree, "play-online")).toHaveLength(0);
+  });
+
+  it("omits the Play online button for games without netplay", () => {
+    const solo: GameEntry = { ...entry, netplayMode: "none" };
+    const tree = buildList([solo], { onSelect: vi.fn(), onPlayOnline: vi.fn() });
+    expect(findAll(tree, "play-online")).toHaveLength(0);
+  });
+
   it("renders every game", () => {
     const second: GameEntry = { ...entry, driver: "pacman", title: "Pac-Man" };
     const tree = buildList([entry, second], { onSelect: vi.fn() });

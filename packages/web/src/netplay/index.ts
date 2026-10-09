@@ -26,8 +26,12 @@ export {
   createRtcFactory,
   createWebSocketFactory,
 } from "./browser";
-export { defaultIceServers, iceServersFromEnv } from "./config";
-export type { NetplayEnv } from "./config";
+export {
+  defaultIceServers,
+  iceServersFromEnv,
+  relayConfigFromEnv,
+} from "./config";
+export type { NetplayEnv, RelayConfig, RelayEnv } from "./config";
 export type {
   DataChannelLike,
   DataChannelOptions,

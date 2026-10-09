@@ -5,7 +5,11 @@ import type { Core } from "../core/types";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import {
+  browserRtcFactory,
+  browserWebSocketFactory,
   createMatch,
+  defaultIceServers,
+  relayConfigFromEnv,
   type IceServer,
   type MatchStatus,
   type NetplayMatch,
@@ -59,6 +63,17 @@ export interface AppEnv {
   gamepads: GamepadsProvider;
   /** Set by `startApp`; absent in solo-only tests. */
   netplay?: NetplayEnv;
+  /** Generates a fresh room id for "Play online"; defaults to `randomUUID`. */
+  newRoomId?: () => string;
+}
+
+/** Room id for a new online game. UI-only; never part of the emulation path. */
+function defaultRoomId(): string {
+  const webCrypto = globalThis.crypto;
+  if (webCrypto && typeof webCrypto.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+  return `room-${Date.now().toString(36)}`;
 }
 
 export interface AppDeps {
@@ -117,6 +132,10 @@ export function createApp(deps: AppDeps): AppController {
           deps.env.doc,
           buildList(deps.games, {
             onSelect: (driver) => deps.env.navigate(gameHref(driver)),
+            onPlayOnline: (driver) =>
+              deps.env.navigate(
+                gameHref(driver, (deps.env.newRoomId ?? defaultRoomId)()),
+              ),
           }),
         ),
       );
@@ -211,6 +230,8 @@ export interface StartOptions {
   loadCore?: (entry: GameEntry) => Promise<Core>;
   doc?: Document;
   win?: Window;
+  /** Overrides the relay wiring; by default it comes from `VITE_RELAY_*`. */
+  netplay?: NetplayEnv;
 }
 
 /**
@@ -252,6 +273,8 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   statusEl.className = "status";
   appEl.append(rootEl, statusEl);
 
+  const netplay = options.netplay ?? netplayFromEnv();
+
   return createApp({
     games,
     loadCore,
@@ -267,6 +290,24 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       scheduler: browserScheduler(),
       keyboard: win,
       gamepads: win.navigator,
+      ...(netplay ? { netplay } : {}),
     },
   });
+}
+
+/**
+ * Netplay wiring from Vite build env: `VITE_RELAY_URL` + `VITE_RELAY_TOKEN`
+ * (T34 will replace the static dev token with a per-session JWT).
+ */
+export function netplayFromEnv(): NetplayEnv | undefined {
+  const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+  const relay = relayConfigFromEnv(env);
+  if (!relay) return undefined;
+  return {
+    relayUrl: relay.relayUrl,
+    token: relay.token,
+    iceServers: defaultIceServers(),
+    socketFactory: browserWebSocketFactory(),
+    factory: browserRtcFactory(),
+  };
 }

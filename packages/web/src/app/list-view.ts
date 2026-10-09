@@ -9,6 +9,8 @@ import type { ViewNode } from "../ui/view";
 
 export interface ListViewOptions {
   onSelect: (driver: string) => void;
+  /** When set, games that support netplay also get a "Play online" button. */
+  onPlayOnline?: (driver: string) => void;
 }
 
 function describe(game: GameEntry): string {
@@ -38,6 +40,16 @@ export function buildList(
               text: "Play",
               onClick: () => options.onSelect(game.driver),
             },
+            ...(options.onPlayOnline && game.netplayMode !== "none"
+              ? [
+                  {
+                    tag: "button",
+                    className: "play-online",
+                    text: "Play online",
+                    onClick: () => options.onPlayOnline?.(game.driver),
+                  } satisfies ViewNode,
+                ]
+              : []),
           ],
         }),
       ),

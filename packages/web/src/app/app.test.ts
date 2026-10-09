@@ -5,7 +5,13 @@ import type { GameEntry } from "../catalogue";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import type { UiDocument, UiElement } from "../ui/view";
-import { createApp, coreDirUrl, type AppEnv, type NetplayEnv } from "./app";
+import {
+  createApp,
+  coreDirUrl,
+  netplayFromEnv,
+  type AppEnv,
+  type NetplayEnv,
+} from "./app";
 import {
   FakeWebSocket,
   fakeRtcFactory,
@@ -245,6 +251,12 @@ describe("createApp", () => {
     expect(h.listenerCount()).toBe(1);
     app.destroy();
     expect(h.listenerCount()).toBe(0);
+  });
+});
+
+describe("netplayFromEnv", () => {
+  it("returns undefined when no relay env is configured", () => {
+    expect(netplayFromEnv()).toBeUndefined();
   });
 });
 
