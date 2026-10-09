@@ -1,0 +1,21 @@
+diff --git a/src/emu/ioport.cpp b/src/emu/ioport.cpp
+index 113378ae..3e82be9e 100644
+--- a/src/emu/ioport.cpp
++++ b/src/emu/ioport.cpp
+@@ -17,6 +17,7 @@
+ #include "inputdev.h"
+ #include "main.h"
+ #include "natkeyboard.h"
++#include "netplay.h"
+ #include "profiler.h"
+ #include "video.h"
+ 
+@@ -1241,7 +1242,7 @@ void ioport_field::frame_update(ioport_value &result)
+ 	}
+ 
+ 	// if the state changed, look for switch down/switch up
+-	bool curstate = m_digital_value || machine().input().seq_pressed(seq());
++	bool curstate = m_digital_value || (!netplay_input_active() && machine().input().seq_pressed(seq()));
+ 	bool changed = false;
+ 	if (curstate != m_live->last)
+ 	{
