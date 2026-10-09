@@ -50,10 +50,17 @@ export async function loadBrowserCore(
 ): Promise<Core> {
   const doFetch = deps.fetchImpl ?? fetch;
   const loadScript = deps.loadScript ?? injectScript;
+  const trace = (stage: string): void => {
+    if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+      console.info(`[core] ${stage}`);
+    }
+  };
 
+  trace("fetching manifest");
   const manifestJson = await (
     await doFetch(`${init.coreBaseUrl}/manifest.json`)
   ).json();
+  trace("fetching rom");
   const romZip = new Uint8Array(
     await (await doFetch(init.romZipUrl)).arrayBuffer(),
   );
@@ -76,11 +83,22 @@ export async function loadBrowserCore(
       const jsName =
         Object.keys(artifacts).find((name) => name.endsWith(".js")) ??
         `mame${init.driver}.js`;
-      let settleReady!: (module: CoreModule) => void;
-      let abortReady!: (reason: Error) => void;
+      let timer: ReturnType<typeof setTimeout>;
+      let settle!: (module: CoreModule) => void;
+      let abort!: (reason: Error) => void;
       const ready = new Promise<CoreModule>((resolve, reject) => {
-        settleReady = resolve;
-        abortReady = reject;
+        settle = (module) => {
+          clearTimeout(timer);
+          resolve(module);
+        };
+        abort = (reason) => {
+          clearTimeout(timer);
+          reject(reason);
+        };
+        timer = setTimeout(
+          () => abort(new Error("core did not finish booting within 90s")),
+          90_000,
+        );
       });
       const config: Record<string, unknown> = {
         arguments: [...args],
@@ -93,25 +111,25 @@ export async function loadBrowserCore(
               romZip,
             ),
         ],
-        onRuntimeInitialized: () => {
-          // Arm netplay before main() starts its loop; the machine then waits
-          // at frame 0 for the lockstep instead of free-running at boot.
-          if (init.netplay) {
-            const hooks = (config as { netplay?: { enable?(): void } }).netplay;
-            hooks?.enable?.();
-          }
-          settleReady(config as unknown as CoreModule);
-        },
+        onRuntimeInitialized: () => settle(config as unknown as CoreModule),
         onAbort: (what: unknown) =>
-          abortReady(new Error(`core runtime aborted: ${String(what)}`)),
+          abort(new Error(`core runtime aborted: ${String(what)}`)),
       };
       (globalThis as Record<string, unknown>).Module = config;
+      trace(`loading script ${jsName}`);
       await loadScript(`${init.coreBaseUrl}/${jsName}`);
+      trace("script loaded, awaiting runtime");
       return ready;
     },
   };
 
+  trace("verifying artifacts + booting");
   const bundle = await loadCoreBundle(source, init.args);
+  trace("runtime ready");
+  // Arm netplay now: the post-js glue has run (so `module.netplay` exists) but
+  // the main loop has not ticked yet, so the machine freezes at boot instead of
+  // free-running ahead of the lockstep (T24, docs/03).
+  if (init.netplay) bundle.module.netplay?.enable();
   return new MameCore(bundle.module, {
     args: init.args,
     romPath: init.romPath,
