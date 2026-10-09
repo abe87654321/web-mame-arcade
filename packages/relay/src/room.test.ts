@@ -86,6 +86,36 @@ describe("RoomManager.join", () => {
     expect(rejoin).toMatchObject({ role: "player", slot: 0 });
     expect(rooms.snapshot("c2").players).toEqual([{ slot: 0, name: "player" }]);
   });
+
+  it("keeps the exact slot when a user reconnects through a hole", () => {
+    const rooms = manager();
+    rooms.join("c0", { room: "r", role: "player", token: "u0" });
+    rooms.join("c1", { room: "r", role: "player", token: "u1" });
+    rooms.join("c2", { room: "r", role: "player", token: "u2" });
+    rooms.leave("c1");
+    const rejoin = rooms.join("c2b", { room: "r", role: "player", token: "u2" });
+    expect(rejoin.slot).toBe(2);
+  });
+
+  it("keeps membership when a role switch is rejected as room_full", () => {
+    const rooms = manager();
+    for (let i = 0; i < PLAYER_SLOTS; i++) {
+      rooms.join(`p${i}`, { room: "r", role: "player", token: `u${i}` });
+    }
+    rooms.join("v1", { room: "r", role: "viewer", token: "watcher" });
+    expect(() =>
+      rooms.join("v2", { room: "r", role: "player", token: "watcher" }),
+    ).toThrow(RelayError);
+    expect(rooms.roomIdOf("v1")).toBe("r");
+    expect(rooms.broadcastTargets("r")).toContain("v1");
+  });
+
+  it("applies a role change on the same connection", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "viewer", token: "alice" });
+    const changed = rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    expect(changed).toMatchObject({ role: "player", slot: 0 });
+  });
 });
 
 describe("RoomManager.leave", () => {

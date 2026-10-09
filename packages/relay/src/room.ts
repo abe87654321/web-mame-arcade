@@ -62,15 +62,44 @@ export class RoomManager {
     }
 
     const room = this.ensureRoom(request.room);
-    const sameConnection = room.members.get(connectionId);
-    if (sameConnection) return sameConnection;
 
-    // Same user reconnecting (or switching role) on a new socket: drop the old
-    // membership so the slot is freed, then seat again for the requested role.
+    const sameConnection = room.members.get(connectionId);
+    if (sameConnection) {
+      if (sameConnection.role === request.role) {
+        sameConnection.name = name;
+        return sameConnection;
+      }
+      // Role change on a live connection: allocate before mutating so a
+      // rejection (room_full) leaves the existing membership intact.
+      sameConnection.name = name;
+      const slot =
+        request.role === "player"
+          ? (sameConnection.slot ?? this.freeSlot(room))
+          : null;
+      sameConnection.role = request.role;
+      sameConnection.slot = slot;
+      return sameConnection;
+    }
+
+    // Same user reconnecting on a new socket: reattach in place, preserving the
+    // existing slot when the role is unchanged. Allocate before mutating so a
+    // rejected role switch (room_full) does not drop the prior membership.
     const reconnect = [...room.members.values()].find((m) => m.sub === claims.sub);
     if (reconnect) {
+      const slot =
+        request.role === "player" ? (reconnect.slot ?? this.freeSlot(room)) : null;
       room.members.delete(reconnect.connectionId);
       this.byConnection.delete(reconnect.connectionId);
+      const member: RoomMember = {
+        connectionId,
+        sub: claims.sub,
+        name,
+        role: request.role,
+        slot,
+      };
+      room.members.set(connectionId, member);
+      this.byConnection.set(connectionId, room.id);
+      return member;
     }
 
     const slot = request.role === "player" ? this.freeSlot(room) : null;

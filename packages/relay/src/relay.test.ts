@@ -87,6 +87,18 @@ describe("createRelay", () => {
     expect(out[0]?.message).toMatchObject({ t: "error", code: "unknown_peer" });
   });
 
+  it("rejects joining a second room on the same connection", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    const out = r.handle("c1", {
+      t: "room.join",
+      room: "other",
+      role: "player",
+      token: "alice",
+    });
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "already_joined" });
+  });
+
   it("marks T22-unowned client types as unsupported", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));
