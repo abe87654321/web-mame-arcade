@@ -106,6 +106,9 @@ export function createPlayController(deps: PlayDeps): PlayController {
       running = false;
       if (handle !== null) deps.scheduler.cancel(handle);
       detachKeys();
+      // The controller owns the booted core; stop MAME/Emscripten with it so a
+      // route change cannot leave a background emulator running.
+      deps.core.destroy();
     },
   };
 }

@@ -154,8 +154,9 @@ describe("createPlayController", () => {
   it("stops the loop and detaches listeners on destroy", () => {
     const scheduler = fakeScheduler();
     const keyboard = fakeKeyboard();
+    const core = fakeCore();
     const controller = createPlayController({
-      core: fakeCore(),
+      core,
       entry,
       document: fakeDoc(),
       scheduler,
@@ -169,5 +170,6 @@ describe("createPlayController", () => {
     expect(scheduler.pending()).toBe(0);
     expect(keyboard.listeners("keydown")).toBe(0);
     expect(keyboard.listeners("keyup")).toBe(0);
+    expect(core.destroy).toHaveBeenCalledOnce();
   });
 });

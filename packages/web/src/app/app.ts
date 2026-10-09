@@ -70,6 +70,7 @@ export function createApp(deps: AppDeps): AppController {
     token += 1;
     const myToken = token;
     deps.env.root.textContent = "";
+    setStatus("");
 
     if (route.kind === "list") {
       deps.env.root.append(
@@ -148,12 +149,21 @@ export interface StartOptions {
   win?: Window;
 }
 
+/**
+ * Directory URL of a driver's core bundle. build-wasm.sh publishes
+ * core/out/<driver>/<core_hash>/, so the loadable dir adds coreVersion to the
+ * catalogue's driver-level coreBaseUrl (docs/02).
+ */
+export function coreDirUrl(entry: GameEntry): string {
+  return `${entry.coreBaseUrl}/${entry.coreVersion}`;
+}
+
 /** Default core loader: fixed args, ROM mounted under `-rompath`. */
 function browserCoreLoader(entry: GameEntry): Promise<Core> {
   const romPath = "/roms";
   const sessionPath = "/session";
   return loadBrowserCore({
-    coreBaseUrl: entry.coreBaseUrl,
+    coreBaseUrl: coreDirUrl(entry),
     romZipUrl: entry.romZipUrl,
     driver: entry.driver,
     args: buildMameArgs({ driver: entry.driver, romPath, sessionPath }),

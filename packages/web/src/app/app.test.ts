@@ -5,7 +5,7 @@ import type { GameEntry } from "../catalogue";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import type { UiDocument, UiElement } from "../ui/view";
-import { createApp, type AppEnv } from "./app";
+import { createApp, coreDirUrl, type AppEnv } from "./app";
 
 const entry: GameEntry = {
   driver: "gridlee",
@@ -69,6 +69,7 @@ interface Harness {
   fire(): void;
   listenerCount(): number;
   loadCore: ReturnType<typeof vi.fn>;
+  cores: Core[];
 }
 
 function harness(): Harness {
@@ -77,7 +78,12 @@ function harness(): Harness {
   const status = makeElement();
   const hash = { value: "#/" };
   const listeners = new Set<() => void>();
-  const loadCore = vi.fn(async () => fakeCore());
+  const cores: Core[] = [];
+  const loadCore = vi.fn(async () => {
+    const core = fakeCore();
+    cores.push(core);
+    return core;
+  });
   const gamepads: GamepadsProvider = {
     getGamepads: () => Array.from({ length: PLAYER_SLOTS }, () => null),
   };
@@ -112,6 +118,7 @@ function harness(): Harness {
     status,
     hash,
     loadCore,
+    cores,
     fire: () => {
       for (const listener of [...listeners]) listener();
     },
@@ -148,6 +155,36 @@ describe("createApp", () => {
     app.destroy();
   });
 
+  it("destroys the core when navigating away from play", async () => {
+    const h = harness();
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee";
+    h.fire();
+    await flush();
+    expect(h.cores).toHaveLength(1);
+
+    h.hash.value = "#/";
+    h.fire();
+    expect(h.cores[0]?.destroy).toHaveBeenCalledOnce();
+    app.destroy();
+  });
+
+  it("clears the status line when leaving a game", async () => {
+    const h = harness();
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee";
+    h.fire();
+    await flush();
+    expect(h.status.textContent).toContain("Gridlee");
+
+    h.hash.value = "#/";
+    h.fire();
+    expect(h.status.textContent).toBe("");
+    app.destroy();
+  });
+
   it("shows a not-found message for an unknown driver", async () => {
     const h = harness();
     const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
@@ -167,5 +204,11 @@ describe("createApp", () => {
     expect(h.listenerCount()).toBe(1);
     app.destroy();
     expect(h.listenerCount()).toBe(0);
+  });
+});
+
+describe("coreDirUrl", () => {
+  it("appends the content-addressed core hash to the driver base URL", () => {
+    expect(coreDirUrl(entry)).toBe(`/static/cores/gridlee/${entry.coreVersion}`);
   });
 });
