@@ -15,4 +15,10 @@ Button bitmask (bit → field): 0 up, 1 down, 2 left, 3 right, 4 B1, 5 B2, 6 B3,
 10 start, 11 coin, 12-15 reserved. Mapping to MAME ioport fields per driver lives in
 `core/inputmap/<driver>.json`.
 
-Implementation: `packages/protocol/src/input.ts` (`encodeInput`, `decodeInput`) with round-trip tests.
+Bits 12-15 are reserved and unused. The v1 input layer (T12) carries digital controls only:
+gamepad analog sticks are quantised to the four direction bits (deadzone + hysteresis), not sent
+as analog values. True analog inputs (wheels, paddles, spinners) require a protocol extension and
+are out of scope until then.
+
+Implementation: `packages/protocol/src/input.ts` (button bits) and `packages/web/src/input/`
+(devices → mask); `encodeInput`, `decodeInput` land in T21.
