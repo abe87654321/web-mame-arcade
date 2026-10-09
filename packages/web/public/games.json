@@ -2,7 +2,7 @@
   {
     "driver": "gridlee",
     "title": "Gridlee",
-    "coreVersion": "0000000000000000000000000000000000000000000000000000000000000000",
+    "coreVersion": "578f7a417d7a0e542ea86b638a05e1b5b9a3b0799e4d188c256ee7771f8e0673",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "supportsSave": true,
     "netplayMode": "lockstep",

@@ -47,15 +47,18 @@ describe("loadBrowserCore", () => {
     const rom = new Uint8Array([6, 7, 8, 9]);
     const wasmHash = await sha256Hex(wasm);
     const jsHash = await sha256Hex(js);
+    // Mirror build-wasm.sh output: <driver>.js/.wasm, not mame<driver>.*.
     const manifest = {
       driver: "gridlee",
       core_hash: wasmHash,
       mame_commit: "b".repeat(40),
       emsdk: "6.0.2",
-      artifacts: { "mamegridlee.wasm": wasmHash, "mamegridlee.js": jsHash },
+      artifacts: { "gridlee.wasm": wasmHash, "gridlee.js": jsHash },
     };
     const writeFile = vi.fn();
-    const loadScript = async () => {
+    let loadedUrl = "";
+    const loadScript = async (url: string) => {
+      loadedUrl = url;
       const mod = (globalThis as Record<string, unknown>).Module as TestModule;
       mod.FS = {
         mkdir: () => {},
@@ -86,8 +89,8 @@ describe("loadBrowserCore", () => {
       {
         fetchImpl: fakeFetch({
           "https://x/cores/gridlee/manifest.json": manifest,
-          "https://x/cores/gridlee/mamegridlee.wasm": wasm,
-          "https://x/cores/gridlee/mamegridlee.js": js,
+          "https://x/cores/gridlee/gridlee.wasm": wasm,
+          "https://x/cores/gridlee/gridlee.js": js,
           "https://x/roms/gridlee.zip": rom,
         }),
         loadScript,
@@ -95,6 +98,7 @@ describe("loadBrowserCore", () => {
     );
 
     await expect(core.load()).resolves.toBeUndefined();
+    expect(loadedUrl).toBe("https://x/cores/gridlee/gridlee.js");
     expect(writeFile).toHaveBeenCalledWith("/roms/gridlee.zip", rom);
     expect(
       ((globalThis as Record<string, unknown>).Module as TestModule).arguments,

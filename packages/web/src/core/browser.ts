@@ -65,9 +65,17 @@ export async function loadBrowserCore(
         await (await doFetch(`${init.coreBaseUrl}/${name}`)).arrayBuffer(),
       ),
     createModule: async (
-      _manifest: unknown,
+      manifest: unknown,
       args: readonly string[],
     ): Promise<CoreModule> => {
+      // The build names the glue after MAME's project (`mame<driver>.js`) but
+      // emits `<driver>.js` when that target is not used; always trust the
+      // manifest's artifact list rather than guessing.
+      const artifacts =
+        (manifest as { artifacts?: Record<string, string> }).artifacts ?? {};
+      const jsName =
+        Object.keys(artifacts).find((name) => name.endsWith(".js")) ??
+        `mame${init.driver}.js`;
       let settleReady!: (module: CoreModule) => void;
       let abortReady!: (reason: Error) => void;
       const ready = new Promise<CoreModule>((resolve, reject) => {
@@ -98,7 +106,7 @@ export async function loadBrowserCore(
           abortReady(new Error(`core runtime aborted: ${String(what)}`)),
       };
       (globalThis as Record<string, unknown>).Module = config;
-      await loadScript(`${init.coreBaseUrl}/mame${init.driver}.js`);
+      await loadScript(`${init.coreBaseUrl}/${jsName}`);
       return ready;
     },
   };
