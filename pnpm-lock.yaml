@@ -38,7 +38,11 @@ importers:
 
   packages/verifier: {}
 
-  packages/web: {}
+  packages/web:
+    dependencies:
+      '@wma/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
 packages:
 
