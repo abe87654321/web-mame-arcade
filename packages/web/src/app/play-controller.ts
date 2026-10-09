@@ -50,6 +50,11 @@ export interface PlayDeps {
   inputConfig?: InputConfig;
   /** Netplay lockstep loop; when present it drives `core.step` (T24). */
   lockstep?: { tick(localMask: number): void };
+  /**
+   * The canvas the core already rendered into (mounted before boot). When
+   * absent (tests), the controller creates one.
+   */
+  screen?: UiElement;
   /** Status line sink (boot/errors). */
   onStatus?: (text: string) => void;
 }
@@ -77,7 +82,7 @@ function boundKeyCodes(config: InputConfig): Set<string> {
 
 export function createPlayController(deps: PlayDeps): PlayController {
   const config = deps.inputConfig ?? DEFAULT_INPUT_CONFIG;
-  const screen = deps.document.createElement("canvas");
+  const screen = deps.screen ?? deps.document.createElement("canvas");
   screen.className = "screen";
 
   const keys: KeyState = createKeyState();

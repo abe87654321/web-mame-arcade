@@ -66,6 +66,8 @@ export interface AppEnv {
   netplay?: NetplayEnv;
   /** Generates a fresh room id for "Play online"; defaults to `randomUUID`. */
   newRoomId?: () => string;
+  /** The shared canvas MAME renders into; set by `startApp`, absent in tests. */
+  screen?: HTMLCanvasElement;
 }
 
 /** Room id for a new online game. UI-only; never part of the emulation path. */
@@ -80,6 +82,8 @@ function defaultRoomId(): string {
 export interface LoadCoreOptions {
   /** Arm netplay so the machine freezes at boot and the lockstep drives it. */
   netplay: boolean;
+  /** The canvas MAME renders into; must be in the DOM before boot. */
+  canvas?: unknown;
 }
 
 export interface AppDeps {
@@ -188,9 +192,14 @@ export function createApp(deps: AppDeps): AppController {
       return;
     }
 
+    // The canvas must be in the DOM before the core boots (SDL creates the
+    // WebGL context during runtime init), so mount it first, then load.
+    const screenUi = deps.env.screen ? wrapElement(deps.env.screen) : null;
+    if (screenUi) deps.env.root.append(screenUi);
+
     setStatus(`loading ${entry.title}...`);
     void deps
-      .loadCore(entry, { netplay: Boolean(route.room) })
+      .loadCore(entry, { netplay: Boolean(route.room), canvas: deps.env.screen })
       .then((core) => {
         if (myToken !== token) {
           core.destroy();
@@ -221,6 +230,7 @@ export function createApp(deps: AppDeps): AppController {
           gamepads: deps.env.gamepads,
           onStatus: setStatus,
           ...(match ? { lockstep: match } : {}),
+          ...(screenUi ? { screen: screenUi } : {}),
         });
         if (match) {
           deps.env.root.append(
@@ -237,7 +247,7 @@ export function createApp(deps: AppDeps): AppController {
             ),
           );
         }
-        deps.env.root.append(play.screen);
+        if (!screenUi) deps.env.root.append(play.screen);
       })
       .catch((error: unknown) => {
         if (myToken !== token) return;
@@ -292,6 +302,7 @@ function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<
     romPath,
     romZipName: `${entry.driver}.zip`,
     netplay: options.netplay,
+    ...(options.canvas ? { canvas: options.canvas } : {}),
   });
 }
 
@@ -328,6 +339,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       scheduler: browserScheduler(),
       keyboard: win,
       gamepads: win.navigator,
+      screen: doc.createElement("canvas"),
       ...(netplay ? { netplay } : {}),
     },
   });

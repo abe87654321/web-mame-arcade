@@ -76,6 +76,7 @@ describe("loadBrowserCore", () => {
       mod.onRuntimeInitialized();
     };
 
+    const canvas = { tag: "canvas" };
     const core = await loadBrowserCore(
       {
         coreBaseUrl: "https://x/cores/gridlee",
@@ -84,6 +85,7 @@ describe("loadBrowserCore", () => {
         args: ["gridlee", "-skip_gameinfo"],
         romPath: "/roms",
         romZipName: "gridlee.zip",
+        canvas,
       },
       {
         fetchImpl: fakeFetch({
@@ -99,6 +101,10 @@ describe("loadBrowserCore", () => {
     await expect(core.load()).resolves.toBeUndefined();
     expect(loadedUrl).toBe("https://x/cores/gridlee/gridlee.js");
     expect(writeFile).toHaveBeenCalledWith("/roms/gridlee.zip", rom);
+    // The canvas is handed to MAME as Module.canvas before boot.
+    expect(
+      ((globalThis as Record<string, unknown>).Module as { canvas?: unknown }).canvas,
+    ).toBe(canvas);
     expect(
       ((globalThis as Record<string, unknown>).Module as TestModule).arguments,
     ).toEqual(["gridlee", "-skip_gameinfo"]);

@@ -19,6 +19,11 @@ export interface BrowserCoreInit {
    * lockstep drives every frame (T24, docs/03). Solo leaves this unset.
    */
   netplay?: boolean;
+  /**
+   * The canvas MAME/SDL renders into. Must already be in the DOM before boot,
+   * since SDL creates the WebGL context during runtime init.
+   */
+  canvas?: unknown;
 }
 
 export interface BrowserCoreDeps {
@@ -102,6 +107,7 @@ export async function loadBrowserCore(
       });
       const config: Record<string, unknown> = {
         arguments: [...args],
+        ...(init.canvas ? { canvas: init.canvas } : {}),
         // Mount at runtime init, not preRun: the ROM needs `Module.FS`, which is
         // only present once the runtime is up. This still runs before MAME's
         // callMain() starts the machine.

@@ -91,6 +91,12 @@ were assumed but only wired into the build here — the T11 tests use fakes, so 
 the check.
 
 ## Browser wrapper (`web/src/core/`)
+- `loadBrowserCore` must be handed the render canvas; it sets `Module.canvas` and the canvas is
+  already in the DOM (SDL creates the WebGL context in `initRuntime`, before `onRuntimeInitialized`).
+- The ROM is mounted in `onRuntimeInitialized` (not `preRun`, where `Module.FS` may not exist yet) but
+  still before MAME's `callMain`.
+- `netplay_post.js` resolves `cwrap` lazily, at call time: newer Emscripten returns the wasm export
+  directly from `cwrap`, and the post-js runs before the async wasm instance assigns `Module._netplay_*`.
 - Loads the core, mounts the ROM zip into Emscripten's FS, starts MAME with identical options on every peer:
   `-skip_gameinfo`, empty per-session `-nvram_directory`, no `.ini`, DIP values from the room host.
 - Exposes a typed `Core` interface: `load()`, `step(frame, inputs)`, `save()`, `load(state)`, `hash()`, `readScore()`.
