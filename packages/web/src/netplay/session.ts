@@ -4,6 +4,7 @@
  * `rtc.signal` messages are routed to the peer for the stamped sender slot.
  */
 import type {
+  ClientMessage,
   GameStart,
   RoomState,
   RtcSignal,
@@ -26,6 +27,8 @@ export interface SessionOptions {
   onRoomState?: (message: RoomState) => void;
   /** The host's `game.start`, fanned out by the relay. */
   onGameStart?: (message: GameStart) => void;
+  /** A peer's data channel opened (may let a match start). */
+  onChannelOpen?: (slot: number) => void;
   /** A handler/message-processing error; never thrown out of the socket callback. */
   onError?: (error: unknown) => void;
 }
@@ -33,6 +36,8 @@ export interface SessionOptions {
 export interface NetplaySession {
   /** Apply a message from the relay. Exposed so tests drive it directly. */
   handleMessage(message: ServerMessage): Promise<void>;
+  /** Send a client JSON message to the relay (e.g. game.start). */
+  send(message: ClientMessage): boolean;
   sendTo(slot: number, data: ArrayBuffer): boolean;
   broadcast(data: ArrayBuffer): void;
   /** Send a binary input packet to the relay. */
@@ -94,6 +99,7 @@ export function createSession(options: SessionOptions): NetplaySession {
           const bytes = toBytes(data);
           if (bytes) onInput?.(bytes);
         },
+        ...(options.onChannelOpen ? { onChannelOpen: options.onChannelOpen } : {}),
       });
     }
     return mesh;
@@ -111,12 +117,17 @@ export function createSession(options: SessionOptions): NetplaySession {
       case "room.state": {
         selfSlot = message.self;
         roomPlayers = message.players.map((player) => player.slot).sort((a, b) => a - b);
-        options.onRoomState?.(message);
-        if (message.self === null) return;
+        if (message.self === null) {
+          options.onRoomState?.(message);
+          return;
+        }
+        // Populate the mesh first, then announce, so a listener that checks
+        // `ready()` sees the freshly created peer channels (T24 host start).
         const active = ensureMesh(message.self);
         await active.setPlayers(message.players);
         meshReady = true;
         await flushPendingSignals();
+        options.onRoomState?.(message);
         return;
       }
       case "game.start": {
@@ -144,6 +155,7 @@ export function createSession(options: SessionOptions): NetplaySession {
 
   return {
     handleMessage,
+    send: (message) => client.send(message),
     sendTo: (slot, data) => (mesh ? mesh.sendTo(slot, data) : false),
     broadcast: (data) => {
       mesh?.broadcast(data);

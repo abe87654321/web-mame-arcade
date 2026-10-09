@@ -168,6 +168,15 @@ describe("createSession", () => {
     expect(onGameStart).toHaveBeenCalledWith({ t: "game.start", startFrame: 0, inputDelay: 2 });
   });
 
+  it("sends a client JSON message through the relay socket", () => {
+    const { socket, session } = harness([]);
+
+    expect(session.send({ t: "game.start", startFrame: 0, inputDelay: 2 })).toBe(true);
+    expect(socket.sent.at(-1)).toBe(
+      JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 2 }),
+    );
+  });
+
   it("delegates sendBinary to the relay socket", () => {
     const { socket, session } = harness([]);
     const packet = new Uint8Array([9, 9]).buffer;
