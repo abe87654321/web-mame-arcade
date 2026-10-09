@@ -7,6 +7,19 @@ Start with delay-based lockstep; add rollback per game once stable.
 - Every input packet is also sent to the relay (feeds viewers + verifier).
 - Wire format: see `contracts/input-packet.md`. Each packet repeats the last 8 frames of input.
 
+## Signalling and negotiation (pinned in T23)
+- `room.state` carries `self`, the recipient's own player slot (null for viewers), so every
+  client knows its role in each pair.
+- Full mesh: one `RTCPeerConnection` per pair of player slots. For a pair the **lower slot
+  initiates** — it creates the data channel with `{ ordered: false, maxRetransmits: 0 }` and
+  offers; the higher slot answers. Exactly one offerer per pair, so there is no glare.
+- SDP and ICE cross the relay as `rtc.signal`; the relay stamps `from` (the sender's slot) on the
+  forwarded message and the receiver routes it to the peer for that slot. Trickle ICE: candidates
+  go out as gathered, and a peer buffers remote candidates until it has set the remote description.
+- ICE servers are configured in the browser (`VITE_STUN_URL`, `VITE_TURN_URL`,
+  `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`). coturn runs from `deploy/docker-compose.yml`
+  with `use-auth-secret`; the API mints short-lived TURN credentials (T34).
+
 ## Lockstep loop, per frame N
 1. Read local controls, schedule them for frame N + D (D = 2-3, tuned from measured ping).
 2. Send to all peers and to the relay.
