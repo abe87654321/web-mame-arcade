@@ -5,6 +5,14 @@ import type { Core } from "../core/types";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import {
+  createMatch,
+  type IceServer,
+  type MatchStatus,
+  type NetplayMatch,
+  type RtcFactory,
+  type WebSocketFactory,
+} from "../netplay";
+import {
   browserUiDocument,
   renderTree,
   wrapElement,
@@ -26,6 +34,17 @@ import { gameHref, startRouter, type Route, type RouterTarget } from "./router";
  * wiring is exercised in tests with fakes; `startApp` builds the real env.
  */
 
+/** Relay wiring for netplay routes; injected so tests need no network. */
+export interface NetplayEnv {
+  relayUrl: string;
+  token: string;
+  iceServers: IceServer[];
+  socketFactory: WebSocketFactory;
+  factory: RtcFactory;
+  /** Milliseconds clock for the lockstep wait timer; defaults to Date.now. */
+  now?: () => number;
+}
+
 export interface AppEnv {
   doc: UiDocument;
   /** Container the current view is rendered into (cleared per route). */
@@ -38,6 +57,8 @@ export interface AppEnv {
   scheduler: FrameScheduler;
   keyboard: KeyboardTarget;
   gamepads: GamepadsProvider;
+  /** Set by `startApp`; absent in solo-only tests. */
+  netplay?: NetplayEnv;
 }
 
 export interface AppDeps {
@@ -54,19 +75,37 @@ function notFound(message: string): { tag: string; className: string; text: stri
   return { tag: "p", className: "not-found", text: message };
 }
 
+function matchStatusText(status: MatchStatus): string {
+  switch (status) {
+    case "connecting":
+      return "connecting to room...";
+    case "waiting-for-peers":
+      return "waiting for players...";
+    case "waiting":
+      return "waiting for player input...";
+    case "running":
+      return "playing online";
+  }
+}
+
 export function createApp(deps: AppDeps): AppController {
   let play: PlayController | null = null;
+  let match: NetplayMatch | null = null;
   let token = 0;
 
   const setStatus = (text: string): void => {
     deps.env.status.textContent = text;
   };
 
+  const teardown = (): void => {
+    match?.close();
+    match = null;
+    play?.destroy();
+    play = null;
+  };
+
   const render = (route: Route): void => {
-    if (play) {
-      play.destroy();
-      play = null;
-    }
+    teardown();
     token += 1;
     const myToken = token;
     deps.env.root.textContent = "";
@@ -99,6 +138,15 @@ export function createApp(deps: AppDeps): AppController {
       return;
     }
 
+    const netplay = deps.env.netplay;
+    if (route.room && !netplay) {
+      setStatus("online play is not configured (missing relay URL/token)");
+      deps.env.root.append(
+        renderTree(deps.env.doc, notFound("Online play is not configured")),
+      );
+      return;
+    }
+
     setStatus(`loading ${entry.title}...`);
     void deps
       .loadCore(entry)
@@ -106,6 +154,22 @@ export function createApp(deps: AppDeps): AppController {
         if (myToken !== token) {
           core.destroy();
           return;
+        }
+        if (route.room && netplay) {
+          match = createMatch({
+            core,
+            config: {
+              relayUrl: netplay.relayUrl,
+              token: netplay.token,
+              room: route.room,
+              role: "player",
+              iceServers: netplay.iceServers,
+            },
+            socketFactory: netplay.socketFactory,
+            factory: netplay.factory,
+            now: netplay.now ?? (() => Date.now()),
+            onStatus: (status) => setStatus(matchStatusText(status)),
+          });
         }
         play = createPlayController({
           core,
@@ -115,6 +179,7 @@ export function createApp(deps: AppDeps): AppController {
           keyboard: deps.env.keyboard,
           gamepads: deps.env.gamepads,
           onStatus: setStatus,
+          ...(match ? { lockstep: match } : {}),
         });
         deps.env.root.append(play.screen);
       })
@@ -135,8 +200,7 @@ export function createApp(deps: AppDeps): AppController {
     destroy: () => {
       token += 1;
       stop();
-      play?.destroy();
-      play = null;
+      teardown();
     },
   };
 }

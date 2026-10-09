@@ -17,12 +17,13 @@ import { createSampleState, sampleFrameInputs } from "../input/sample";
 import type { UiDocument, UiElement } from "../ui/view";
 
 /**
- * Play-page controller (T13). Boots the core, mounts its canvas and runs one
- * input-sampling tick per animation frame. The stock Emscripten build runs MAME
- * itself and exposes no frame gate, so this loop only samples the local devices
- * into a FrameInputs tuple; it must NOT call `core.step()` (that arrives with
- * the T20 netplay patch). Sampling is stateless beyond axis hysteresis, and
- * nothing here reads the clock or randomness.
+ * Play-page controller (T13/T24). Boots the core, mounts its canvas and runs
+ * one input-sampling tick per animation frame. Solo, the stock Emscripten build
+ * runs MAME itself and this loop only samples the local devices. In netplay the
+ * injected `lockstep` owns the frame clock: each tick hands it the sampled
+ * `FrameInputs` and it calls `core.step` when every player's inputs are ready.
+ * Sampling is stateless beyond axis hysteresis, and nothing here reads the
+ * clock or randomness.
  */
 
 export interface FrameScheduler {
@@ -47,6 +48,8 @@ export interface PlayDeps {
   gamepads: GamepadsProvider;
   /** Effective input config; defaults to the built-in keyboard P1 config. */
   inputConfig?: InputConfig;
+  /** Netplay lockstep loop; when present it drives `core.step` (T24). */
+  lockstep?: { tick(localInputs: FrameInputs): void };
   /** Status line sink (boot/errors). */
   onStatus?: (text: string) => void;
 }
@@ -90,6 +93,7 @@ export function createPlayController(deps: PlayDeps): PlayController {
   const tick = (): void => {
     if (!running) return;
     current = sampleFrameInputs(config, keys, deps.gamepads.getGamepads(), sampleState);
+    deps.lockstep?.tick(current);
     handle = deps.scheduler.request(tick);
   };
 

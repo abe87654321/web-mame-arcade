@@ -13,10 +13,19 @@ describe("parseRoute", () => {
     expect(parseRoute("")).toEqual({ kind: "list" });
   });
 
-  it("maps a game hash to a play route", () => {
+  it("maps a game hash to a solo play route", () => {
     expect(parseRoute("#/game/gridlee")).toEqual({
       kind: "play",
       driver: "gridlee",
+      room: null,
+    });
+  });
+
+  it("maps a game hash with a room to a netplay play route", () => {
+    expect(parseRoute("#/game/gridlee/room/abc123")).toEqual({
+      kind: "play",
+      driver: "gridlee",
+      room: "abc123",
     });
   });
 
@@ -36,8 +45,12 @@ describe("parseRoute", () => {
 });
 
 describe("gameHref", () => {
-  it("builds the play link for a driver", () => {
+  it("builds the solo play link for a driver", () => {
     expect(gameHref("gridlee")).toBe("#/game/gridlee");
+  });
+
+  it("builds the netplay play link with a room", () => {
+    expect(gameHref("gridlee", "abc123")).toBe("#/game/gridlee/room/abc123");
   });
 });
 
@@ -72,6 +85,7 @@ describe("startRouter", () => {
     expect(onChange).toHaveBeenLastCalledWith({
       kind: "play",
       driver: "gridlee",
+      room: null,
     });
 
     stop();

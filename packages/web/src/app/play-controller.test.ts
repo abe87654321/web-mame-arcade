@@ -151,6 +151,28 @@ describe("createPlayController", () => {
     controller.destroy();
   });
 
+  it("hands the sampled inputs to the lockstep when netplaying", () => {
+    const scheduler = fakeScheduler();
+    const keyboard = fakeKeyboard();
+    const core = fakeCore();
+    const lockstep = { tick: vi.fn() };
+    createPlayController({
+      core,
+      entry,
+      document: fakeDoc(),
+      scheduler,
+      keyboard,
+      gamepads: fakeGamepads(),
+      lockstep,
+    });
+
+    keyboard.fire("keydown", { code: "KeyZ", preventDefault: vi.fn() });
+    scheduler.runNext();
+
+    expect(lockstep.tick).toHaveBeenCalledWith([BUTTON_BITS.b1, 0, 0, 0]);
+    expect(core.step).not.toHaveBeenCalled();
+  });
+
   it("stops the loop and detaches listeners on destroy", () => {
     const scheduler = fakeScheduler();
     const keyboard = fakeKeyboard();

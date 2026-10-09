@@ -5,7 +5,12 @@ import type { GameEntry } from "../catalogue";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import type { UiDocument, UiElement } from "../ui/view";
-import { createApp, coreDirUrl, type AppEnv } from "./app";
+import { createApp, coreDirUrl, type AppEnv, type NetplayEnv } from "./app";
+import {
+  FakeWebSocket,
+  fakeRtcFactory,
+  fakeSocketFactory,
+} from "../netplay/test-fakes";
 
 const entry: GameEntry = {
   driver: "gridlee",
@@ -72,7 +77,7 @@ interface Harness {
   cores: Core[];
 }
 
-function harness(): Harness {
+function harness(netplay?: NetplayEnv): Harness {
   const doc = fakeDoc();
   const root = makeElement();
   const status = makeElement();
@@ -111,6 +116,7 @@ function harness(): Harness {
     scheduler: { request: () => 1, cancel: () => {} },
     keyboard,
     gamepads,
+    ...(netplay ? { netplay } : {}),
   };
   return {
     env,
@@ -195,6 +201,41 @@ describe("createApp", () => {
 
     expect(h.loadCore).not.toHaveBeenCalled();
     expect(h.root.children[0]?.textContent).toContain("Unknown game");
+    app.destroy();
+  });
+
+  it("joins the named room when a netplay route is configured", async () => {
+    const socket = new FakeWebSocket();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "room.join", room: "abc", role: "player", token: "jwt" }),
+    );
+    app.destroy();
+    expect(socket.closes).toBe(1);
+  });
+
+  it("warns when an online route has no relay configuration", async () => {
+    const h = harness();
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+
+    expect(h.status.textContent).toContain("not configured");
     app.destroy();
   });
 

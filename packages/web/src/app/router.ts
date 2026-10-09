@@ -7,7 +7,7 @@
 
 export type Route =
   | { kind: "list" }
-  | { kind: "play"; driver: string }
+  | { kind: "play"; driver: string; room: string | null }
   | { kind: "not-found"; path: string };
 
 export interface RouterTarget {
@@ -19,13 +19,17 @@ export interface RouterTarget {
 export function parseRoute(hash: string): Route {
   const path = (hash.startsWith("#") ? hash.slice(1) : hash) || "/";
   if (path === "/") return { kind: "list" };
-  const match = /^\/game\/(.+)$/.exec(path);
-  if (match?.[1]) return { kind: "play", driver: match[1] };
+  const match = /^\/game\/([^/]+)(?:\/room\/([^/]+))?$/.exec(path);
+  if (match?.[1]) {
+    const room = match[2] ?? null;
+    return { kind: "play", driver: match[1], room };
+  }
   return { kind: "not-found", path };
 }
 
-export function gameHref(driver: string): string {
-  return `#/game/${driver}`;
+/** Play link; with a room it joins netplay, without it is solo (T24). */
+export function gameHref(driver: string, room?: string): string {
+  return room ? `#/game/${driver}/room/${room}` : `#/game/${driver}`;
 }
 
 /**
