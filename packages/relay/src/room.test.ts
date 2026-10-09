@@ -149,8 +149,11 @@ describe("RoomManager.signal", () => {
     return rooms;
   }
 
-  it("routes to the connection seated in the target slot", () => {
-    expect(seated().signal("c1", { t: "rtc.signal", to: 1 })).toBe("c2");
+  it("routes to the connection seated in the target slot with the sender slot", () => {
+    expect(seated().signal("c1", { t: "rtc.signal", to: 1 })).toEqual({
+      target: "c2",
+      from: 0,
+    });
   });
 
   it("rejects an unoccupied slot", () => {
@@ -175,7 +178,10 @@ describe("RoomManager.signal", () => {
     const rooms = seated();
     rooms.join("x1", { room: "other", role: "player", token: "dave" });
     expect(() => rooms.signal("c1", { t: "rtc.signal", to: 0 })).not.toThrow();
-    expect(rooms.signal("c1", { t: "rtc.signal", to: 1 })).toBe("c2");
+    expect(rooms.signal("c1", { t: "rtc.signal", to: 1 })).toEqual({
+      target: "c2",
+      from: 0,
+    });
   });
 });
 
