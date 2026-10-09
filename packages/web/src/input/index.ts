@@ -1,0 +1,86 @@
+/** Input layer (T12): devices to per-frame masks, remapping UI. */
+export {
+  ALL_BUTTONS,
+  BINDINGS_VERSION,
+  DEFAULT_GAMEPAD_BINDINGS,
+  DEFAULT_INPUT_CONFIG,
+  DEFAULT_KEYBOARD_BINDINGS,
+  EMPTY_LOCAL_INPUT_CONFIG,
+  bindingKey,
+  emptyFrameInputs,
+  playerBindings,
+  resolveInputConfig,
+  type Binding,
+  type DeviceSlots,
+  type InputConfig,
+  type InputDevice,
+  type LocalInputConfig,
+  type PlayerBindings,
+} from "./bindings";
+export {
+  BUTTON_BITS,
+  PLAYER_SLOTS,
+  RESERVED_MASK,
+  bitFor,
+  toWireMask,
+  type Button,
+} from "./buttons";
+export {
+  findConflicts,
+  sameDevice,
+  type Conflict,
+} from "./devices";
+export {
+  DEFAULT_DEADZONE,
+  DEFAULT_HYSTERESIS,
+  attachGamepadEvents,
+  createAxisState,
+  playerMaskFromPad,
+  readGamepads,
+  type AxisOptions,
+  type AxisState,
+  type GamepadButtonLike,
+  type GamepadEventHandlers,
+  type GamepadEventLike,
+  type GamepadEventTarget,
+  type GamepadLike,
+  type GamepadsProvider,
+} from "./gamepad";
+export {
+  attachKeyboard,
+  createKeyState,
+  playerMaskFromKeys,
+  type AttachKeyboardOptions,
+  type KeyState,
+  type KeyboardTarget,
+} from "./keyboard";
+export {
+  createSampleState,
+  sampleFrameInputs,
+  type SampleState,
+} from "./sample";
+export {
+  STORAGE_KEY,
+  deserializeLocalConfig,
+  loadLocalConfig,
+  rebind,
+  resetSlot,
+  saveLocalConfig,
+  serializeLocalConfig,
+  setDevice,
+  type StorageLike,
+} from "./remap";
+export {
+  browserUiDocument,
+  createRemapUi,
+  describeBinding,
+  describeDevice,
+  renderTree,
+  type CaptureTarget,
+  type RemapUi,
+  type RemapUiOptions,
+  type UiDocument,
+  type UiElement,
+  type UiEvent,
+  type ViewNode,
+} from "./remap-ui";
