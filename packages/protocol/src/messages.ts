@@ -52,6 +52,9 @@ export const roomState = z.strictObject({
 
 export const rtcSignal = z.strictObject({
   t: z.literal("rtc.signal"),
+  // Sender slot, stamped by the relay on the forwarded message. Optional on the
+  // client→relay direction; the relay always overwrites it (docs/03, T23).
+  from: slot.optional(),
   to: slot,
   sdp: sessionDescription.optional(),
   candidate: iceCandidate.optional(),
