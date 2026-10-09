@@ -10,6 +10,14 @@ export { createRelayClient } from "./relay-client";
 export type { RelayClient, RelayClientOptions, RelayJoin } from "./relay-client";
 export { createSession } from "./session";
 export type { NetplaySession, SessionOptions } from "./session";
+export { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
+export type { BuildPacketOptions, FrameTable } from "./inputs";
+export { createLockstep } from "./lockstep";
+export type {
+  Lockstep,
+  LockstepDeps,
+  LockstepStatus,
+} from "./lockstep";
 export {
   browserRtcFactory,
   browserWebSocketFactory,

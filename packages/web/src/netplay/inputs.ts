@@ -107,11 +107,20 @@ export function buildInputPacket(options: BuildPacketOptions): Uint8Array {
   return encodeInput(packet);
 }
 
-/** Decode a packet and stage every frame it carries. Returns the packet. */
-export function applyPacket(table: FrameTable, bytes: Uint8Array): InputPacket {
+/**
+ * Decode a packet and stage every frame it carries. Returns the packet.
+ * `ignorePlayer` drops a peer trying to speak for our own slot (a spoof).
+ */
+export function applyPacket(
+  table: FrameTable,
+  bytes: Uint8Array,
+  ignorePlayer?: number,
+): InputPacket {
   const packet = decodeInput(bytes);
-  packet.inputs.forEach((value, i) => {
-    table.set(packet.player, packet.firstFrame + i, value);
-  });
+  if (packet.player !== ignorePlayer) {
+    packet.inputs.forEach((value, i) => {
+      table.set(packet.player, packet.firstFrame + i, value);
+    });
+  }
   return packet;
 }

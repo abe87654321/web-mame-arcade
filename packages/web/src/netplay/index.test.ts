@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPacket,
   browserRtcFactory,
   browserWebSocketFactory,
+  buildInputPacket,
+  createFrameTable,
+  createLockstep,
   createMesh,
   createPeer,
   createRelayClient,
@@ -17,6 +21,10 @@ describe("netplay index", () => {
       createMesh,
       createRelayClient,
       createSession,
+      createLockstep,
+      createFrameTable,
+      buildInputPacket,
+      applyPacket,
       browserRtcFactory,
       browserWebSocketFactory,
       defaultIceServers,

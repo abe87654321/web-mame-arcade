@@ -106,4 +106,13 @@ describe("applyPacket", () => {
     const table = createFrameTable([0]);
     expect(() => applyPacket(table, new Uint8Array([9, 9, 9]))).toThrow(RangeError);
   });
+
+  it("drops a packet that claims our own slot", () => {
+    const table = createFrameTable([0, 1]);
+    const bytes = buildInputPacket({ player: 0, ackFrame: 0, frames: [9], endFrame: 0 });
+
+    applyPacket(table, bytes, 0);
+
+    expect(table.ackOf(0)).toBe(-1);
+  });
 });
