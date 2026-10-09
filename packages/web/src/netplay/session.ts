@@ -15,6 +15,8 @@ export interface SessionOptions {
   factory: RtcFactory;
   /** Inbound data-channel message, tagged with the sender slot. */
   onMessage?: (from: number, data: unknown) => void;
+  /** A handler/message-processing error; never thrown out of the socket callback. */
+  onError?: (error: unknown) => void;
 }
 
 export interface NetplaySession {
@@ -27,15 +29,19 @@ export interface NetplaySession {
 }
 
 export function createSession(options: SessionOptions): NetplaySession {
-  const { config, factory, onMessage } = options;
+  const { config, factory, onMessage, onError } = options;
   let mesh: Mesh | null = null;
+  /** False until the first `room.state` has populated the mesh's peers. */
+  let meshReady = false;
+  /** Signals that arrived before the mesh could route them (docs/03 race). */
+  const pendingSignals: { from: number; signal: PeerSignalling }[] = [];
 
   const client = createRelayClient({
     url: config.relayUrl,
     join: { room: config.room, role: config.role, token: config.token },
     socketFactory: options.socketFactory,
     onMessage: (message) => {
-      void handleMessage(message);
+      handleMessage(message).catch((error) => onError?.(error));
     },
   });
 
@@ -57,18 +63,34 @@ export function createSession(options: SessionOptions): NetplaySession {
     return mesh;
   }
 
+  async function flushPendingSignals(): Promise<void> {
+    if (!mesh) return;
+    for (const { from, signal } of pendingSignals.splice(0)) {
+      await mesh.handleSignal(from, signal);
+    }
+  }
+
   async function handleMessage(message: ServerMessage): Promise<void> {
     switch (message.t) {
       case "room.state": {
         if (message.self === null) return;
-        await ensureMesh(message.self).setPlayers(message.players);
+        const active = ensureMesh(message.self);
+        await active.setPlayers(message.players);
+        meshReady = true;
+        await flushPendingSignals();
         return;
       }
       case "rtc.signal": {
-        if (!mesh || message.from === undefined) return;
+        if (message.from === undefined) return;
         const signal: PeerSignalling = {};
         if (message.sdp) signal.sdp = message.sdp;
         if (message.candidate) signal.candidate = message.candidate;
+        // A signal can outrace the recipient's first `room.state`; hold it
+        // until the mesh exists and knows its peers, then replay (docs/03).
+        if (!mesh || !meshReady) {
+          pendingSignals.push({ from: message.from, signal });
+          return;
+        }
         await mesh.handleSignal(message.from, signal);
         return;
       }

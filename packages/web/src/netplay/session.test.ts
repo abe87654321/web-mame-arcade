@@ -26,6 +26,7 @@ function roomState(self: number | null, slots: number[]): ServerMessage {
 function harness(
   connections: FakePeerConnection[],
   onMessage?: (from: number, data: unknown) => void,
+  onError?: (error: unknown) => void,
 ) {
   const socket = new FakeWebSocket();
   const session = createSession({
@@ -39,6 +40,7 @@ function harness(
     socketFactory: fakeSocketFactory(socket),
     factory: fakeRtcFactory(connections),
     ...(onMessage ? { onMessage } : {}),
+    ...(onError ? { onError } : {}),
   });
   socket.open();
   return { socket, session };
@@ -139,6 +141,53 @@ describe("createSession", () => {
 
     expect(pc1.dataChannels[0]!.sent).toEqual([data, data]);
     expect(pc2.dataChannels[0]!.sent).toEqual([data]);
+  });
+
+  it("buffers a relayed offer that arrives before room.state", async () => {
+    const pc = new FakePeerConnection();
+    const { socket, session } = harness([pc]);
+
+    await session.handleMessage({
+      t: "rtc.signal",
+      from: 0,
+      to: 1,
+      sdp: { type: "offer", sdp: "remote" },
+    });
+    expect(socket.sent).toHaveLength(1);
+
+    await session.handleMessage(roomState(1, [0, 1]));
+
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "rtc.signal", to: 0, sdp: { type: "answer", sdp: "answer-sdp" } }),
+    );
+  });
+
+  it("reports a handler error through onError instead of swallowing it", async () => {
+    const socket = new FakeWebSocket();
+    const onError = vi.fn();
+    createSession({
+      config: {
+        relayUrl: "ws://relay.test/ws",
+        token: "jwt",
+        room: "r",
+        role: "player",
+        iceServers: [],
+      },
+      socketFactory: fakeSocketFactory(socket),
+      factory: {
+        createPeerConnection() {
+          throw new Error("boom");
+        },
+      },
+      onError,
+    });
+    socket.open();
+
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
   it("closes the mesh and the socket", async () => {
