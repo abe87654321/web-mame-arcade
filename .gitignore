@@ -4,6 +4,7 @@ roms/
 core/out/
 .env
 .env.*
+!**/.env.example
 dist/
 coverage/
 *.log
