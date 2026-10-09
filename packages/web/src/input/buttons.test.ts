@@ -21,4 +21,8 @@ describe("buttons re-export", () => {
     expect(toWireMask(0xffff)).toBe(0x0fff);
     expect(toWireMask(BUTTON_BITS.b1)).toBe(BUTTON_BITS.b1);
   });
+
+  it("drops bits above the 16-bit mask", () => {
+    expect(toWireMask(0x10000 | 0x0800)).toBe(0x0800);
+  });
 });

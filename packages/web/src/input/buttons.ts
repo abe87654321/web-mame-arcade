@@ -19,7 +19,7 @@ export function bitFor(button: Button): number {
   return BUTTON_BITS[button];
 }
 
-/** Clear the reserved bits so nothing but contract-defined bits goes on the wire. */
+/** Keep only the contract-defined bits: clear reserved bits and anything >15. */
 export function toWireMask(mask: number): number {
-  return mask & ~RESERVED_MASK;
+  return mask & ~RESERVED_MASK & 0xffff;
 }

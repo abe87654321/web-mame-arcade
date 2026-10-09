@@ -88,6 +88,12 @@ describe("RemapUi controller", () => {
     expect(ui.captureBinding({ kind: "key", code: "Enter" })).toBe(false);
   });
 
+  it("ignores beginCapture for an out-of-range slot", () => {
+    const ui = fresh();
+    ui.beginCapture(9, "b1");
+    expect(ui.capture()).toBeNull();
+  });
+
   it("assigns, clears, and switches a slot to the keyboard", () => {
     const ui = fresh();
     ui.setDevice(2, { kind: "gamepad", index: 0 });

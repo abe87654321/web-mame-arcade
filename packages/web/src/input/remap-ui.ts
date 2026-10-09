@@ -169,6 +169,10 @@ export function createRemapUi(
 
   const applyBinding = (binding: Binding): boolean => {
     if (!capture) return false;
+    if (capture.slot < 0 || capture.slot >= PLAYER_SLOTS) {
+      capture = null;
+      return false;
+    }
     const device = config().devices[capture.slot] ?? null;
     const kind =
       device === null ? "any" : device.kind === "keyboard" ? "keyboard" : "gamepad";
@@ -254,6 +258,7 @@ export function createRemapUi(
     conflicts: () => findConflicts(config()),
     capture: () => capture,
     beginCapture: (slot, button) => {
+      if (slot < 0 || slot >= PLAYER_SLOTS) return;
       capture = { slot, button };
     },
     cancelCapture: () => {
