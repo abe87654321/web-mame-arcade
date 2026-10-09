@@ -119,3 +119,28 @@ apply/revert restores a pristine tree, idempotent apply, stable `hash`, and ever
   rom_hash, dip_signature)` handshake, belong to the match descriptor (T30/T33).
 - **Stable field pointers:** `s_fields` caches `ioport_field*`; rebuild bindings on machine reset once
   T24 resets within a session.
+
+## Post-review follow-ups (determinism-auditor + reviewer, recorded)
+The verified build `core/out/gridlee/70b2077a…` was produced before these were noted; fixing any of them
+touches the core and requires a rebuild, so they are deferred rather than silently changing the artifact.
+- **F1 — input-window bound is count-based, not distance-based.** `netplay_set_inputs` refuses once
+  `s_pending.size() >= MAX_PENDING` (arrival-order dependent). Bound by frame distance
+  (`frame > s_next_frame + MAX_LOOKAHEAD`) instead, which is identical on every peer.
+- **F2 — `netplay_load_state` does not rewind the frame clock.** Add a frame argument, set
+  `s_next_frame = frame`, drop stale pending; needed for T25 resync / T40 rollback.
+- **F3 — bindings/pending survive a machine reset.** Add `netplay_reset()` (clear state, rebuild
+  bindings) and call it from the reset notifier.
+- **F4/F5 — set_value vs the verifier's Lua injection and the missing `core/inputmap/`.** The verifier
+  must set every mapped bit every frame with the same bit->field mapping; today the mapping is hard-coded
+  in `netplay.cpp` and `core/inputmap/<driver>.json` does not exist. Single-source it before T33.
+- **F6 — native verifier cannot use the ABI.** `current_machine()` is Emscripten-only; add
+  `netplay_attach(running_machine&)` if T33 is to share the gate (the `build-native.sh` comment
+  overstates "same patched source").
+- **F7 — `netplay_hash()` is a mutating read** (`write_buffer` runs `dispatch_presave`); peers must
+  sample hashes at the same frame boundary. Document the cadence in `docs/03` and cover it in T26.
+- **F8 — the netplay loop skips the `m_saveload_schedule` branch** present in the stock loop; a scheduled
+  file save/load would hang. Mirror the stock branch (same as the T24 item above).
+- **Nits:** stale top comment in `netplay.cpp` still describes the rejected regions-sorted hash
+  (fix on the next rebuild); `netplay_enable` is exported but not wired in `NetplayHooks`, so activation
+  is implicit at the first `set_inputs` (confirm before lockstep); `git diff --check` flags whitespace
+  inside the `.patch` context; pin `LC_ALL=C` in `build-native.sh` for consistency.
