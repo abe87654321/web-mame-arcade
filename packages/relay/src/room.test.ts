@@ -194,6 +194,70 @@ describe("RoomManager.signal", () => {
   });
 });
 
+describe("RoomManager.begin", () => {
+  function twoPlayers() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    return rooms;
+  }
+
+  it("records the host's start and flips the room to playing", () => {
+    const rooms = twoPlayers();
+    const result = rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    expect(result).toEqual({ roomId: "r", from: 0 });
+    expect(rooms.snapshot("c2").status).toBe("playing");
+  });
+
+  it("lets the lowest occupied slot start even when it is not slot 0", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "viewer", token: "watcher" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    expect(rooms.begin("c2", { t: "game.start", startFrame: 0, inputDelay: 2 }).from).toBe(0);
+  });
+
+  it("rejects a non-host player", () => {
+    const rooms = twoPlayers();
+    try {
+      rooms.begin("c2", { t: "game.start", startFrame: 0, inputDelay: 2 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_host");
+    }
+  });
+
+  it("rejects a slot-less viewer", () => {
+    const rooms = twoPlayers();
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    try {
+      rooms.begin("c9", { t: "game.start", startFrame: 0, inputDelay: 2 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects an unjoined connection", () => {
+    try {
+      twoPlayers().begin("ghost", { t: "game.start", startFrame: 0, inputDelay: 2 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects a second start", () => {
+    const rooms = twoPlayers();
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    try {
+      rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("already_started");
+    }
+  });
+});
+
 describe("RoomManager.snapshot", () => {
   it("describes a pre-game room with nullable game fields", () => {
     const rooms = manager();

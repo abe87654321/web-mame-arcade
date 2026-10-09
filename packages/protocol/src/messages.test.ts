@@ -144,9 +144,15 @@ describe("message schemas", () => {
 
   it("routes each message to the directions in the contract table", () => {
     const byType = Object.fromEntries(validMessages.map((m) => [m.t, m]));
-    const clientOnly = ["room.join", "game.start", "hash", "game.end"] as const;
+    const clientOnly = ["room.join", "hash", "game.end"] as const;
     const serverOnly = ["room.state", "desync", "error"] as const;
-    const both = ["rtc.signal", "state.snapshot", "score.live", "chat"] as const;
+    const both = [
+      "rtc.signal",
+      "game.start",
+      "state.snapshot",
+      "score.live",
+      "chat",
+    ] as const;
 
     for (const t of clientOnly) {
       expect(clientMessage.safeParse(byType[t]).success, t).toBe(true);

@@ -7,7 +7,7 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `room.join` | client → relay | room, role (`player`/`viewer`), token | join a room |
 | `room.state` | relay → client | room, self, players[], game, coreHash, romHash, dips, status | room snapshot (`self` = recipient's slot or null; game fields null pre-game) |
 | `rtc.signal` | both | to, sdp?, candidate? (client); from, to, sdp?, candidate? (relay) | WebRTC signalling relay |
-| `game.start` | host → relay | startFrame, inputDelay | begins input log |
+| `game.start` | host → relay → all | startFrame, inputDelay | begins input log; relay fans it out and sets status `playing` |
 | `input` | player → relay | binary input packet | recorded + fanned out |
 | `state.snapshot` | host → relay → client | frame, blobUrl | late join / desync recovery |
 | `hash` | player → relay | frame, crc32 | desync detection |

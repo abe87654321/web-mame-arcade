@@ -3,10 +3,18 @@
  * socket binding (server.ts) and the relay dispatcher (relay.ts) can stay
  * thin. Semantics: docs/03-netplay-protocol.md, docs/contracts/ws-messages.md.
  */
-import { PLAYER_SLOTS, type RoomState, type RtcSignal } from "@wma/protocol";
+import {
+  PLAYER_SLOTS,
+  type GameStart,
+  type RoomState,
+  type RtcSignal,
+} from "@wma/protocol";
 import type { TokenVerifier } from "./token.ts";
 
 export type Role = "player" | "viewer";
+
+/** Room lifecycle: `waiting` pre-game, `playing` after the host's game.start. */
+export type RoomStatus = "waiting" | "playing" | "ended";
 
 export interface RoomMember {
   connectionId: string;
@@ -37,6 +45,8 @@ export class RelayError extends Error {
 interface Room {
   id: string;
   members: Map<string, RoomMember>;
+  status: RoomStatus;
+  start: { startFrame: number; inputDelay: number } | null;
 }
 
 export class RoomManager {
@@ -147,6 +157,36 @@ export class RoomManager {
     return { target: target.connectionId, from: sender.slot };
   }
 
+  /**
+   * Record the host's `game.start` on the room and flip it to `playing`.
+   * The host is the lowest occupied player slot. Returns the room id and the
+   * authoritative sender slot.
+   */
+  begin(connectionId: string, message: GameStart): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "game.start");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can start a game");
+    }
+    const hostSlot = Math.min(
+      ...[...room.members.values()]
+        .map((m) => m.slot)
+        .filter((slot): slot is number => slot !== null),
+    );
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot start; host is slot ${hostSlot}`,
+      );
+    }
+    if (room.status === "playing") {
+      throw new RelayError("already_started", `room ${room.id} has already started`);
+    }
+    room.status = "playing";
+    room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
+    return { roomId: room.id, from: sender.slot };
+  }
+
   /** A `room.state` snapshot for the connection's room. */
   snapshot(connectionId: string): RoomState {
     const room = this.roomOf(connectionId, "snapshot");
@@ -163,7 +203,7 @@ export class RoomManager {
       coreHash: null,
       romHash: null,
       dips: {},
-      status: "waiting",
+      status: room.status,
     };
   }
 
@@ -181,7 +221,7 @@ export class RoomManager {
   private ensureRoom(roomId: string): Room {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = { id: roomId, members: new Map() };
+      room = { id: roomId, members: new Map(), status: "waiting", start: null };
       this.rooms.set(roomId, room);
     }
     return room;
