@@ -65,11 +65,9 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
 
     socket.on("message", (data: RawData, isBinary: boolean) => {
       if (isBinary) {
-        send(connectionId, {
-          t: "error",
-          code: "unsupported",
-          message: "binary input is handled in T30",
-        });
+        // Binary frames are `input` packets (docs/contracts/input-packet.md).
+        // T24 transports them to the relay; the append-only log and spectator
+        // fan-out are T30/T31, so accept and drop for now.
         return;
       }
       let value: unknown;
