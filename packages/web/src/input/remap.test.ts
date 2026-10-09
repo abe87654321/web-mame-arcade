@@ -111,6 +111,14 @@ describe("serialize / deserialize", () => {
     expect(deserializeLocalConfig(serializeLocalConfig(local))).toEqual(local);
   });
 
+  it("round-trips an explicit null (clear) separately from inherit", () => {
+    const local = setDevice(EMPTY_LOCAL_INPUT_CONFIG, 0, null);
+    const restored = deserializeLocalConfig(serializeLocalConfig(local));
+    expect(restored.devices[0]).toBeNull();
+    expect(restored.devices[1]).toBeUndefined();
+    expect(restored).toEqual(local);
+  });
+
   it("falls back to empty overrides on malformed JSON", () => {
     expect(deserializeLocalConfig("{not json")).toBe(EMPTY_LOCAL_INPUT_CONFIG);
   });
