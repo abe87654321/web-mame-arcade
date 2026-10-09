@@ -68,6 +68,22 @@ export interface RtcFactory {
   createPeerConnection(config: { iceServers: IceServer[] }): PeerConnectionLike;
 }
 
+/** The WebSocket members the relay client uses. */
+export interface WebSocketLike {
+  readonly readyState: number;
+  send(data: string): void;
+  close(): void;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  onclose: (() => void) | null;
+  onerror: ((event: unknown) => void) | null;
+}
+
+/** Creates the relay WebSocket; injected so tests need no network. */
+export interface WebSocketFactory {
+  create(url: string): WebSocketLike;
+}
+
 /** Netplay wiring: where the relay lives and how to reach TURN/STUN. */
 export interface NetplayConfig {
   /** Relay WebSocket URL, e.g. `ws://localhost:8787/ws`. */

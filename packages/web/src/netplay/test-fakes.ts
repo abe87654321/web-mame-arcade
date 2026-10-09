@@ -9,6 +9,8 @@ import type {
   PeerConnectionLike,
   RtcFactory,
   SessionDescriptionLike,
+  WebSocketFactory,
+  WebSocketLike,
 } from "./types";
 
 export class FakeDataChannel implements DataChannelLike {
@@ -119,4 +121,44 @@ export function fakeRtcFactory(
       return connection;
     },
   };
+}
+
+export const OPEN = 1;
+export const CLOSED = 3;
+
+export class FakeWebSocket implements WebSocketLike {
+  readyState = OPEN;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  readonly sent: string[] = [];
+  closes = 0;
+
+  send(data: string): void {
+    if (this.readyState !== OPEN) throw new Error("send on a closed socket");
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.closes += 1;
+    this.readyState = CLOSED;
+    this.onclose?.();
+  }
+
+  /** Test helper: simulate the connection opening. */
+  open(): void {
+    this.readyState = OPEN;
+    this.onopen?.();
+  }
+
+  /** Test helper: simulate an inbound frame. */
+  emitMessage(data: unknown): void {
+    this.onmessage?.({ data });
+  }
+}
+
+/** A `WebSocketFactory` that always returns the same fake socket. */
+export function fakeSocketFactory(socket: FakeWebSocket): WebSocketFactory {
+  return { create: () => socket };
 }
