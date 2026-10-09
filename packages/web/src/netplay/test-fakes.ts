@@ -123,11 +123,12 @@ export function fakeRtcFactory(
   };
 }
 
+export const CONNECTING = 0;
 export const OPEN = 1;
 export const CLOSED = 3;
 
 export class FakeWebSocket implements WebSocketLike {
-  readyState = OPEN;
+  readyState = CONNECTING;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: (() => void) | null = null;
