@@ -24,7 +24,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 
 ## Phase 1 · Solo play in the browser
 - [x] **T10 WASM build script** – `core/build-wasm.sh <driver>` via emsdk; outputs to `core/out/<driver>/<sha>/`. Docs: 02.
-- [ ] **T11 Core wrapper** – `web/src/core/` typed `Core` interface (load, step, save, load, hash, readScore) around the
+- [x] **T11 Core wrapper** – `web/src/core/` typed `Core` interface (load, step, save, load, hash, readScore) around the
   stock WASM build; ROM zip mounted into FS. Docs: 02. Depends: T10.
 - [ ] **T12 Input layer** – keyboard + Gamepad API → 16-bit mask per contract; remapping UI. Docs: contracts/input-packet. Depends: T11.
 - [ ] **T13 Game page + catalogue** – game list from a static JSON, play page, Nginx dev config with COOP/COEP. Depends: T11.
