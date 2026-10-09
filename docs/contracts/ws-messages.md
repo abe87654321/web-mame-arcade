@@ -41,6 +41,15 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 - Negotiation (docs/03): the lower slot of a pair offers, the higher answers; the offerer creates the
   data channel with `{ ordered: false, maxRetransmits: 0 }`.
 
+## Pinned in T24
+- `game.start` is sent host → relay; the relay verifies the sender is the **lowest occupied
+  player slot** (`not_host` otherwise, `already_started` if the room already started), records
+  `startFrame`/`inputDelay`, then fans the message out to **every** member and broadcasts the
+  updated `room.state` with `status: "playing"`. So `game.start` is valid in both directions.
+- Binary `input` frames are accepted by the socket binding and currently dropped (the append-only
+  log and spectator fan-out land with T30/T31). They are never JSON-validated.
+- `room.state.status` becomes `"playing"` on a successful `game.start`; `snapshot` reflects it.
+
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional
 display name), `exp` (required, unix seconds). The relay verifies it with the shared secret and rejects
@@ -49,6 +58,7 @@ an invalid/expired token before adding the member. Issuance is the API's job (T3
 ## Relay error codes
 Relay replies to a client problem with `error { code, message }`. Codes used in T22:
 `invalid_token`, `room_full`, `already_joined`, `not_joined`, `unknown_peer`, `bad_message`,
-`unsupported`. A connection belongs to one room at a time: a `room.join` for a different room is
-rejected with `already_joined`, while replaying `room.join` for the same room is an idempotent no-op
-(a role change on that replay is applied).
+`unsupported`. T24 adds `not_host` (a non-host sent `game.start`) and `already_started`
+(`game.start` on an already-playing room). A connection belongs to one room at a time: a
+`room.join` for a different room is rejected with `already_joined`, while replaying `room.join`
+for the same room is an idempotent no-op (a role change on that replay is applied).
