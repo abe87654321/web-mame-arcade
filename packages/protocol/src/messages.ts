@@ -5,8 +5,9 @@
  * `input` is binary and is NOT a JSON message: encode/decode it with
  * `encodeInput`/`decodeInput` and tag it with {@link INPUT_TYPE}.
  *
- * Fields not pinned by the contract (room.state.players, dips, status, RTC
- * sdp/candidate) use provisional shapes; T22 may tighten them.
+ * Pinned by the contract (T22/T23): room.state players/dips/status plus the
+ * recipient's own `self` slot, and rtc.signal with its relay-stamped `from`
+ * (sdp/candidate stay opaque).
  */
 import { z } from "zod";
 import { PLAYER_SLOTS } from "./input.ts";
@@ -40,6 +41,9 @@ export const roomJoin = z.strictObject({
 export const roomState = z.strictObject({
   t: z.literal("room.state"),
   room: z.string().min(1),
+  // The recipient's own slot (null for viewers), so a client can pick its
+  // role in a pair's negotiation; every member gets a personal snapshot.
+  self: slot.nullable(),
   players: z.array(z.strictObject({ slot, name: z.string() })),
   // Null until the host sets a game/DIPs; `dips` is `{}` and status `waiting`
   // pre-game (docs/contracts/ws-messages.md).
@@ -52,6 +56,9 @@ export const roomState = z.strictObject({
 
 export const rtcSignal = z.strictObject({
   t: z.literal("rtc.signal"),
+  // Sender slot, stamped by the relay on the forwarded message. Optional on the
+  // client→relay direction; the relay always overwrites it (docs/03, T23).
+  from: slot.optional(),
   to: slot,
   sdp: sessionDescription.optional(),
   candidate: iceCandidate.optional(),

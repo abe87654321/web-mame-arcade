@@ -17,6 +17,7 @@ const validMessages: AnyMessage[] = [
   {
     t: "room.state",
     room: "r1",
+    self: 0,
     players: [{ slot: 0, name: "alice" }],
     game: "gridlee",
     coreHash: hash64,
@@ -27,6 +28,7 @@ const validMessages: AnyMessage[] = [
   {
     t: "room.state",
     room: "r1",
+    self: null,
     players: [{ slot: 0, name: "alice" }],
     game: null,
     coreHash: null,
@@ -102,6 +104,36 @@ describe("message schemas", () => {
         dips: {},
         status: "playing",
       }).success,
+    ).toBe(false);
+  });
+
+  it("tells a connection which player slot is its own", () => {
+    const base = {
+      t: "room.state",
+      room: "r1",
+      players: [{ slot: 0, name: "alice" }],
+      game: null,
+      coreHash: null,
+      romHash: null,
+      dips: {},
+      status: "waiting",
+    };
+    expect(safeParseMessage({ ...base, self: 0 }).success).toBe(true);
+    expect(safeParseMessage({ ...base, self: null }).success).toBe(true);
+    expect(safeParseMessage(base).success).toBe(false);
+  });
+
+  it("carries the relay-stamped sender slot on forwarded rtc.signal", () => {
+    const forwarded = {
+      t: "rtc.signal",
+      from: 0,
+      to: 1,
+      sdp: { type: "offer", sdp: "v=0" },
+    };
+    expect(safeParseMessage(forwarded).success).toBe(true);
+    expect(serverMessage.safeParse(forwarded).success).toBe(true);
+    expect(
+      safeParseMessage({ t: "rtc.signal", from: PLAYER_SLOTS, to: 1 }).success,
     ).toBe(false);
   });
 

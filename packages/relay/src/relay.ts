@@ -55,8 +55,8 @@ export function createRelay({ verifier }: { verifier: TokenVerifier }): Relay {
             return roomId ? snapshotOut(roomId) : [];
           }
           case "rtc.signal": {
-            const target = rooms.signal(connectionId, message);
-            return [{ connectionId: target, message }];
+            const { target, from } = rooms.signal(connectionId, message);
+            return [{ connectionId: target, message: { ...message, from } }];
           }
           default:
             // game.start/input/hash/state.snapshot/score.live/game.end/chat are

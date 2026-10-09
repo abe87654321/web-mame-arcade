@@ -5,8 +5,8 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | Type | Direction | Fields | Purpose |
 | --- | --- | --- | --- |
 | `room.join` | client → relay | room, role (`player`/`viewer`), token | join a room |
-| `room.state` | relay → client | room, players[], game, coreHash, romHash, dips, status | room snapshot (game fields null pre-game) |
-| `rtc.signal` | both | to, sdp?, candidate? | WebRTC signalling relay |
+| `room.state` | relay → client | room, self, players[], game, coreHash, romHash, dips, status | room snapshot (`self` = recipient's slot or null; game fields null pre-game) |
+| `rtc.signal` | both | to, sdp?, candidate? (client); from, to, sdp?, candidate? (relay) | WebRTC signalling relay |
 | `game.start` | host → relay | startFrame, inputDelay | begins input log |
 | `input` | player → relay | binary input packet | recorded + fanned out |
 | `state.snapshot` | host → relay → client | frame, blobUrl | late join / desync recovery |
@@ -31,6 +31,15 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 - `room.state` is broadcast to every member on join, leave and game/DIP change.
 - `rtc.signal` keeps `sdp`/`candidate` as opaque shapes (`docs/03` pins the SDP/candidate handling for
   T23); `to` must name an occupied slot in the sender's room.
+
+## Pinned in T23
+- `room.state.self` is the recipient's own player slot (`0-3`) or `null` for a viewer. Each member
+  receives a personal snapshot, so `self` differs per recipient.
+- `rtc.signal` is sent client → relay with `to`; the relay **stamps `from`** (the sender's own slot)
+  on the forwarded relay → client message and ignores any client-supplied `from`. `from` is therefore
+  optional on the wire and always present on a forwarded signal.
+- Negotiation (docs/03): the lower slot of a pair offers, the higher answers; the offerer creates the
+  data channel with `{ ordered: false, maxRetransmits: 0 }`.
 
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional

@@ -1,0 +1,22 @@
+# Arcade service compose. T23 adds coturn for WebRTC NAT traversal; the relay,
+# API, nginx and verifier services land with later tasks (T42).
+#
+# Usage:
+#   cp deploy/.env.example deploy/.env   # then edit TURN_SECRET / TURN_EXTERNAL_IP
+#   docker compose -f deploy/docker-compose.yml config
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Host networking is used so coturn's UDP relay range (see turnserver.conf) is
+# reachable without enumerating every port.
+services:
+  coturn:
+    image: coturn/coturn:4.6.2
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - "--config=/etc/coturn/turnserver.conf"
+      - "--static-auth-secret=${TURN_SECRET:?set TURN_SECRET in deploy/.env}"
+      - "--realm=${TURN_REALM:-web-mame-arcade}"
+      - "--external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP in deploy/.env}"

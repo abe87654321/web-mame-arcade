@@ -149,8 +149,11 @@ describe("RoomManager.signal", () => {
     return rooms;
   }
 
-  it("routes to the connection seated in the target slot", () => {
-    expect(seated().signal("c1", { t: "rtc.signal", to: 1 })).toBe("c2");
+  it("routes to the connection seated in the target slot with the sender slot", () => {
+    expect(seated().signal("c1", { t: "rtc.signal", to: 1 })).toEqual({
+      target: "c2",
+      from: 0,
+    });
   });
 
   it("rejects an unoccupied slot", () => {
@@ -171,11 +174,23 @@ describe("RoomManager.signal", () => {
     }
   });
 
+  it("rejects a slot-less viewer as a signal sender", () => {
+    try {
+      seated().signal("c9", { t: "rtc.signal", to: 0 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
   it("keeps rooms isolated", () => {
     const rooms = seated();
     rooms.join("x1", { room: "other", role: "player", token: "dave" });
     expect(() => rooms.signal("c1", { t: "rtc.signal", to: 0 })).not.toThrow();
-    expect(rooms.signal("c1", { t: "rtc.signal", to: 1 })).toBe("c2");
+    expect(rooms.signal("c1", { t: "rtc.signal", to: 1 })).toEqual({
+      target: "c2",
+      from: 0,
+    });
   });
 });
 
@@ -187,6 +202,7 @@ describe("RoomManager.snapshot", () => {
     expect(rooms.snapshot("c1")).toEqual({
       t: "room.state",
       room: "r",
+      self: 1,
       players: [
         { slot: 0, name: "Bob" },
         { slot: 1, name: "Alice" },
@@ -197,5 +213,13 @@ describe("RoomManager.snapshot", () => {
       dips: {},
       status: "waiting",
     });
+  });
+
+  it("reports a null self slot for a viewer", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    expect(rooms.snapshot("c9").self).toBeNull();
+    expect(rooms.snapshot("c1").self).toBe(0);
   });
 });

@@ -45,6 +45,7 @@ describe("createRelay", () => {
       message: {
         t: "room.state",
         room: "r",
+        self: 0,
         players: [{ slot: 0, name: "player" }],
         game: null,
         coreHash: null,
@@ -62,21 +63,43 @@ describe("createRelay", () => {
     expect(Object.keys(out).sort()).toEqual(["c1", "c2"]);
     expect(out.c1?.message).toMatchObject({
       t: "room.state",
+      self: 0,
       players: [
         { slot: 0, name: "player" },
         { slot: 1, name: "player" },
       ],
     });
-    expect(out.c2?.message).toEqual(out.c1?.message);
+    expect(out.c2?.message).toMatchObject({ t: "room.state", self: 1 });
   });
 
-  it("routes rtc.signal only to the target slot", () => {
+  it("routes rtc.signal only to the target slot, stamped with the sender", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));
     r.handle("c2", join("c2", "bob"));
     const out = r.handle("c1", { t: "rtc.signal", to: 1, sdp: { type: "offer" } });
     expect(out).toEqual([
-      { connectionId: "c2", message: { t: "rtc.signal", to: 1, sdp: { type: "offer" } } },
+      {
+        connectionId: "c2",
+        message: { t: "rtc.signal", from: 0, to: 1, sdp: { type: "offer" } },
+      },
+    ]);
+  });
+
+  it("overwrites a client-supplied from with the authoritative sender slot", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    const out = r.handle("c2", {
+      t: "rtc.signal",
+      from: 0,
+      to: 0,
+      sdp: { type: "answer" },
+    });
+    expect(out).toEqual([
+      {
+        connectionId: "c1",
+        message: { t: "rtc.signal", from: 1, to: 0, sdp: { type: "answer" } },
+      },
     ]);
   });
 
