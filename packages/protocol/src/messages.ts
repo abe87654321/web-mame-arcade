@@ -9,7 +9,7 @@
  * sdp/candidate) use provisional shapes; T22 may tighten them.
  */
 import { z } from "zod";
-import { PLAYER_SLOTS } from "./input";
+import { PLAYER_SLOTS } from "./input.ts";
 
 /** The one binary message type; everything else is JSON. */
 export const INPUT_TYPE = "input";
@@ -41,9 +41,11 @@ export const roomState = z.strictObject({
   t: z.literal("room.state"),
   room: z.string().min(1),
   players: z.array(z.strictObject({ slot, name: z.string() })),
-  game: z.string().min(1),
-  coreHash: hash,
-  romHash: hash,
+  // Null until the host sets a game/DIPs; `dips` is `{}` and status `waiting`
+  // pre-game (docs/contracts/ws-messages.md).
+  game: z.string().min(1).nullable(),
+  coreHash: hash.nullable(),
+  romHash: hash.nullable(),
   dips: z.record(z.string(), z.union([z.string(), z.number()])),
   status: z.enum(["waiting", "playing", "ended"]),
 });

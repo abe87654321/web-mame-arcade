@@ -5,7 +5,15 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
+    "start": "node src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wma/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
   }
 }

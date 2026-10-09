@@ -1,2 +1,7 @@
-/** Room relay service (implemented in T22). */
+/** Room relay service. */
 export const serviceName = "@wma/relay";
+
+export * from "./token.ts";
+export * from "./room.ts";
+export * from "./relay.ts";
+export * from "./server.ts";
