@@ -2,56 +2,83 @@ import { PLAYER_SLOTS, type Button } from "@wma/protocol";
 import {
   ALL_BUTTONS,
   BINDINGS_VERSION,
-  DEFAULT_ROOM_BINDINGS,
+  EMPTY_LOCAL_INPUT_CONFIG,
   type Binding,
+  type InputConfig,
   type InputDevice,
+  type LocalInputConfig,
   type PlayerBindings,
-  type RoomBindings,
 } from "./bindings";
-import { assignDevice, releaseDevice } from "./devices";
 
 /**
- * Editing and persistence for RoomBindings (T12). Remapping is host-local
- * configuration; it is stored in localStorage and never travels over the wire,
- * so it cannot affect determinism. Unknown or corrupt payloads fall back to
- * the defaults rather than half-loading.
+ * Editing and persistence for the peer's own LocalInputConfig (T12). A browser
+ * stores only its own overrides in localStorage, keyed locally; it is never
+ * shared with other peers. The host's InputConfig is only a default. Unknown or
+ * corrupt payloads fall back to "no overrides" rather than half-loading.
  */
 
-export const STORAGE_KEY = "wma.input.bindings";
+export const STORAGE_KEY = "wma.input.local";
 
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
 
-/** Replace one button's bindings for one player slot. */
+/** Set one button's binding for one player slot, as a local override. */
 export function rebind(
-  room: RoomBindings,
+  base: InputConfig,
+  local: LocalInputConfig,
   slot: number,
   button: Button,
   binding: Binding,
-): RoomBindings {
-  const players = room.players.map((player, index) =>
-    index === slot ? { ...player, [button]: [binding] } : player,
-  );
-  return { ...room, players };
+): LocalInputConfig {
+  const inherited = local.players[slot] ?? base.players[slot];
+  if (!inherited) return local;
+  const players = [...local.players];
+  players[slot] = { ...inherited, [button]: [binding] };
+  return { ...local, players };
 }
 
-/** Assign a device to a slot, or clear the slot when null. */
+/** Override the device for a slot (null clears it). */
 export function setDevice(
-  room: RoomBindings,
+  local: LocalInputConfig,
   slot: number,
   device: InputDevice | null,
-): RoomBindings {
-  const devices = device
-    ? assignDevice(room.devices, device, slot)
-    : releaseDevice(room.devices, slot);
-  return { ...room, devices };
+): LocalInputConfig {
+  if (slot < 0 || slot >= PLAYER_SLOTS) return local;
+  const devices = [...local.devices];
+  devices[slot] = device;
+  return { ...local, devices };
 }
 
-export function serializeRoom(room: RoomBindings): string {
-  return JSON.stringify(room);
+/** Drop every override for a slot, returning it to the host/default config. */
+export function resetSlot(
+  local: LocalInputConfig,
+  slot: number,
+): LocalInputConfig {
+  if (slot < 0 || slot >= PLAYER_SLOTS) return local;
+  const devices = [...local.devices];
+  const players = [...local.players];
+  devices[slot] = undefined;
+  players[slot] = undefined;
+  return { ...local, devices, players };
 }
+
+export function serializeLocalConfig(local: LocalInputConfig): string {
+  // JSON has no `undefined`; "~inherit" keeps "follow the default" distinct
+  // from `null` (explicitly cleared).
+  return JSON.stringify({
+    version: local.version,
+    devices: local.devices.map((device) =>
+      device === undefined ? INHERIT : device,
+    ),
+    players: local.players.map((player) =>
+      player === undefined ? INHERIT : player,
+    ),
+  });
+}
+
+const INHERIT = "~inherit";
 
 function isBinding(value: unknown): value is Binding {
   if (typeof value !== "object" || value === null) return false;
@@ -85,35 +112,52 @@ function isPlayerBindings(value: unknown): value is PlayerBindings {
   );
 }
 
-function isRoomBindings(value: unknown): value is RoomBindings {
-  if (typeof value !== "object" || value === null) return false;
-  const room = value as Record<string, unknown>;
-  if (room.version !== BINDINGS_VERSION) return false;
-  if (!Array.isArray(room.devices) || room.devices.length !== PLAYER_SLOTS) {
-    return false;
+function toLocalInputConfig(value: unknown): LocalInputConfig | null {
+  if (typeof value !== "object" || value === null) return null;
+  const local = value as Record<string, unknown>;
+  if (local.version !== BINDINGS_VERSION) return null;
+  if (!Array.isArray(local.devices) || local.devices.length !== PLAYER_SLOTS) {
+    return null;
   }
-  if (!room.devices.every((d) => d === null || isDevice(d))) return false;
-  if (!Array.isArray(room.players) || room.players.length !== PLAYER_SLOTS) {
-    return false;
+  if (!Array.isArray(local.players) || local.players.length !== PLAYER_SLOTS) {
+    return null;
   }
-  return room.players.every(isPlayerBindings);
+
+  const devices: (InputDevice | null | undefined)[] = [];
+  for (const entry of local.devices) {
+    if (entry === INHERIT) devices.push(undefined);
+    else if (entry === null || isDevice(entry)) devices.push(entry);
+    else return null;
+  }
+
+  const players: (PlayerBindings | undefined)[] = [];
+  for (const entry of local.players) {
+    if (entry === INHERIT) players.push(undefined);
+    else if (isPlayerBindings(entry)) players.push(entry);
+    else return null;
+  }
+
+  return { version: BINDINGS_VERSION, devices, players };
 }
 
-export function deserializeRoom(raw: string): RoomBindings {
+export function deserializeLocalConfig(raw: string): LocalInputConfig {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return DEFAULT_ROOM_BINDINGS;
+    return EMPTY_LOCAL_INPUT_CONFIG;
   }
-  return isRoomBindings(parsed) ? parsed : DEFAULT_ROOM_BINDINGS;
+  return toLocalInputConfig(parsed) ?? EMPTY_LOCAL_INPUT_CONFIG;
 }
 
-export function loadRoom(storage: StorageLike): RoomBindings {
+export function loadLocalConfig(storage: StorageLike): LocalInputConfig {
   const raw = storage.getItem(STORAGE_KEY);
-  return raw === null ? DEFAULT_ROOM_BINDINGS : deserializeRoom(raw);
+  return raw === null ? EMPTY_LOCAL_INPUT_CONFIG : deserializeLocalConfig(raw);
 }
 
-export function saveRoom(storage: StorageLike, room: RoomBindings): void {
-  storage.setItem(STORAGE_KEY, serializeRoom(room));
+export function saveLocalConfig(
+  storage: StorageLike,
+  local: LocalInputConfig,
+): void {
+  storage.setItem(STORAGE_KEY, serializeLocalConfig(local));
 }

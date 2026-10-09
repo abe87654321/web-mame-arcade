@@ -5,7 +5,7 @@ import {
   type Binding,
   type DeviceSlots,
   type InputDevice,
-  type RoomBindings,
+  type InputConfig,
 } from "./bindings";
 
 /**
@@ -66,7 +66,7 @@ export function releaseDevice(devices: DeviceSlots, slot: number): DeviceSlots {
 }
 
 /** Assign a freshly connected gamepad to the first free slot, unless known. */
-export function gamepadConnected(room: RoomBindings, index: number): RoomBindings {
+export function gamepadConnected(room: InputConfig, index: number): InputConfig {
   const device: InputDevice = { kind: "gamepad", index };
   if (room.devices.some((slot) => slot && sameDevice(slot, device))) {
     return room;
@@ -76,9 +76,9 @@ export function gamepadConnected(room: RoomBindings, index: number): RoomBinding
 
 /** Free whichever slot held the disconnected gamepad. */
 export function gamepadDisconnected(
-  room: RoomBindings,
+  room: InputConfig,
   index: number,
-): RoomBindings {
+): InputConfig {
   const device: InputDevice = { kind: "gamepad", index };
   const devices = room.devices.map((slot) =>
     slot && sameDevice(slot, device) ? null : slot,
@@ -91,7 +91,7 @@ export type Conflict =
   | { kind: "binding"; slot: number; binding: Binding; buttons: Button[] };
 
 /** Validate device uniqueness and per-player binding uniqueness. */
-export function findConflicts(room: RoomBindings): Conflict[] {
+export function findConflicts(room: InputConfig): Conflict[] {
   const conflicts: Conflict[] = [];
 
   const deviceSlots = new Map<string, number[]>();

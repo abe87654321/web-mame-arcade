@@ -4,9 +4,11 @@ import {
   BINDINGS_VERSION,
   DEFAULT_GAMEPAD_BINDINGS,
   DEFAULT_KEYBOARD_BINDINGS,
-  DEFAULT_ROOM_BINDINGS,
+  DEFAULT_INPUT_CONFIG,
+  EMPTY_LOCAL_INPUT_CONFIG,
   emptyFrameInputs,
   playerBindings,
+  resolveInputConfig,
 } from "./bindings";
 
 describe("playerBindings", () => {
@@ -50,23 +52,54 @@ describe("default bindings", () => {
   });
 });
 
-describe("DEFAULT_ROOM_BINDINGS", () => {
+describe("DEFAULT_INPUT_CONFIG", () => {
   it("assigns the keyboard to P1 and leaves P2-P4 free", () => {
-    expect(DEFAULT_ROOM_BINDINGS.version).toBe(BINDINGS_VERSION);
-    expect(DEFAULT_ROOM_BINDINGS.devices).toEqual([
+    expect(DEFAULT_INPUT_CONFIG.version).toBe(BINDINGS_VERSION);
+    expect(DEFAULT_INPUT_CONFIG.devices).toEqual([
       { kind: "keyboard" },
       null,
       null,
       null,
     ]);
-    expect(DEFAULT_ROOM_BINDINGS.players).toHaveLength(4);
-    expect(DEFAULT_ROOM_BINDINGS.players[0]).toBe(DEFAULT_KEYBOARD_BINDINGS);
-    expect(DEFAULT_ROOM_BINDINGS.players[1]).toBe(DEFAULT_GAMEPAD_BINDINGS);
+    expect(DEFAULT_INPUT_CONFIG.players).toHaveLength(4);
+    expect(DEFAULT_INPUT_CONFIG.players[0]).toBe(DEFAULT_KEYBOARD_BINDINGS);
+    expect(DEFAULT_INPUT_CONFIG.players[1]).toBe(DEFAULT_GAMEPAD_BINDINGS);
   });
 });
 
 describe("emptyFrameInputs", () => {
   it("is one zero mask per player slot", () => {
     expect(emptyFrameInputs()).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe("resolveInputConfig", () => {
+  it("returns the host default when there are no local overrides", () => {
+    expect(
+      resolveInputConfig(DEFAULT_INPUT_CONFIG, EMPTY_LOCAL_INPUT_CONFIG),
+    ).toEqual(DEFAULT_INPUT_CONFIG);
+  });
+
+  it("layers a local device override over one slot only", () => {
+    const local = {
+      ...EMPTY_LOCAL_INPUT_CONFIG,
+      devices: [{ kind: "gamepad", index: 3 } as const],
+    };
+    const resolved = resolveInputConfig(DEFAULT_INPUT_CONFIG, local);
+    expect(resolved.devices[0]).toEqual({ kind: "gamepad", index: 3 });
+    expect(resolved.devices[1]).toBe(DEFAULT_INPUT_CONFIG.devices[1]);
+  });
+
+  it("lets a local null device override the host default", () => {
+    const local = { ...EMPTY_LOCAL_INPUT_CONFIG, devices: [null] };
+    expect(resolveInputConfig(DEFAULT_INPUT_CONFIG, local).devices[0]).toBeNull();
+  });
+
+  it("layers a local player binding override", () => {
+    const custom = playerBindings({ b1: [{ kind: "key", code: "KeyP" }] });
+    const local = { ...EMPTY_LOCAL_INPUT_CONFIG, players: [custom] };
+    const resolved = resolveInputConfig(DEFAULT_INPUT_CONFIG, local);
+    expect(resolved.players[0]).toBe(custom);
+    expect(resolved.players[1]).toBe(DEFAULT_INPUT_CONFIG.players[1]);
   });
 });

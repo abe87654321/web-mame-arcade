@@ -1,7 +1,7 @@
 import { PLAYER_SLOTS } from "@wma/protocol";
 import type { FrameInputs } from "../core/types";
 import { toWireMask } from "./buttons";
-import type { InputDevice, RoomBindings } from "./bindings";
+import type { InputDevice, InputConfig } from "./bindings";
 import { sameDevice } from "./devices";
 import {
   createAxisState,
@@ -51,7 +51,7 @@ function findGamepad(
 }
 
 export function sampleFrameInputs(
-  room: RoomBindings,
+  room: InputConfig,
   keys: KeyState,
   gamepads: readonly (GamepadLike | null)[],
   state: SampleState,

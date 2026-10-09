@@ -1,16 +1,21 @@
 /** Input layer (T12): devices to per-frame masks, remapping UI. */
 export {
+  ALL_BUTTONS,
   BINDINGS_VERSION,
   DEFAULT_GAMEPAD_BINDINGS,
+  DEFAULT_INPUT_CONFIG,
   DEFAULT_KEYBOARD_BINDINGS,
-  DEFAULT_ROOM_BINDINGS,
+  EMPTY_LOCAL_INPUT_CONFIG,
+  bindingKey,
   emptyFrameInputs,
   playerBindings,
+  resolveInputConfig,
   type Binding,
   type DeviceSlots,
+  type InputConfig,
   type InputDevice,
+  type LocalInputConfig,
   type PlayerBindings,
-  type RoomBindings,
 } from "./bindings";
 export {
   BUTTON_BITS,
@@ -57,11 +62,12 @@ export {
 } from "./sample";
 export {
   STORAGE_KEY,
-  deserializeRoom,
-  loadRoom,
+  deserializeLocalConfig,
+  loadLocalConfig,
   rebind,
-  saveRoom,
-  serializeRoom,
+  resetSlot,
+  saveLocalConfig,
+  serializeLocalConfig,
   setDevice,
   type StorageLike,
 } from "./remap";

@@ -1,12 +1,26 @@
-import { BUTTON_BITS, PLAYER_SLOTS, type Button } from "@wma/protocol";
-import type { Binding, InputDevice, RoomBindings } from "./bindings";
-import { gamepadConnected, gamepadDisconnected, findConflicts, type Conflict } from "./devices";
-import { rebind, setDevice } from "./remap";
+import { PLAYER_SLOTS, type Button } from "@wma/protocol";
+import {
+  ALL_BUTTONS,
+  resolveInputConfig,
+  type Binding,
+  type InputConfig,
+  type InputDevice,
+  type LocalInputConfig,
+} from "./bindings";
+import { findConflicts, type Conflict } from "./devices";
+import {
+  rebind,
+  resetSlot,
+  saveLocalConfig,
+  setDevice,
+  type StorageLike,
+} from "./remap";
 
 /**
- * Remapping + device-assignment UI (T12). The controller holds all state and
- * is DOM-free; `view()` returns a plain tree and `renderTree` turns it into
- * elements through an injected UiDocument, so the logic is unit-tested with a
+ * Remapping + device-assignment UI (T12). The controller owns this peer's local
+ * overrides over the host/default config; the effective config is resolved on
+ * demand. It is DOM-free (`view()` returns a plain tree, `renderTree` turns it
+ * into elements through an injected UiDocument), so logic is unit-tested with a
  * fake DOM. Hot-plug events are handled here and surfaced as a status line.
  */
 
@@ -63,8 +77,14 @@ export function renderTree(doc: UiDocument, node: ViewNode): UiElement {
 }
 
 export interface RemapUiOptions {
+  /** Connected gamepad indices, for the assignment list. */
   gamepads?: readonly number[];
-  onSave?: (room: RoomBindings) => void;
+  /** Where this peer's local overrides are stored (per browser). */
+  storage?: StorageLike;
+  /** Called after every local change with the resolved config. */
+  onChange?: (config: InputConfig) => void;
+  /** Called after every local change; use to persist. */
+  onSave?: (local: LocalInputConfig) => void;
 }
 
 export interface CaptureTarget {
@@ -73,7 +93,10 @@ export interface CaptureTarget {
 }
 
 export interface RemapUi {
-  room(): RoomBindings;
+  /** Effective config: host/default layered with this peer's overrides. */
+  config(): InputConfig;
+  /** This peer's own overrides. */
+  local(): LocalInputConfig;
   gamepads(): readonly number[];
   status(): string;
   conflicts(): Conflict[];
@@ -82,36 +105,84 @@ export interface RemapUi {
   cancelCapture(): void;
   captureBinding(binding: Binding): boolean;
   setDevice(slot: number, device: InputDevice | null): void;
+  assignKeyboard(slot: number): void;
+  resetSlot(slot: number): void;
   connectGamepad(index: number): void;
   disconnectGamepad(index: number): void;
   view(): ViewNode;
 }
 
 export function createRemapUi(
-  initial: RoomBindings,
+  hostDefault: InputConfig,
+  local: LocalInputConfig,
   options: RemapUiOptions = {},
 ): RemapUi {
-  let room = initial;
+  let overrides = local;
   let pads = [...(options.gamepads ?? [])];
   let status = "";
   let capture: CaptureTarget | null = null;
 
-  const save = (): void => {
-    options.onSave?.(room);
+  const config = (): InputConfig => resolveInputConfig(hostDefault, overrides);
+
+  const commit = (): void => {
+    if (options.storage) saveLocalConfig(options.storage, overrides);
+    options.onSave?.(overrides);
+    options.onChange?.(config());
   };
 
-  const keyBindingKind = (binding: Binding): "keyboard" | "gamepad" => {
-    return binding.kind === "key" ? "keyboard" : "gamepad";
+  const applyBinding = (binding: Binding): boolean => {
+    if (!capture) return false;
+    const device = config().devices[capture.slot] ?? null;
+    const kind =
+      device === null ? "any" : device.kind === "keyboard" ? "keyboard" : "gamepad";
+    const bindingKind = binding.kind === "key" ? "keyboard" : "gamepad";
+    if (kind !== "any" && kind !== bindingKind) return false;
+    overrides = rebind(
+      hostDefault,
+      overrides,
+      capture.slot,
+      capture.button,
+      binding,
+    );
+    capture = null;
+    commit();
+    return true;
   };
 
-  const players = (): ViewNode[] =>
-    Array.from({ length: PLAYER_SLOTS }, (_, slot) => {
-      const device = room.devices[slot] ?? null;
-      const bindings = room.players[slot];
-      const buttons = Object.keys(BUTTON_BITS) as Button[];
-      const bindingRows: ViewNode[] = buttons.map((button) => {
+  const players = (): ViewNode[] => {
+    const resolved = config();
+    return Array.from({ length: PLAYER_SLOTS }, (_, slot) => {
+      const device = resolved.devices[slot] ?? null;
+      const bindings = resolved.players[slot];
+      const assignedPads = new Set(
+        resolved.devices
+          .filter(
+            (d): d is { kind: "gamepad"; index: number } =>
+              d?.kind === "gamepad",
+          )
+          .map((d) => d.index),
+      );
+      const controls: ViewNode[] = [
+        {
+          tag: "button",
+          text: "use keyboard",
+          onClick: () => ui.assignKeyboard(slot),
+        },
+        ...pads
+          .filter((index) => !assignedPads.has(index))
+          .map((index) => ({
+            tag: "button",
+            text: `assign gamepad ${index}`,
+            onClick: () => ui.setDevice(slot, { kind: "gamepad", index }),
+          })),
+        { tag: "button", text: "clear", onClick: () => ui.setDevice(slot, null) },
+        { tag: "button", text: "reset", onClick: () => ui.resetSlot(slot) },
+      ];
+      const rows: ViewNode[] = ALL_BUTTONS.map((button) => {
         const list = bindings?.[button] ?? [];
-        const text = list.length ? list.map(describeBinding).join(", ") : "unbound";
+        const text = list.length
+          ? list.map(describeBinding).join(", ")
+          : "unbound";
         return {
           tag: "div",
           className: "binding",
@@ -125,35 +196,25 @@ export function createRemapUi(
           ],
         };
       });
-      const assignButtons: ViewNode[] = pads
-        .filter(
-          (index) =>
-            !room.devices.some(
-              (d) => d?.kind === "gamepad" && d.index === index,
-            ),
-        )
-        .map((index) => ({
-          tag: "button",
-          text: `assign gamepad ${index}`,
-          onClick: () => ui.setDevice(slot, { kind: "gamepad", index }),
-        }));
       return {
         tag: "section",
         className: "player",
         children: [
           { tag: "h2", text: `P${slot + 1}` },
           { tag: "p", text: `device: ${describeDevice(device)}` },
-          { tag: "div", className: "assign", children: assignButtons },
-          ...bindingRows,
+          { tag: "div", className: "assign", children: controls },
+          ...rows,
         ],
       };
     });
+  };
 
   const ui: RemapUi = {
-    room: () => room,
+    config,
+    local: () => overrides,
     gamepads: () => pads,
     status: () => status,
-    conflicts: () => findConflicts(room),
+    conflicts: () => findConflicts(config()),
     capture: () => capture,
     beginCapture: (slot, button) => {
       capture = { slot, button };
@@ -161,34 +222,49 @@ export function createRemapUi(
     cancelCapture: () => {
       capture = null;
     },
-    captureBinding: (binding) => {
-      if (!capture) return false;
-      const device = room.devices[capture.slot] ?? null;
-      const expected = device?.kind === "keyboard" ? "keyboard" : "gamepad";
-      if (keyBindingKind(binding) !== expected) return false;
-      room = rebind(room, capture.slot, capture.button, binding);
-      capture = null;
-      save();
-      return true;
-    },
+    captureBinding: applyBinding,
     setDevice: (slot, device) => {
-      room = setDevice(room, slot, device);
-      save();
+      overrides = setDevice(overrides, slot, device);
+      commit();
+    },
+    assignKeyboard: (slot) => {
+      ui.setDevice(slot, { kind: "keyboard" });
+    },
+    resetSlot: (slot) => {
+      overrides = resetSlot(overrides, slot);
+      commit();
     },
     connectGamepad: (index) => {
       if (pads.includes(index)) return;
       pads = [...pads, index];
-      room = gamepadConnected(room, index);
+      const resolved = config();
+      const known = resolved.devices.some(
+        (d) => d?.kind === "gamepad" && d.index === index,
+      );
+      if (!known) {
+        const free = resolved.devices.indexOf(null);
+        if (free !== -1) {
+          overrides = setDevice(overrides, free, {
+            kind: "gamepad",
+            index,
+          });
+        }
+      }
       status = `gamepad ${index} connected`;
-      save();
+      commit();
     },
     disconnectGamepad: (index) => {
       if (!pads.includes(index)) return;
       pads = pads.filter((i) => i !== index);
-      room = gamepadDisconnected(room, index);
+      const resolved = config();
+      resolved.devices.forEach((device, slot) => {
+        if (device?.kind === "gamepad" && device.index === index) {
+          overrides = setDevice(overrides, slot, null);
+        }
+      });
       status = `gamepad ${index} disconnected`;
-      if (capture && room.devices[capture.slot] === null) capture = null;
-      save();
+      if (capture && config().devices[capture.slot] === null) capture = null;
+      commit();
     },
     view: () => {
       const conflicts = ui.conflicts();

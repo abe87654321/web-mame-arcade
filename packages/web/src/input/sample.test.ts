@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUTTON_BITS } from "@wma/protocol";
-import { DEFAULT_ROOM_BINDINGS, type RoomBindings } from "./bindings";
+import { DEFAULT_INPUT_CONFIG, type InputConfig } from "./bindings";
 import { createKeyState } from "./keyboard";
 import { createSampleState, sampleFrameInputs } from "./sample";
 import type { GamepadLike } from "./gamepad";
@@ -29,7 +29,7 @@ describe("sampleFrameInputs", () => {
     const keys = createKeyState();
     keys.press("KeyZ");
     const frame = sampleFrameInputs(
-      DEFAULT_ROOM_BINDINGS,
+      DEFAULT_INPUT_CONFIG,
       keys,
       [],
       createSampleState(),
@@ -38,8 +38,8 @@ describe("sampleFrameInputs", () => {
   });
 
   it("reads a gamepad into its assigned slot", () => {
-    const room: RoomBindings = {
-      ...DEFAULT_ROOM_BINDINGS,
+    const room: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
       devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 1 }, null, null],
     };
     const frame = sampleFrameInputs(
@@ -52,8 +52,8 @@ describe("sampleFrameInputs", () => {
   });
 
   it("keeps two devices independent", () => {
-    const room: RoomBindings = {
-      ...DEFAULT_ROOM_BINDINGS,
+    const room: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
       devices: [
         { kind: "keyboard" },
         { kind: "gamepad", index: 0 },
@@ -73,15 +73,15 @@ describe("sampleFrameInputs", () => {
   });
 
   it("leaves unassigned slots at zero", () => {
-    const room: RoomBindings = { ...DEFAULT_ROOM_BINDINGS, devices: empty };
+    const room: InputConfig = { ...DEFAULT_INPUT_CONFIG, devices: empty };
     expect(
       sampleFrameInputs(room, createKeyState(), [], createSampleState()),
     ).toEqual([0, 0, 0, 0]);
   });
 
   it("reports zero for an assigned gamepad that is not connected", () => {
-    const room: RoomBindings = {
-      ...DEFAULT_ROOM_BINDINGS,
+    const room: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
       devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 2 }, null, null],
     };
     expect(
@@ -90,8 +90,8 @@ describe("sampleFrameInputs", () => {
   });
 
   it("carries axis hysteresis across frames for an assigned pad", () => {
-    const room: RoomBindings = {
-      ...DEFAULT_ROOM_BINDINGS,
+    const room: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
       devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 0 }, null, null],
     };
     const state = createSampleState();
@@ -113,8 +113,8 @@ describe("sampleFrameInputs", () => {
   });
 
   it("resets axis state when a slot's gamepad is replaced", () => {
-    const base: RoomBindings = {
-      ...DEFAULT_ROOM_BINDINGS,
+    const base: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
       devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 0 }, null, null],
     };
     const state = createSampleState();
@@ -126,7 +126,7 @@ describe("sampleFrameInputs", () => {
     );
     expect(first[1]).toBe(BUTTON_BITS.up);
 
-    const swapped: RoomBindings = {
+    const swapped: InputConfig = {
       ...base,
       devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 1 }, null, null],
     };

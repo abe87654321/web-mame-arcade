@@ -1,12 +1,15 @@
-import { BUTTON_BITS, type Button } from "@wma/protocol";
+import { BUTTON_BITS, PLAYER_SLOTS, type Button } from "@wma/protocol";
 import type { FrameInputs } from "../core/types";
 
 /**
- * Local input model (T12). A physical device is assigned to one player slot;
- * that player's bindings translate the device's keys/buttons/axes into the
- * u16 mask defined by docs/contracts/input-packet.md. Bindings are host-local
- * configuration — only the resulting mask travels over the wire, so remapping
- * never risks a desync.
+ * Local input model (T12). This is *host-local configuration* for one browser:
+ * it decides which physical control feeds which mask bit. It is never sent over
+ * the wire — only the resulting per-frame mask is — so remapping can never cause
+ * a desync. See docs/contracts/input-packet.md.
+ *
+ * A room/host announces an `InputConfig` as a *default*; a joining peer layers
+ * its own `LocalInputConfig` (only the slots it customized) over it. Each person
+ * therefore keeps their own mapping and never inherits someone else's.
  */
 
 export type Binding =
@@ -24,10 +27,21 @@ export type DeviceSlots = readonly (InputDevice | null)[];
 /** Every button maps to zero or more physical bindings. */
 export type PlayerBindings = Record<Button, Binding[]>;
 
-export interface RoomBindings {
+/** A complete, resolved input configuration (devices + per-slot bindings). */
+export interface InputConfig {
   version: number;
   devices: DeviceSlots;
   players: readonly PlayerBindings[];
+}
+
+/**
+ * The subset of a config a single peer has customized. `undefined` means
+ * "inherit the host/default value for this slot"; a value overrides it.
+ */
+export interface LocalInputConfig {
+  version: number;
+  devices: readonly (InputDevice | null | undefined)[];
+  players: readonly (PlayerBindings | undefined)[];
 }
 
 export const BINDINGS_VERSION = 1;
@@ -47,7 +61,7 @@ export function playerBindings(
   bindings: Partial<Record<Button, Binding[]>>,
 ): PlayerBindings {
   const out = {} as PlayerBindings;
-  for (const button of Object.keys(BUTTON_BITS) as Button[]) {
+  for (const button of ALL_BUTTONS) {
     out[button] = bindings[button] ? [...bindings[button]] : [];
   }
   return out;
@@ -85,8 +99,8 @@ export const DEFAULT_KEYBOARD_BINDINGS: PlayerBindings = playerBindings({
   coin: [{ kind: "key", code: "Digit5" }],
 });
 
-/** P1 starts on the keyboard; gamepads fill P2-P4 as they connect. */
-export const DEFAULT_ROOM_BINDINGS: RoomBindings = {
+/** Built-in default: P1 on the keyboard; gamepads fill P2-P4 as they connect. */
+export const DEFAULT_INPUT_CONFIG: InputConfig = {
   version: BINDINGS_VERSION,
   devices: [{ kind: "keyboard" }, null, null, null],
   players: [
@@ -96,6 +110,30 @@ export const DEFAULT_ROOM_BINDINGS: RoomBindings = {
     DEFAULT_GAMEPAD_BINDINGS,
   ],
 };
+
+/** No local overrides: follow the host/default config for every slot. */
+export const EMPTY_LOCAL_INPUT_CONFIG: LocalInputConfig = {
+  version: BINDINGS_VERSION,
+  devices: Array.from({ length: PLAYER_SLOTS }, () => undefined),
+  players: Array.from({ length: PLAYER_SLOTS }, () => undefined),
+};
+
+/** Layer a peer's local overrides over the host/default config. */
+export function resolveInputConfig(
+  base: InputConfig,
+  local: LocalInputConfig,
+): InputConfig {
+  return {
+    version: base.version,
+    devices: base.devices.map((device, slot) => {
+      const override = local.devices[slot];
+      return override === undefined ? device : override;
+    }),
+    players: base.players.map(
+      (player, slot) => local.players[slot] ?? player,
+    ),
+  };
+}
 
 /** Four zero masks, one per player slot. */
 export function emptyFrameInputs(): FrameInputs {

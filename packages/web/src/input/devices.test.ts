@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_ROOM_BINDINGS,
+  DEFAULT_INPUT_CONFIG,
   playerBindings,
-  type RoomBindings,
+  type InputConfig,
 } from "./bindings";
 import {
   assignDevice,
@@ -78,7 +78,7 @@ describe("releaseDevice", () => {
 
 describe("gamepad hot-plug", () => {
   it("assigns a new gamepad to the first free slot after the keyboard", () => {
-    const room = gamepadConnected(DEFAULT_ROOM_BINDINGS, 0);
+    const room = gamepadConnected(DEFAULT_INPUT_CONFIG, 0);
     expect(room.devices).toEqual([
       { kind: "keyboard" },
       pad0,
@@ -88,13 +88,13 @@ describe("gamepad hot-plug", () => {
   });
 
   it("does not assign the same index twice", () => {
-    const once = gamepadConnected(DEFAULT_ROOM_BINDINGS, 0);
+    const once = gamepadConnected(DEFAULT_INPUT_CONFIG, 0);
     const twice = gamepadConnected(once, 0);
     expect(twice.devices).toEqual(once.devices);
   });
 
   it("frees the slot on disconnect", () => {
-    const connected = gamepadConnected(DEFAULT_ROOM_BINDINGS, 0);
+    const connected = gamepadConnected(DEFAULT_INPUT_CONFIG, 0);
     const released = gamepadDisconnected(connected, 0);
     expect(released.devices).toEqual([
       { kind: "keyboard" },
@@ -105,20 +105,20 @@ describe("gamepad hot-plug", () => {
   });
 
   it("ignores a disconnect for a pad that was never assigned", () => {
-    expect(gamepadDisconnected(DEFAULT_ROOM_BINDINGS, 3).devices).toEqual(
-      DEFAULT_ROOM_BINDINGS.devices,
+    expect(gamepadDisconnected(DEFAULT_INPUT_CONFIG, 3).devices).toEqual(
+      DEFAULT_INPUT_CONFIG.devices,
     );
   });
 });
 
 describe("findConflicts", () => {
   it("returns nothing for the default room", () => {
-    expect(findConflicts(DEFAULT_ROOM_BINDINGS)).toEqual([]);
+    expect(findConflicts(DEFAULT_INPUT_CONFIG)).toEqual([]);
   });
 
   it("reports a device assigned to two slots", () => {
-    const room: RoomBindings = {
-      ...DEFAULT_ROOM_BINDINGS,
+    const room: InputConfig = {
+      ...DEFAULT_INPUT_CONFIG,
       devices: [pad0, { kind: "gamepad", index: 0 }, null, null],
     };
     expect(findConflicts(room)).toEqual([
@@ -127,12 +127,12 @@ describe("findConflicts", () => {
   });
 
   it("reports one binding on two buttons of the same player", () => {
-    const players = [...DEFAULT_ROOM_BINDINGS.players];
+    const players = [...DEFAULT_INPUT_CONFIG.players];
     players[0] = playerBindings({
       b1: [{ kind: "key", code: "KeyZ" }],
       b2: [{ kind: "key", code: "KeyZ" }],
     });
-    const room: RoomBindings = { ...DEFAULT_ROOM_BINDINGS, players };
+    const room: InputConfig = { ...DEFAULT_INPUT_CONFIG, players };
     expect(findConflicts(room)).toEqual([
       {
         kind: "binding",
@@ -144,9 +144,9 @@ describe("findConflicts", () => {
   });
 
   it("does not flag the same key on different players", () => {
-    const players = [...DEFAULT_ROOM_BINDINGS.players];
+    const players = [...DEFAULT_INPUT_CONFIG.players];
     players[1] = playerBindings({ b1: [{ kind: "key", code: "Digit1" }] });
-    const room: RoomBindings = { ...DEFAULT_ROOM_BINDINGS, players };
+    const room: InputConfig = { ...DEFAULT_INPUT_CONFIG, players };
     expect(findConflicts(room)).toEqual([]);
   });
 });
