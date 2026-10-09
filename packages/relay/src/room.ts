@@ -71,11 +71,11 @@ export class RoomManager {
       }
       // Role change on a live connection: allocate before mutating so a
       // rejection (room_full) leaves the existing membership intact.
-      sameConnection.name = name;
       const slot =
         request.role === "player"
           ? (sameConnection.slot ?? this.freeSlot(room))
           : null;
+      sameConnection.name = name;
       sameConnection.role = request.role;
       sameConnection.slot = slot;
       return sameConnection;

@@ -103,11 +103,14 @@ describe("RoomManager.join", () => {
       rooms.join(`p${i}`, { room: "r", role: "player", token: `u${i}` });
     }
     rooms.join("v1", { room: "r", role: "viewer", token: "watcher" });
-    expect(() =>
-      rooms.join("v2", { room: "r", role: "player", token: "watcher" }),
-    ).toThrow(RelayError);
+    try {
+      rooms.join("v2", { room: "r", role: "player", token: "watcher" });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("room_full");
+    }
     expect(rooms.roomIdOf("v1")).toBe("r");
-    expect(rooms.broadcastTargets("r")).toContain("v1");
+    expect(rooms.broadcastTargets("r")).toHaveLength(PLAYER_SLOTS + 1);
   });
 
   it("applies a role change on the same connection", () => {
