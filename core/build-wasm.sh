@@ -10,6 +10,7 @@ export LC_ALL=C
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAME_DIR="$REPO_ROOT/mame"
 OUT_ROOT="$REPO_ROOT/core/out"
+APPLY="$REPO_ROOT/core/patches/apply.sh"
 
 # Single source of truth for the pins (mirrored in docs/02-emulation-core.md).
 VERSIONS_FILE="$REPO_ROOT/core/versions.json"
@@ -79,6 +80,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "output:      $OUT_ROOT/$DRIVER/<core_hash>/"
   echo
   echo "embuilder build sdl3 sdl3_ttf"
+  echo "bash $APPLY apply"
   echo "emmake make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$MAME_PIN -j$JOBS"
   exit 0
 fi
@@ -150,6 +152,13 @@ fi
 # SDL libraries are required by MAME's browser build. Idempotent (cached).
 "$EMBUILDER" build sdl3 sdl3_ttf
 
+# Add the netplay patch to the pristine submodule, and always remove it again so
+# the tracked tree is clean for the next build. The patch hash identifies the
+# exact source that produced core_hash.
+NETPLAY_PATCH_HASH="$(bash "$APPLY" hash)"
+bash "$APPLY" apply
+trap 'bash "$APPLY" revert' EXIT
+
 # IGNORE_GIT/NEW_GIT_VERSION pin the embedded revision so a fixed commit builds
 # reproducibly. Do NOT pass STRIP_SYMBOLS=1: scripts/toolchain.lua:617 then adds
 # an obsolete "asmjs finalize" emcc pass that feeds the already-linked
@@ -194,6 +203,7 @@ done
   printf '  "core_hash": "%s",\n' "$CORE_HASH"
   printf '  "mame_commit": "%s",\n' "$MAME_SHA"
   printf '  "emsdk": "%s",\n' "$EMSDK_PIN"
+  printf '  "netplay_patch": "%s",\n' "$NETPLAY_PATCH_HASH"
   printf '  "artifacts": {\n'
   last=$((${#ARTIFACTS[@]} - 1))
   for i in "${!ARTIFACTS[@]}"; do

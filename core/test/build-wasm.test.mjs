@@ -34,6 +34,8 @@ test("--dry-run gridlee prints a reproducible emmake command", () => {
   assert.match(r.stdout, /SUBTARGET=gridlee/);
   assert.match(r.stdout, /src\/mame\/bally\/gridlee\.cpp/);
   assert.match(r.stdout, /IGNORE_GIT=1/);
+  // The netplay patch is applied before the build and recorded in the manifest.
+  assert.match(r.stdout, /core\/patches\/apply\.sh apply/);
   // STRIP_SYMBOLS=1 triggers MAME's obsolete, broken "asmjs finalize" emcc pass
   // (scripts/toolchain.lua:617), so the build must not request it.
   assert.doesNotMatch(r.stdout, /STRIP_SYMBOLS/);
