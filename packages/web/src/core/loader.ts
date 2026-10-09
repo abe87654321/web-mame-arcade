@@ -20,8 +20,10 @@ export interface CoreBundle {
 }
 
 /**
- * Verify every artifact against manifest.json (and that the .wasm hashes to
- * core_hash), then boot the module. A tampered bundle never reaches createModule.
+ * Verify every core artifact against manifest.json (and that the .wasm hashes
+ * to core_hash), then boot the module. A tampered core bundle never reaches
+ * createModule. The ROM zip is fetched and mounted by the caller and is not
+ * covered here; its `rom_hash` is checked when joining a room (T30/T33).
  */
 export async function loadCoreBundle(
   source: CoreBundleSource,

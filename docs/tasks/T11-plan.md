@@ -45,6 +45,13 @@ Docs: 02.
 ## Risks
 - No WASM artifact exists yet; the real `Module.arguments`/`preRun`/auto-run behaviour is confirmed
   only after the human build. If MAME needs `callMain`/`noInitialRun`, adjust only `browser.ts`.
+  The runtime `onAbort` path now rejects `loadBrowserCore` instead of hanging; a real-build smoke
+  test is still needed to confirm timing/abort behaviour (T13).
 - Artifacts are fetched once to hash and again by the injected script (browser cache expected).
+- `rom_hash` is not verified in T11 (T10's manifest has no ROM hash). The ROM zip is fetched and
+  mounted unverified; room-join must check `rom_hash` from `room.state` before it matters
+  (T30/T33) — see `docs/contracts/core-version.md`.
 - Determinism: `buildMameArgs`, `mountRom`, `parseManifest`, `sha256Hex` are pure and free of
-  clock/locale/random. No emulation code changes in T11, so no golden replay required.
+  clock/locale/random. `buildMameArgs` now documents that `sessionPath` must be a fresh, empty
+  in-FS directory and `dipArgs` canonical, so peers pass identical values. No emulation code
+  changes in T11, so no golden replay required.

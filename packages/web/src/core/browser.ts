@@ -64,8 +64,10 @@ export async function loadBrowserCore(
       args: readonly string[],
     ): Promise<CoreModule> => {
       let settleReady!: (module: CoreModule) => void;
-      const ready = new Promise<CoreModule>((resolve) => {
+      let abortReady!: (reason: Error) => void;
+      const ready = new Promise<CoreModule>((resolve, reject) => {
         settleReady = resolve;
+        abortReady = reject;
       });
       const config: Record<string, unknown> = {
         arguments: [...args],
@@ -80,6 +82,8 @@ export async function loadBrowserCore(
         ],
         onRuntimeInitialized: () =>
           settleReady(config as unknown as CoreModule),
+        onAbort: (what: unknown) =>
+          abortReady(new Error(`core runtime aborted: ${String(what)}`)),
       };
       (globalThis as Record<string, unknown>).Module = config;
       await loadScript(`${init.coreBaseUrl}/mame${init.driver}.js`);
