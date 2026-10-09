@@ -105,6 +105,22 @@ describe("message schemas", () => {
     ).toBe(false);
   });
 
+  it("tells a connection which player slot is its own", () => {
+    const base = {
+      t: "room.state",
+      room: "r1",
+      players: [{ slot: 0, name: "alice" }],
+      game: null,
+      coreHash: null,
+      romHash: null,
+      dips: {},
+      status: "waiting",
+    };
+    expect(safeParseMessage({ ...base, self: 0 }).success).toBe(true);
+    expect(safeParseMessage({ ...base, self: null }).success).toBe(true);
+    expect(safeParseMessage(base).success).toBe(false);
+  });
+
   it("carries the relay-stamped sender slot on forwarded rtc.signal", () => {
     const forwarded = {
       t: "rtc.signal",
