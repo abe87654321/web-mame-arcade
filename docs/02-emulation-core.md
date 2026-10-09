@@ -84,8 +84,11 @@ as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact sou
 `0004-build.patch` also widens the Emscripten `EXPORTED_FUNCTIONS` with `_free` and
 `EXPORTED_RUNTIME_METHODS` with `FS` and `HEAPU8`, so the wrapper can mount the ROM and do state
 save/load; `netplay_post.js` attaches the stock `JSMAME` object to `Module` (upstream defines it but
-never exposes it). Newer T11/T12 fields (`Module.FS`, `Module.JSMAME`) were assumed but only wired
-into the build here — the T11 tests use fakes, so a real browser boot is the check.
+never exposes it). It also sets `-s GROWABLE_ARRAYBUFFERS=0`: with `ALLOW_MEMORY_GROWTH=1`, emsdk 6
+otherwise makes `HEAPU8` a view over a *resizable* ArrayBuffer, which the embedded-file loader's
+`TextDecoder.decode` rejects in current browsers. Newer T11 fields (`Module.FS`, `Module.JSMAME`)
+were assumed but only wired into the build here — the T11 tests use fakes, so a real browser boot is
+the check.
 
 ## Browser wrapper (`web/src/core/`)
 - Loads the core, mounts the ROM zip into Emscripten's FS, starts MAME with identical options on every peer:

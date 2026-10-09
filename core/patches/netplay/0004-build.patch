@@ -1,5 +1,5 @@
 diff --git a/scripts/genie.lua b/scripts/genie.lua
-index 86844d7f..761415fb 100644
+index 86844d7f..26a90234 100644
 --- a/scripts/genie.lua
 +++ b/scripts/genie.lua
 @@ -1130,14 +1130,15 @@ configuration { "asmjs" }
@@ -20,6 +20,14 @@ index 86844d7f..761415fb 100644
  		"--embed-file " .. _MAKE.esc(MAME_DIR) .. "bgfx/chains@bgfx/chains",
  		"--embed-file " .. _MAKE.esc(MAME_DIR) .. "bgfx/effects@bgfx/effects",
  		"--embed-file " .. _MAKE.esc(MAME_DIR) .. "bgfx/shaders/essl@bgfx/shaders/essl",
+@@ -1181,6 +1182,7 @@ configuration { "asmjs" }
+ 	else
+ 		linkoptions {
+ 			"-s ALLOW_MEMORY_GROWTH=1",
++			"-s GROWABLE_ARRAYBUFFERS=0",
+ 			"-s INITIAL_MEMORY=24MB",
+ 		}
+ 	end
 diff --git a/scripts/src/emu.lua b/scripts/src/emu.lua
 index f3eed922..a0d29ec2 100644
 --- a/scripts/src/emu.lua
