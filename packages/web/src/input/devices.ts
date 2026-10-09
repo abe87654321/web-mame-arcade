@@ -3,87 +3,19 @@ import {
   ALL_BUTTONS,
   bindingKey,
   type Binding,
-  type DeviceSlots,
   type InputDevice,
   type InputConfig,
 } from "./bindings";
 
 /**
- * Device assignment and conflict detection (T12). A device may belong to at
- * most one player slot; a binding may map to at most one button per player.
+ * Device identity and conflict detection (T12). A device may belong to at most
+ * one player slot; a binding may map to at most one button per player.
  */
 
 export function sameDevice(a: InputDevice, b: InputDevice): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "gamepad" && b.kind === "gamepad") return a.index === b.index;
   return true;
-}
-
-export function sameBinding(a: Binding, b: Binding): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "key" && b.kind === "key") return a.code === b.code;
-  if (a.kind === "gamepadButton" && b.kind === "gamepadButton") {
-    return a.index === b.index;
-  }
-  if (a.kind === "gamepadAxis" && b.kind === "gamepadAxis") {
-    return a.axis === b.axis && a.dir === b.dir;
-  }
-  return false;
-}
-
-/** Drop a device from every slot (its prior home). */
-function removeDevice(devices: readonly (InputDevice | null)[], device: InputDevice) {
-  return devices.map((slot) => (slot && sameDevice(slot, device) ? null : slot));
-}
-
-/**
- * Assign a device to a slot, removing it from any slot it occupied before.
- * Without an explicit slot, the first empty slot is used. If the slots are
- * full and no slot is requested, the assignment is left unchanged.
- */
-export function assignDevice(
-  devices: DeviceSlots,
-  device: InputDevice,
-  slot?: number,
-): DeviceSlots {
-  const cleared = removeDevice(devices, device);
-  if (slot !== undefined) {
-    if (slot < 0 || slot >= devices.length) return devices;
-    const next = [...cleared];
-    next[slot] = device;
-    return next;
-  }
-  const free = cleared.indexOf(null);
-  if (free === -1) return devices;
-  const next = [...cleared];
-  next[free] = device;
-  return next;
-}
-
-/** Free a slot. */
-export function releaseDevice(devices: DeviceSlots, slot: number): DeviceSlots {
-  return devices.map((d, i) => (i === slot ? null : d));
-}
-
-/** Assign a freshly connected gamepad to the first free slot, unless known. */
-export function gamepadConnected(room: InputConfig, index: number): InputConfig {
-  const device: InputDevice = { kind: "gamepad", index };
-  if (room.devices.some((slot) => slot && sameDevice(slot, device))) {
-    return room;
-  }
-  return { ...room, devices: assignDevice(room.devices, device) };
-}
-
-/** Free whichever slot held the disconnected gamepad. */
-export function gamepadDisconnected(
-  room: InputConfig,
-  index: number,
-): InputConfig {
-  const device: InputDevice = { kind: "gamepad", index };
-  const devices = room.devices.map((slot) =>
-    slot && sameDevice(slot, device) ? null : slot,
-  );
-  return { ...room, devices };
 }
 
 export type Conflict =

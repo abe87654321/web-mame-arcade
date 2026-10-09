@@ -26,12 +26,7 @@ export {
   type Button,
 } from "./buttons";
 export {
-  assignDevice,
   findConflicts,
-  gamepadConnected,
-  gamepadDisconnected,
-  releaseDevice,
-  sameBinding,
   sameDevice,
   type Conflict,
 } from "./devices";
