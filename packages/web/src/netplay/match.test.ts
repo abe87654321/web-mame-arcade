@@ -116,7 +116,7 @@ describe("createMatch", () => {
 
     // Peer 1's frame 0 arrives over the relay as a binary input packet.
     socket.emitMessage(peerPacket(1, 0, [0x02]));
-    match.tick([0x01, 0, 0, 0]);
+    match.tick(0x01);
 
     expect(core.steps).toEqual([{ frame: 0, inputs: [0x01, 0x02, 0, 0] }]);
     // The local input went out over the data channel and to the relay.
@@ -124,6 +124,39 @@ describe("createMatch", () => {
     expect(
       socket.sent.some((m) => m instanceof ArrayBuffer),
     ).toBe(true);
+    match.close();
+  });
+
+  it("holds game.start until the core has loaded", async () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    const core = fakeCore();
+    let resolveLoad: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resolveLoad = resolve;
+    });
+    (core as unknown as { load: () => Promise<void> }).load = vi.fn(() => gate);
+    const statuses: MatchStatus[] = [];
+    const match = createMatch({
+      core,
+      config,
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+      now: () => 0,
+      inputDelay: 0,
+      onStatus: (status) => statuses.push(status),
+    });
+    socket.open();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    expect(statuses).not.toContain("running");
+
+    resolveLoad();
+    await flush();
+    expect(match.status()).toBe("running");
     match.close();
   });
 

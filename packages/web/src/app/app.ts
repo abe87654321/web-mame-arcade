@@ -97,7 +97,7 @@ function matchStatusText(status: MatchStatus): string {
     case "waiting-for-peers":
       return "waiting for players...";
     case "waiting":
-      return "waiting for player input...";
+      return "waiting for player...";
     case "running":
       return "playing online";
   }

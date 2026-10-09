@@ -49,7 +49,7 @@ export interface PlayDeps {
   /** Effective input config; defaults to the built-in keyboard P1 config. */
   inputConfig?: InputConfig;
   /** Netplay lockstep loop; when present it drives `core.step` (T24). */
-  lockstep?: { tick(localInputs: FrameInputs): void };
+  lockstep?: { tick(localMask: number): void };
   /** Status line sink (boot/errors). */
   onStatus?: (text: string) => void;
 }
@@ -93,7 +93,10 @@ export function createPlayController(deps: PlayDeps): PlayController {
   const tick = (): void => {
     if (!running) return;
     current = sampleFrameInputs(config, keys, deps.gamepads.getGamepads(), sampleState);
-    deps.lockstep?.tick(current);
+    // Netplay: this browser's own controls come from the local slot-0 config;
+    // the lockstep attributes them to our room slot. Solo leaves `current` for
+    // the local multi-slot view.
+    deps.lockstep?.tick(current[0] ?? 0);
     handle = deps.scheduler.request(tick);
   };
 

@@ -1,7 +1,8 @@
 /**
- * Delay-based lockstep loop (T24, docs/03-netplay-protocol.md). Per animation
- * tick it samples the local mask, schedules it `inputDelay` frames ahead, sends
- * a redundant packet, and steps every frame whose inputs from all players are
+ * Delay-based lockstep loop (T24, docs/03-netplay-protocol.md). The caller
+ * samples this browser's own controls (as a mask) and hands it to `tick`;
+ * the loop schedules it under `mySlot` `inputDelay` frames ahead, sends a
+ * redundant packet, and steps every frame whose inputs from all players are
  * present. Late input parks the loop; after `waitTimeoutMs` it reports
  * "waiting" so the UI can show a pause.
  *
@@ -10,7 +11,7 @@
  * reaches the emulation path; there is no `Math.random`, no `Date.now`.
  */
 import { MAX_FRAMES } from "@wma/protocol";
-import type { Core, FrameInputs } from "../core/types";
+import type { Core } from "../core/types";
 import { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
 
 export type LockstepStatus = "running" | "waiting";
@@ -39,8 +40,11 @@ export interface LockstepDeps {
 }
 
 export interface Lockstep {
-  /** One animation tick: sample, send, and advance every ready frame. */
-  tick(localInputs: FrameInputs): void;
+  /**
+   * One animation tick: schedule the freshly sampled local mask for this
+   * browser's own slot, send, and advance every ready frame.
+   */
+  tick(localMask: number): void;
   /** Feed an encoded packet from a peer or the relay. */
   onBytes(bytes: Uint8Array): void;
   /** The next frame to simulate. */
@@ -102,13 +106,13 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
   }
 
   return {
-    tick(localInputs: FrameInputs): void {
+    tick(localMask: number): void {
       // Backpressure: while blocked, keep the schedule bounded rather than
       // queueing inputs the simulation may never reach.
       if (scheduleHead - current < maxLookahead) {
-        const mask = localInputs[mySlot] ?? 0;
-        table.set(mySlot, scheduleHead, mask & 0xffff);
-        frames.push(mask & 0xffff);
+        const mask = localMask & 0xffff;
+        table.set(mySlot, scheduleHead, mask);
+        frames.push(mask);
         scheduleHead += 1;
       }
 

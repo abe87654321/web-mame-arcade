@@ -169,7 +169,7 @@ describe("createPlayController", () => {
     keyboard.fire("keydown", { code: "KeyZ", preventDefault: vi.fn() });
     scheduler.runNext();
 
-    expect(lockstep.tick).toHaveBeenCalledWith([BUTTON_BITS.b1, 0, 0, 0]);
+    expect(lockstep.tick).toHaveBeenCalledWith(BUTTON_BITS.b1);
     expect(core.step).not.toHaveBeenCalled();
   });
 

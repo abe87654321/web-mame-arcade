@@ -9,7 +9,7 @@
  * - lockstep packets go out over the data channels (`broadcast`) and the relay
  *   (`sendBinary`); inbound packets from either path feed `onBytes`.
  */
-import type { Core, FrameInputs } from "../core/types";
+import type { Core } from "../core/types";
 import { createLockstep, type Lockstep } from "./lockstep";
 import { createSession, type NetplaySession } from "./session";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
@@ -35,8 +35,8 @@ export interface MatchDeps {
 }
 
 export interface NetplayMatch {
-  /** One animation tick; a no-op until `game.start` arrives. */
-  tick(localInputs: FrameInputs): void;
+  /** One animation tick with this browser's own input mask; no-op before start. */
+  tick(localMask: number): void;
   /** Next frame to simulate, or `startFrame` before the match starts. */
   frame(): number;
   status(): MatchStatus;
@@ -57,6 +57,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let status: MatchStatus = "connecting";
   let self: number | null = null;
   let pendingStart: { startFrame: number; inputDelay: number } | null = null;
+  let startSent = false;
   const roster: number[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -66,7 +67,9 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   }
 
   function startLockstep(frame: number, delay: number): void {
-    if (lockstep || closed || self === null) return;
+    // Never step before the core has booted: frame 0 must be the same machine
+    // state on every peer (AGENTS.md determinism rule).
+    if (lockstep || closed || self === null || !coreReady) return;
     const players = roster.length > 0 ? [...roster] : [self];
     lockstep = createLockstep({
       core: deps.core,
@@ -85,11 +88,21 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     setStatus("running");
   }
 
+  function maybeStartPending(): void {
+    if (pendingStart && self !== null && coreReady) {
+      const { startFrame: frame, inputDelay: delay } = pendingStart;
+      pendingStart = null;
+      startLockstep(frame, delay);
+    }
+  }
+
   function tryHostStart(): void {
-    if (closed || lockstep || !coreReady || self === null) return;
+    if (closed || startSent || lockstep || !coreReady || self === null) return;
     const host = roster.length > 0 ? Math.min(...roster) : self;
     if (self !== host || !session.ready()) return;
-    session.send({ t: "game.start", startFrame, inputDelay });
+    if (session.send({ t: "game.start", startFrame, inputDelay })) {
+      startSent = true;
+    }
   }
 
   const session = createSession({
@@ -100,17 +113,13 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       self = message.self;
       roster.splice(0, roster.length, ...message.players.map((p) => p.slot));
       if (!lockstep) setStatus("waiting-for-peers");
-      if (pendingStart && self !== null) {
-        const { startFrame: frame, inputDelay: delay } = pendingStart;
-        pendingStart = null;
-        startLockstep(frame, delay);
-      }
+      maybeStartPending();
       tryHostStart();
     },
     onGameStart: (message) => {
-      // A start can outrace the first `room.state`; hold it until we know our
-      // slot and the roster.
-      if (self === null) {
+      // A start can outrace the first `room.state` or the core boot; hold it
+      // until we know our slot and can step.
+      if (self === null || !coreReady) {
         pendingStart = { startFrame: message.startFrame, inputDelay: message.inputDelay };
         return;
       }
@@ -124,6 +133,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     .load()
     .then(() => {
       coreReady = true;
+      maybeStartPending();
       tryHostStart();
     })
     .catch(() => {
@@ -131,7 +141,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     });
 
   return {
-    tick: (localInputs) => lockstep?.tick(localInputs),
+    tick: (localMask) => lockstep?.tick(localMask),
     frame: () => (lockstep ? lockstep.frame() : startFrame),
     status: () => status,
     session: () => session,

@@ -37,7 +37,7 @@ describe("createLockstep", () => {
       now: () => 0,
     });
 
-    lockstep.tick([0x10, 0, 0, 0]);
+    lockstep.tick(0x10);
 
     expect(core.steps.map((s) => s.frame)).toEqual([0, 1, 2]);
     expect(core.steps[0]?.inputs).toEqual([0, 0, 0, 0]);
@@ -62,7 +62,7 @@ describe("createLockstep", () => {
       now: () => 0,
     });
 
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
     expect(core.steps).toHaveLength(0);
     expect(lockstep.frame()).toBe(0);
 
@@ -70,7 +70,7 @@ describe("createLockstep", () => {
       // peer 1 sends frame 0; hand-built packet via the public codec.
       encodePeer(1, 0, [0x02]),
     );
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
 
     expect(core.steps.map((s) => s.frame)).toEqual([0]);
     expect(core.steps[0]?.inputs).toEqual([0x01, 0x02, 0, 0]);
@@ -89,7 +89,7 @@ describe("createLockstep", () => {
       now: () => 0,
     });
 
-    for (let i = 0; i < 10; i++) lockstep.tick([i + 1, 0, 0, 0]);
+    for (let i = 0; i < 10; i++) lockstep.tick(i + 1);
 
     const packet = decodeInput(sent.at(-1)!);
     expect(packet.firstFrame).toBe(2);
@@ -112,17 +112,17 @@ describe("createLockstep", () => {
       waitTimeoutMs: 2000,
     });
 
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
     time.advance(1999);
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
     expect(lockstep.status()).toBe("running");
 
     time.advance(1);
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
     expect(lockstep.status()).toBe("waiting");
 
     lockstep.onBytes(encodePeer(1, 0, [0x02, 0x02, 0x02, 0x02, 0x02, 0x02]));
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
     expect(lockstep.status()).toBe("running");
     expect(statuses).toEqual(["waiting", "running"]);
     expect(core.steps.map((s) => s.frame)).toEqual([0, 1, 2, 3]);
@@ -141,7 +141,7 @@ describe("createLockstep", () => {
     });
 
     lockstep.onBytes(encodePeer(0, 5, [0x09]));
-    lockstep.tick([0x01, 0, 0, 0]);
+    lockstep.tick(0x01);
 
     expect(core.steps.map((s) => s.frame)).toEqual([0]);
     expect(core.steps[0]?.inputs[0]).toBe(0x01);
@@ -160,7 +160,7 @@ describe("createLockstep", () => {
       maxLookahead: 2,
     });
 
-    for (let i = 0; i < 10; i++) lockstep.tick([0x01, 0, 0, 0]);
+    for (let i = 0; i < 10; i++) lockstep.tick(0x01);
 
     expect(decodeInput(sent.at(-1)!).firstFrame).toBe(0);
     expect(decodeInput(sent.at(-1)!).inputs).toHaveLength(2);
@@ -189,8 +189,8 @@ describe("createLockstep", () => {
     });
 
     for (let i = 0; i < 30; i++) {
-      a.tick([0x01, 0, 0, 0]);
-      b.tick([0, 0x02, 0, 0]);
+      a.tick(0x01);
+      b.tick(0x02);
     }
 
     // A tick carries a packet to the peer but is stepped before the peer's
@@ -215,7 +215,7 @@ describe("createLockstep", () => {
       now,
     });
 
-    for (let i = 0; i < 5; i++) lockstep.tick([0x01, 0, 0, 0]);
+    for (let i = 0; i < 5; i++) lockstep.tick(0x01);
 
     // `now` is only consulted once the loop is blocked; the emulation path
     // (core.step) receives frame numbers and masks, nothing else.
