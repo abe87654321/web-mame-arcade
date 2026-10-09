@@ -3,8 +3,12 @@
 # Usage: core/build-native.sh <driver> [--dry-run] | --list-drivers | --help
 set -euo pipefail
 
+# Deterministic string handling regardless of the caller's locale.
+export LC_ALL=C
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAME_DIR="$REPO_ROOT/mame"
+APPLY="$REPO_ROOT/core/patches/apply.sh"
 
 # MAME commit every native build must come from. Single source of truth:
 # core/versions.json (mirrored in docs/02-emulation-core.md). Read lazily, after
@@ -60,6 +64,7 @@ if command -v nproc >/dev/null 2>&1; then JOBS="$(nproc)"; else JOBS=4; fi
 PINNED_MAME_COMMIT="$(read_pinned_mame_commit)"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "bash $APPLY apply"
   echo "make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$PINNED_MAME_COMMIT -j$JOBS"
   exit 0
 fi
@@ -82,6 +87,11 @@ fi
 # Remove any previous binary so make relinks from cached objects. `strip` is not
 # idempotent on an already-stripped binary, so it must always run on a fresh link.
 rm -f "$MAME_DIR/$DRIVER" "$MAME_DIR/$DRIVER.exe" "$MAME_DIR/mame$DRIVER"
+
+# The verifier replays through the same patched source as the WASM core, so
+# apply the netplay patch for the build and always revert it afterwards.
+bash "$APPLY" apply
+trap 'bash "$APPLY" revert' EXIT
 
 # SYMBOLS=0/STRIP_SYMBOLS=1 are not used: MAME only re-runs genie when its makefile/scripts
 # change, so changed sym/stop params would be ignored on an existing build tree. Instead we

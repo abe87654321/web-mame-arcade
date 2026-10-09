@@ -11,6 +11,10 @@ artifact plus the commit it was built from.
 | `core_hash` | sha256 of the **WASM** core artifact served to browsers | lowercase hex, 64 chars |
 | `mame_commit` | full git commit of `mame/` the core was built from | lowercase hex, 40 chars |
 | `rom_hash` | sha256 of the ROM zip served for the driver | lowercase hex, 64 chars |
+| `netplay_patch` | sha256 of the netplay patch series the core was built with (`manifest.json`) | lowercase hex, 64 chars |
+
+`netplay_patch` identifies the exact `core/patches/` source (see `docs/02-emulation-core.md`) that
+produced `core_hash`. It is recorded for provenance; the cross-peer key remains `core_hash`.
 
 `core_hash` is defined **only for the WASM artifact**, because that is the byte-identical
 cross-peer key (`docs/02-emulation-core.md`): the same build produces the same bytes on

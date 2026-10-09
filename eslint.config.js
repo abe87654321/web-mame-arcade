@@ -9,6 +9,8 @@ export default tseslint.config(
       "**/node_modules/**",
       "mame/**",
       "core/out/**",
+      // Injected into the MAME build (not app source); uses Emscripten globals.
+      "core/patches/**",
       "roms/**",
     ],
   },

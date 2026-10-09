@@ -1,0 +1,32 @@
+diff --git a/src/emu/machine.cpp b/src/emu/machine.cpp
+index bf451940..fdd6ccdc 100644
+--- a/src/emu/machine.cpp
++++ b/src/emu/machine.cpp
+@@ -23,6 +23,7 @@
+ #include "input.h"
+ #include "main.h"
+ #include "natkeyboard.h"
++#include "netplay.h"
+ #include "network.h"
+ #include "render.h"
+ #include "romload.h"
+@@ -1404,6 +1405,19 @@ void running_machine::emscripten_main_loop()
+ 
+ 	auto profile = g_profiler.start(PROFILER_EXTRA);
+ 
++	// Netplay owns the frame clock: step exactly one game frame (its real screen
++	// period) once every player's input for that frame is present, otherwise pump
++	// video and wait. When netplay is inactive the stock 60Hz path below is used.
++	if (netplay_input_active())
++	{
++		if (!netplay_try_run_frame(*machine, netplay_next_frame()))
++			machine->m_video->frame_update();
++
++		if (machine->exit_pending())
++			emscripten_cancel_main_loop();
++		return;
++	}
++
+ 	// execute CPUs if not paused
+ 	if (!machine->m_paused)
+ 	{

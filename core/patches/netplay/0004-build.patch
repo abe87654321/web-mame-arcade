@@ -1,0 +1,25 @@
+diff --git a/scripts/genie.lua b/scripts/genie.lua
+index 86844d7f..aa2adfdc 100644
+--- a/scripts/genie.lua
++++ b/scripts/genie.lua
+@@ -1138,6 +1138,7 @@ configuration { "asmjs" }
+ 		"-s EXCEPTION_CATCHING_ALLOWED=\"['_ZN15running_machine17start_all_devicesEv','_ZN8chd_file11open_commonEb','_ZN8chd_file13read_metadataEjjRNSt3__212basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEE','_ZN8chd_file13read_metadataEjjRNSt3__26vectorIhNS0_9allocatorIhEEEE','_ZNK19netlist_mame_device19base_validity_checkER16validity_checker']\"",
+ 		"--pre-js " .. _MAKE.esc(MAME_DIR) .. "src/osd/modules/sound/js_sound.js",
+ 		"--post-js " .. _MAKE.esc(MAME_DIR) .. "scripts/resources/emscripten/emscripten_post.js",
++		"--post-js " .. _MAKE.esc(MAME_DIR) .. "scripts/resources/emscripten/netplay_post.js",
+ 		"--embed-file " .. _MAKE.esc(MAME_DIR) .. "bgfx/chains@bgfx/chains",
+ 		"--embed-file " .. _MAKE.esc(MAME_DIR) .. "bgfx/effects@bgfx/effects",
+ 		"--embed-file " .. _MAKE.esc(MAME_DIR) .. "bgfx/shaders/essl@bgfx/shaders/essl",
+diff --git a/scripts/src/emu.lua b/scripts/src/emu.lua
+index f3eed922..a0d29ec2 100644
+--- a/scripts/src/emu.lua
++++ b/scripts/src/emu.lua
+@@ -178,6 +178,8 @@ files {
+ 	MAME_DIR .. "src/emu/memarray.h",
+ 	MAME_DIR .. "src/emu/natkeyboard.cpp",
+ 	MAME_DIR .. "src/emu/natkeyboard.h",
++	MAME_DIR .. "src/emu/netplay.cpp",
++	MAME_DIR .. "src/emu/netplay.h",
+ 	MAME_DIR .. "src/emu/network.cpp",
+ 	MAME_DIR .. "src/emu/network.h",
+ 	MAME_DIR .. "src/emu/parameters.cpp",

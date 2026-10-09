@@ -1,0 +1,38 @@
+diff --git a/src/emu/save.cpp b/src/emu/save.cpp
+index 227d1f24..d6b1a174 100644
+--- a/src/emu/save.cpp
++++ b/src/emu/save.cpp
+@@ -403,6 +403,21 @@ save_error save_manager::read_buffer(const void *buf, size_t size)
+ }
+ 
+ 
++//-------------------------------------------------
++//  buffer_size - bytes needed by write_buffer /
++//  read_buffer, so callers can size an in-memory
++//  state snapshot
++//-------------------------------------------------
++
++size_t save_manager::buffer_size() const
++{
++	size_t total_size = HEADER_SIZE;
++	for (auto const &entry : m_entry_list)
++		total_size += entry->m_typesize * entry->m_typecount * entry->m_blockcount;
++	return total_size;
++}
++
++
+ //-------------------------------------------------
+ //  do_write - serialisation logic
+ //-------------------------------------------------
+diff --git a/src/emu/save.h b/src/emu/save.h
+index 7a7dd535..b8b078f7 100644
+--- a/src/emu/save.h
++++ b/src/emu/save.h
+@@ -310,6 +310,7 @@ public:
+ 
+ 	save_error write_buffer(void *buf, size_t size);
+ 	save_error read_buffer(const void *buf, size_t size);
++	size_t buffer_size() const;
+ 
+ private:
+ 	// state callback item
