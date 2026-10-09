@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe("loadBrowserCore", () => {
-  it("verifies the bundle, mounts the ROM via preRun, and returns a Core", async () => {
+  it("verifies the bundle, mounts the ROM, and returns a Core", async () => {
     const wasm = new Uint8Array([1, 2, 3]);
     const js = new Uint8Array([4, 5]);
     const rom = new Uint8Array([6, 7, 8, 9]);
@@ -73,7 +73,6 @@ describe("loadBrowserCore", () => {
       mod.HEAPU8 = new Uint8Array(0);
       mod._malloc = () => 0;
       mod._free = () => {};
-      mod.preRun[0]?.();
       mod.onRuntimeInitialized();
     };
 
@@ -134,7 +133,6 @@ describe("loadBrowserCore", () => {
       mod._malloc = () => 0;
       mod._free = () => {};
       (mod as TestModule & { netplay?: { enable(): void } }).netplay = { enable };
-      mod.preRun[0]?.();
       mod.onRuntimeInitialized();
     };
 

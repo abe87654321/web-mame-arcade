@@ -81,6 +81,12 @@ as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact sou
 5. **Frame clock** – one emulated video frame (the first screen's real `frame_period()`, e.g. 60.6 Hz),
    not a fixed 1/60 s.
 
+`0004-build.patch` also widens the Emscripten `EXPORTED_FUNCTIONS` with `_free` and
+`EXPORTED_RUNTIME_METHODS` with `FS` and `HEAPU8`, so the wrapper can mount the ROM and do state
+save/load; `netplay_post.js` attaches the stock `JSMAME` object to `Module` (upstream defines it but
+never exposes it). Newer T11/T12 fields (`Module.FS`, `Module.JSMAME`) were assumed but only wired
+into the build here — the T11 tests use fakes, so a real browser boot is the check.
+
 ## Browser wrapper (`web/src/core/`)
 - Loads the core, mounts the ROM zip into Emscripten's FS, starts MAME with identical options on every peer:
   `-skip_gameinfo`, empty per-session `-nvram_directory`, no `.ini`, DIP values from the room host.

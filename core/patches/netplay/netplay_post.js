@@ -65,3 +65,9 @@ var WMA_NETPLAY = (function () {
 })();
 
 Module.netplay = WMA_NETPLAY;
+
+// The stock scripts/resources/emscripten/emscripten_post.js defines JSMAME in
+// its own scope but never attaches it to Module, and the typed wrapper
+// (MameCore.reset/destroy) reads Module.JSMAME. This post-js runs after it.
+if (typeof JSMAME !== 'undefined')
+	Module.JSMAME = JSMAME;

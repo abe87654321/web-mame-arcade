@@ -102,16 +102,23 @@ export async function loadBrowserCore(
       });
       const config: Record<string, unknown> = {
         arguments: [...args],
-        preRun: [
-          () =>
+        // Mount at runtime init, not preRun: the ROM needs `Module.FS`, which is
+        // only present once the runtime is up. This still runs before MAME's
+        // callMain() starts the machine.
+        onRuntimeInitialized: () => {
+          try {
             mountRom(
               config as unknown as CoreModule,
               init.romPath,
               init.romZipName,
               romZip,
-            ),
-        ],
-        onRuntimeInitialized: () => settle(config as unknown as CoreModule),
+            );
+          } catch (error) {
+            abort(error instanceof Error ? error : new Error(String(error)));
+            return;
+          }
+          settle(config as unknown as CoreModule);
+        },
         onAbort: (what: unknown) =>
           abort(new Error(`core runtime aborted: ${String(what)}`)),
       };
