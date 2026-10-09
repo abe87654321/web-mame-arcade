@@ -17,5 +17,11 @@ Schema: `contracts/db-schema.sql`.
 Room flow: create room via API → relay assigns ID → peers join via relay signalling → host sets game + DIPs →
 relay records input log from frame 0.
 
+Relay implementation (T22): `packages/relay` runs on the pinned Node with native type stripping
+(`pnpm --filter @wma/relay start`; env `WMA_RELAY_SECRET`, `PORT` default 8787, `HOST`). It listens at
+`/ws` and verifies `room.join` tokens as HS256 JWTs. T22 uses the pure-JS `ws` server for
+testability; the `uWebSockets.js` swap and Redis pub/sub between relay processes are the T44
+scale-out work. nginx/TLS fronting is T42.
+
 Starting server: 8 vCPU, 16 GB RAM, 1 Gbit/s, Ubuntu 24.04, Docker Compose (`deploy/docker-compose.yml`).
 Move the SFU to its own machine first if video fallback is enabled.

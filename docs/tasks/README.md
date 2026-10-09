@@ -33,7 +33,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T20 Netplay patch** – frame gate, `netplay_set_inputs`, `netplay_save_state/load_state`, `netplay_hash`,
   frame clock, in `core/patches/`. Docs: 01, 02. Human reviews every C++ line. Depends: T10.
 - [x] **T21 Protocol package** – `encodeInput/decodeInput`, zod message schemas, round-trip + fuzz tests. Docs: contracts/*. Depends: T00.
-- [ ] **T22 Relay: rooms + signalling** – `room.join`, `room.state`, `rtc.signal`, auth token check. Docs: 03, 06, contracts/ws-messages. Depends: T21.
+- [x] **T22 Relay: rooms + signalling** – `room.join`, `room.state`, `rtc.signal`, auth token check. Docs: 03, 06, contracts/ws-messages. Depends: T21.
 - [ ] **T23 WebRTC peer connection** – data channel (unordered, maxRetransmits 0), coturn in docker-compose. Docs: 03. Depends: T22.
 - [ ] **T24 Lockstep loop** – input delay D, 8-frame redundancy, wait/pause behaviour. Docs: 03. Depends: T20, T23.
 - [ ] **T25 Desync detection + resync** – `hash` every 60 frames, `state.snapshot` recovery, logging. Docs: 03. Depends: T24.
