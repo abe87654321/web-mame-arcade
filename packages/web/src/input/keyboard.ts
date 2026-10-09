@@ -1,5 +1,5 @@
-import { BUTTON_BITS, type Button } from "@wma/protocol";
-import type { PlayerBindings } from "./bindings";
+import { BUTTON_BITS } from "@wma/protocol";
+import { ALL_BUTTONS, type PlayerBindings } from "./bindings";
 
 /**
  * Keyboard input device (T12). One shared KeyboardEvent source drives a
@@ -34,7 +34,7 @@ export function playerMaskFromKeys(
   pressed: ReadonlySet<string>,
 ): number {
   let mask = 0;
-  for (const button of Object.keys(BUTTON_BITS) as Button[]) {
+  for (const button of ALL_BUTTONS) {
     for (const binding of bindings[button]) {
       if (binding.kind === "key" && pressed.has(binding.code)) {
         mask |= BUTTON_BITS[button];

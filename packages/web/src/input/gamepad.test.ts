@@ -126,6 +126,31 @@ describe("playerMaskFromPad axes", () => {
       playerMaskFromPad(DEFAULT_GAMEPAD_BINDINGS, pad({ axes: [0, -0.45, 0, 0] }), p2, opts),
     ).toBe(0);
   });
+
+  it("settles every axis binding even when a button is already active", () => {
+    const state = createAxisState();
+    const opts = { deadzone: 0.5, hysteresis: 0.1 };
+    const bindings = playerBindings({
+      b1: [
+        { kind: "gamepadButton", index: 0 },
+        { kind: "gamepadAxis", axis: 1, dir: "-" },
+      ],
+    });
+    const held = Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }));
+    held[0] = { pressed: true, value: 1 };
+    // Frame 1: button fires and the axis is past the deadzone.
+    playerMaskFromPad(bindings, pad({ buttons: held, axes: [0, -0.6, 0, 0] }), state, opts);
+    // Frame 2: button released, axis inside the hysteresis band -> must stay on.
+    const released = Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }));
+    expect(
+      playerMaskFromPad(
+        bindings,
+        pad({ buttons: released, axes: [0, -0.45, 0, 0] }),
+        state,
+        opts,
+      ),
+    ).toBe(BUTTON_BITS.b1);
+  });
 });
 
 describe("readGamepads", () => {

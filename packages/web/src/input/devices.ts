@@ -1,5 +1,12 @@
-import { BUTTON_BITS, type Button } from "@wma/protocol";
-import type { Binding, DeviceSlots, InputDevice, RoomBindings } from "./bindings";
+import type { Button } from "@wma/protocol";
+import {
+  ALL_BUTTONS,
+  bindingKey,
+  type Binding,
+  type DeviceSlots,
+  type InputDevice,
+  type RoomBindings,
+} from "./bindings";
 
 /**
  * Device assignment and conflict detection (T12). A device may belong to at
@@ -104,9 +111,8 @@ export function findConflicts(room: RoomBindings): Conflict[] {
   });
 
   room.players.forEach((player, slot) => {
-    const buttons = Object.keys(BUTTON_BITS) as Button[];
     const byBinding = new Map<string, { binding: Binding; buttons: Button[] }>();
-    for (const button of buttons) {
+    for (const button of ALL_BUTTONS) {
       for (const binding of player[button]) {
         const key = bindingKey(binding);
         const entry = byBinding.get(key) ?? { binding, buttons: [] };
@@ -122,10 +128,4 @@ export function findConflicts(room: RoomBindings): Conflict[] {
   });
 
   return conflicts;
-}
-
-function bindingKey(binding: Binding): string {
-  if (binding.kind === "key") return `key:${binding.code}`;
-  if (binding.kind === "gamepadButton") return `padButton:${binding.index}`;
-  return `padAxis:${binding.axis}:${binding.dir}`;
 }

@@ -1,5 +1,6 @@
-import { BUTTON_BITS, PLAYER_SLOTS, type Button } from "@wma/protocol";
+import { PLAYER_SLOTS, type Button } from "@wma/protocol";
 import {
+  ALL_BUTTONS,
   BINDINGS_VERSION,
   DEFAULT_ROOM_BINDINGS,
   type Binding,
@@ -77,7 +78,7 @@ function isDevice(value: unknown): value is InputDevice {
 function isPlayerBindings(value: unknown): value is PlayerBindings {
   if (typeof value !== "object" || value === null) return false;
   const player = value as Record<string, unknown>;
-  return (Object.keys(BUTTON_BITS) as Button[]).every(
+  return ALL_BUTTONS.every(
     (button) =>
       Array.isArray(player[button]) &&
       (player[button] as unknown[]).every(isBinding),

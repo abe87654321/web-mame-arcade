@@ -32,6 +32,16 @@ export interface RoomBindings {
 
 export const BINDINGS_VERSION = 1;
 
+/** All buttons in contract order; the single iteration source for masks. */
+export const ALL_BUTTONS = Object.keys(BUTTON_BITS) as Button[];
+
+/** Stable identity key for a binding (used for dedupe and conflict checks). */
+export function bindingKey(binding: Binding): string {
+  if (binding.kind === "key") return `key:${binding.code}`;
+  if (binding.kind === "gamepadButton") return `padButton:${binding.index}`;
+  return `padAxis:${binding.axis}:${binding.dir}`;
+}
+
 /** A binding set with the given buttons bound and every other button empty. */
 export function playerBindings(
   bindings: Partial<Record<Button, Binding[]>>,

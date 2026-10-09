@@ -1,5 +1,5 @@
-import { BUTTON_BITS, type Button } from "@wma/protocol";
-import type { PlayerBindings } from "./bindings";
+import { BUTTON_BITS } from "@wma/protocol";
+import { ALL_BUTTONS, bindingKey, type Binding, type PlayerBindings } from "./bindings";
 
 /**
  * Gamepad input device (T12). Buttons bind by index so non-standard pads
@@ -82,25 +82,46 @@ export function playerMaskFromPad(
     hysteresis: DEFAULT_HYSTERESIS,
   },
 ): number {
-  let mask = 0;
-  for (const button of Object.keys(BUTTON_BITS) as Button[]) {
+  // Settle every axis binding unconditionally first, so hysteresis state is
+  // never skipped by an earlier satisfied binding (which would make the mask
+  // depend on binding-array order).
+  const axisActive = new Map<string, boolean>();
+  for (const button of ALL_BUTTONS) {
     for (const binding of bindings[button]) {
-      if (binding.kind === "gamepadButton") {
-        if (gamepad.buttons[binding.index]?.pressed) {
-          mask |= BUTTON_BITS[button];
-          break;
-        }
-      } else if (binding.kind === "gamepadAxis") {
+      if (binding.kind === "gamepadAxis") {
         const key = axisKey(binding.axis, binding.dir);
         const value = gamepad.axes[binding.axis] ?? 0;
-        if (axisDirection(value, binding.dir, key, axisState, options)) {
-          mask |= BUTTON_BITS[button];
-          break;
-        }
+        axisActive.set(
+          bindingKey(binding),
+          axisDirection(value, binding.dir, key, axisState, options),
+        );
+      }
+    }
+  }
+
+  let mask = 0;
+  for (const button of ALL_BUTTONS) {
+    for (const binding of bindings[button]) {
+      if (isBindingActive(binding, gamepad, axisActive)) {
+        mask |= BUTTON_BITS[button];
       }
     }
   }
   return mask;
+}
+
+function isBindingActive(
+  binding: Binding,
+  gamepad: GamepadLike,
+  axisActive: ReadonlyMap<string, boolean>,
+): boolean {
+  if (binding.kind === "gamepadButton") {
+    return gamepad.buttons[binding.index]?.pressed ?? false;
+  }
+  if (binding.kind === "gamepadAxis") {
+    return axisActive.get(bindingKey(binding)) ?? false;
+  }
+  return false;
 }
 
 /** Read the current gamepad snapshots from a navigator-like provider. */
