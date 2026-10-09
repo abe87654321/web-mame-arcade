@@ -334,16 +334,33 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
 }
 
 /**
- * Netplay wiring from Vite build env: `VITE_RELAY_URL` + `VITE_RELAY_TOKEN`
- * (T34 will replace the static dev token with a per-session JWT).
+ * Netplay wiring from Vite build env. `VITE_RELAY_URL` + `VITE_RELAY_TOKEN`
+ * win when set; otherwise (dev) the relay defaults to `ws://<page host>:8787/ws`
+ * so another machine on the LAN works, and the token may come from a `?token=`
+ * query param so each browser can use a distinct dev JWT.
+ * (T34 replaces the static dev token with a per-session JWT.)
  */
 export function netplayFromEnv(): NetplayEnv | undefined {
-  const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
-  const relay = relayConfigFromEnv(env);
-  if (!relay) return undefined;
+  const env = (import.meta as unknown as { env?: Record<string, string | boolean> })
+    .env ?? {};
+  const loc = (globalThis as { location?: { hostname?: string; search?: string } })
+    .location;
+
+  const explicit = relayConfigFromEnv({
+    ...(typeof env.VITE_RELAY_URL === "string" ? { VITE_RELAY_URL: env.VITE_RELAY_URL } : {}),
+    ...(typeof env.VITE_RELAY_TOKEN === "string" ? { VITE_RELAY_TOKEN: env.VITE_RELAY_TOKEN } : {}),
+  });
+  const relayUrl =
+    explicit?.relayUrl ?? (loc?.hostname ? `ws://${loc.hostname}:8787/ws` : undefined);
+  const queryToken = loc?.search
+    ? new URLSearchParams(loc.search).get("token") ?? undefined
+    : undefined;
+  const token = explicit?.token ?? (env.DEV ? queryToken : undefined);
+  if (!relayUrl || !token) return undefined;
+
   return {
-    relayUrl: relay.relayUrl,
-    token: relay.token,
+    relayUrl,
+    token,
     iceServers: defaultIceServers(),
     socketFactory: browserWebSocketFactory(),
     factory: browserRtcFactory(),

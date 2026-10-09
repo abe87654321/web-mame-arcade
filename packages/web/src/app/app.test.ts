@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLAYER_SLOTS } from "@wma/protocol";
 import type { Core } from "../core/types";
 import type { GameEntry } from "../catalogue";
@@ -256,8 +256,22 @@ describe("createApp", () => {
 });
 
 describe("netplayFromEnv", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("returns undefined when no relay env is configured", () => {
     expect(netplayFromEnv()).toBeUndefined();
+  });
+
+  it("derives the LAN relay URL and dev token from the page", () => {
+    vi.stubGlobal("location", {
+      hostname: "192.168.3.110",
+      search: "?token=dev-jwt",
+    });
+
+    const env = netplayFromEnv();
+
+    expect(env?.relayUrl).toBe("ws://192.168.3.110:8787/ws");
+    expect(env?.token).toBe("dev-jwt");
   });
 });
 
