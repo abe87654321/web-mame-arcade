@@ -3,6 +3,9 @@
 # Usage: core/build-native.sh <driver> [--dry-run] | --list-drivers | --help
 set -euo pipefail
 
+# Deterministic string handling regardless of the caller's locale.
+export LC_ALL=C
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAME_DIR="$REPO_ROOT/mame"
 APPLY="$REPO_ROOT/core/patches/apply.sh"

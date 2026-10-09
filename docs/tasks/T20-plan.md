@@ -121,11 +121,10 @@ apply/revert restores a pristine tree, idempotent apply, stable `hash`, and ever
   T24 resets within a session.
 
 ## Post-review follow-ups (determinism-auditor + reviewer, recorded)
-The verified build `core/out/gridlee/70b2077a…` was produced before these were noted; fixing any of them
-touches the core and requires a rebuild, so they are deferred rather than silently changing the artifact.
-- **F1 — input-window bound is count-based, not distance-based.** `netplay_set_inputs` refuses once
-  `s_pending.size() >= MAX_PENDING` (arrival-order dependent). Bound by frame distance
-  (`frame > s_next_frame + MAX_LOOKAHEAD`) instead, which is identical on every peer.
+The verified build `core/out/gridlee/70b2077a…` was produced before these were noted. Applied in a
+follow-up commit (requires a rebuild to refresh the artifact): F1 (frame-distance input bound), the
+stale `netplay.cpp` header comment, and `LC_ALL=C` in `build-native.sh`. Remaining, deferred to later
+tasks:
 - **F2 — `netplay_load_state` does not rewind the frame clock.** Add a frame argument, set
   `s_next_frame = frame`, drop stale pending; needed for T25 resync / T40 rollback.
 - **F3 — bindings/pending survive a machine reset.** Add `netplay_reset()` (clear state, rebuild
@@ -140,7 +139,6 @@ touches the core and requires a rebuild, so they are deferred rather than silent
   sample hashes at the same frame boundary. Document the cadence in `docs/03` and cover it in T26.
 - **F8 — the netplay loop skips the `m_saveload_schedule` branch** present in the stock loop; a scheduled
   file save/load would hang. Mirror the stock branch (same as the T24 item above).
-- **Nits:** stale top comment in `netplay.cpp` still describes the rejected regions-sorted hash
-  (fix on the next rebuild); `netplay_enable` is exported but not wired in `NetplayHooks`, so activation
-  is implicit at the first `set_inputs` (confirm before lockstep); `git diff --check` flags whitespace
-  inside the `.patch` context; pin `LC_ALL=C` in `build-native.sh` for consistency.
+- **Nits:** `netplay_enable` is exported but not wired in `NetplayHooks`, so activation is implicit at
+  the first `set_inputs` (confirm before lockstep); `git diff --check` flags whitespace inside the
+  `.patch` context.

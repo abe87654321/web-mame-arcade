@@ -8,8 +8,8 @@
     - one frame is stepped only when every player's input for it is present;
     - inputs are injected into ioport fields, never read from the local OSD;
     - state save/load goes through save_manager's in-memory buffer;
-    - netplay_hash() is a CRC32 over every memory region (names sorted, so the
-      result does not depend on unordered_map iteration order).
+    - netplay_hash() is a CRC32 of the full registered machine state (the
+      save_manager buffer), a fully-initialised superset of main RAM.
 
     The emulation path must stay byte-identical on every peer: no wall clock,
     no random, no locale. The game frame period comes from the screen device.
@@ -39,9 +39,11 @@ uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
 
-// Cap the input window so a peer that never steps cannot grow memory without
-// bound; a few hundred frames is far more than the lockstep delay needs.
-constexpr size_t MAX_PENDING = 256;
+// Cap how far ahead of the step clock inputs may be buffered. Bounding by frame
+// distance (not by entry count) keeps the refusal identical on every peer: an
+// arrival-order-dependent count bound could refuse different frames on
+// different peers and deadlock the lockstep.
+constexpr uint32_t MAX_FRAME_LOOKAHEAD = 256;
 
 running_machine *current_machine()
 {
@@ -176,8 +178,9 @@ void netplay_set_inputs(uint32_t frame, uint16_t p1, uint16_t p2, uint16_t p3, u
 	if (frame < s_next_frame || s_pending.find(frame) != s_pending.end())
 		return;
 	// Far ahead of the step clock: refuse rather than silently evict a frame the
-	// gate still needs (a stall is visible; an eviction is a silent desync).
-	if (s_pending.size() >= MAX_PENDING)
+	// gate still needs (a stall is visible; an eviction is a silent desync). The
+	// distance bound is frame-based, so every peer refuses the same frames.
+	if (frame > s_next_frame + MAX_FRAME_LOOKAHEAD)
 		return;
 
 	s_pending[frame] = frame_inputs{ p1, p2, p3, p4 };
