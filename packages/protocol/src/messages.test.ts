@@ -105,6 +105,20 @@ describe("message schemas", () => {
     ).toBe(false);
   });
 
+  it("carries the relay-stamped sender slot on forwarded rtc.signal", () => {
+    const forwarded = {
+      t: "rtc.signal",
+      from: 0,
+      to: 1,
+      sdp: { type: "offer", sdp: "v=0" },
+    };
+    expect(safeParseMessage(forwarded).success).toBe(true);
+    expect(serverMessage.safeParse(forwarded).success).toBe(true);
+    expect(
+      safeParseMessage({ t: "rtc.signal", from: PLAYER_SLOTS, to: 1 }).success,
+    ).toBe(false);
+  });
+
   it("keeps the binary input packet out of the JSON union", () => {
     expect(INPUT_TYPE).toBe("input");
     expect(safeParseMessage({ t: "input", player: 0 }).success).toBe(false);
