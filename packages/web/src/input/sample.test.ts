@@ -111,4 +111,31 @@ describe("sampleFrameInputs", () => {
     expect(first[1]).toBe(BUTTON_BITS.up);
     expect(second[1]).toBe(BUTTON_BITS.up);
   });
+
+  it("resets axis state when a slot's gamepad is replaced", () => {
+    const base: RoomBindings = {
+      ...DEFAULT_ROOM_BINDINGS,
+      devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 0 }, null, null],
+    };
+    const state = createSampleState();
+    const first = sampleFrameInputs(
+      base,
+      createKeyState(),
+      [pad(0, { axes: [0, -0.6, 0, 0] })],
+      state,
+    );
+    expect(first[1]).toBe(BUTTON_BITS.up);
+
+    const swapped: RoomBindings = {
+      ...base,
+      devices: [{ kind: "keyboard" }, { kind: "gamepad", index: 1 }, null, null],
+    };
+    const second = sampleFrameInputs(
+      swapped,
+      createKeyState(),
+      [null, pad(1, { axes: [0, -0.45, 0, 0] })],
+      state,
+    );
+    expect(second[1]).toBe(0);
+  });
 });
