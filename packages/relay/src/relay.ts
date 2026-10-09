@@ -1,0 +1,86 @@
+/**
+ * Transport-agnostic relay dispatcher: validates client messages against the
+ * protocol union and routes them to {@link RoomManager}. The socket binding
+ * (server.ts) only parses frames and serialises the returned messages.
+ */
+import {
+  clientMessage,
+  type ServerMessage,
+} from "@wma/protocol";
+import { RelayError, RoomManager } from "./room.ts";
+import { TokenError, type TokenVerifier } from "./token.ts";
+
+export interface Outbound {
+  connectionId: string;
+  message: ServerMessage;
+}
+
+export interface Relay {
+  /** Handle one decoded JSON message; returns messages to send. */
+  handle(connectionId: string, value: unknown): Outbound[];
+  /** Handle a disconnect; returns the resulting room.state broadcasts. */
+  leave(connectionId: string): Outbound[];
+}
+
+function errorOut(connectionId: string, code: string, message: string): Outbound[] {
+  return [{ connectionId, message: { t: "error", code, message } }];
+}
+
+export function createRelay({ verifier }: { verifier: TokenVerifier }): Relay {
+  const rooms = new RoomManager(verifier);
+
+  function snapshotOut(roomId: string): Outbound[] {
+    return rooms
+      .broadcastTargets(roomId)
+      .map((connectionId) => ({ connectionId, message: rooms.snapshot(connectionId) }));
+  }
+
+  return {
+    handle(connectionId: string, value: unknown): Outbound[] {
+      const parsed = clientMessage.safeParse(value);
+      if (!parsed.success) {
+        return errorOut(connectionId, "bad_message", "malformed relay message");
+      }
+      const message = parsed.data;
+
+      try {
+        switch (message.t) {
+          case "room.join": {
+            const member = rooms.join(connectionId, {
+              room: message.room,
+              role: message.role,
+              token: message.token,
+            });
+            const roomId = rooms.roomIdOf(member.connectionId);
+            return roomId ? snapshotOut(roomId) : [];
+          }
+          case "rtc.signal": {
+            const target = rooms.signal(connectionId, message);
+            return [{ connectionId: target, message }];
+          }
+          default:
+            // game.start/input/hash/state.snapshot/score.live/game.end/chat are
+            // owned by later tasks (T24/T30/T32/T36).
+            return errorOut(
+              connectionId,
+              "unsupported",
+              `${message.t} is not handled yet`,
+            );
+        }
+      } catch (error) {
+        if (error instanceof RelayError) {
+          return errorOut(connectionId, error.code, error.message);
+        }
+        if (error instanceof TokenError) {
+          return errorOut(connectionId, error.code, error.message);
+        }
+        throw error;
+      }
+    },
+
+    leave(connectionId: string): Outbound[] {
+      const roomId = rooms.leave(connectionId);
+      return roomId ? snapshotOut(roomId) : [];
+    },
+  };
+}

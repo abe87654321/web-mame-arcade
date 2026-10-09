@@ -25,12 +25,12 @@ export interface JoinRequest {
 
 /** Room rule violation; `code` maps to the relay `error` message code. */
 export class RelayError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-  ) {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
     super(message);
     this.name = "RelayError";
+    this.code = code;
   }
 }
 
@@ -42,8 +42,11 @@ interface Room {
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly byConnection = new Map<string, string>();
+  private readonly verifier: TokenVerifier;
 
-  constructor(private readonly verifier: TokenVerifier) {}
+  constructor(verifier: TokenVerifier) {
+    this.verifier = verifier;
+  }
 
   /** Verify the token and seat the connection. Throws TokenError/RelayError. */
   join(connectionId: string, request: JoinRequest): RoomMember {
