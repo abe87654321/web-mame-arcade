@@ -25,6 +25,16 @@ const validMessages: AnyMessage[] = [
     status: "playing",
   },
   {
+    t: "room.state",
+    room: "r1",
+    players: [{ slot: 0, name: "alice" }],
+    game: null,
+    coreHash: null,
+    romHash: null,
+    dips: {},
+    status: "waiting",
+  },
+  {
     t: "rtc.signal",
     to: 1,
     sdp: { type: "offer", sdp: "v=0" },
