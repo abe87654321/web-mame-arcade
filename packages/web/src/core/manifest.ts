@@ -1,3 +1,4 @@
+import { sha256Bytes, toHex } from "./sha256";
 import type { CoreManifest } from "./types";
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -41,12 +42,18 @@ export function parseManifest(value: unknown): CoreManifest {
   };
 }
 
-/** Lowercase-hex SHA-256 of the given bytes (Web Crypto; deterministic). */
+/**
+ * Lowercase-hex SHA-256 of the given bytes. Uses Web Crypto when available and
+ * falls back to the bundled implementation otherwise (a non-secure LAN origin
+ * has no `crypto.subtle`); both produce the same digest.
+ */
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle) {
+    const digest = await subtle.digest("SHA-256", new Uint8Array(bytes));
+    return toHex(new Uint8Array(digest));
+  }
+  return toHex(sha256Bytes(bytes));
 }
 
 /** Throw unless `bytes` hashes to the manifest's recorded hash for `name`. */
