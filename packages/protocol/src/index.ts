@@ -1,9 +1,47 @@
-/** Protocol version, matching docs/contracts/input-packet.md. */
-export const PROTOCOL_VERSION = 1;
-
 export {
   BUTTON_BITS,
+  INPUT_HEADER_SIZE,
+  MAX_FRAMES,
   PLAYER_SLOTS,
+  PROTOCOL_VERSION,
   RESERVED_MASK,
+  decodeInput,
+  encodeInput,
 } from "./input";
-export type { Button } from "./input";
+export type { Button, InputPacket } from "./input";
+
+export {
+  INPUT_TYPE,
+  anyMessage,
+  chat,
+  clientMessage,
+  desync,
+  errorMessage,
+  gameEnd,
+  gameStart,
+  hashMessage,
+  parseMessage,
+  roomJoin,
+  roomState,
+  rtcSignal,
+  safeParseMessage,
+  scoreLive,
+  serverMessage,
+  stateSnapshot,
+} from "./messages";
+export type {
+  AnyMessage,
+  Chat,
+  ClientMessage,
+  Desync,
+  ErrorMessage,
+  GameEnd,
+  GameStart,
+  HashMessage,
+  RoomJoin,
+  RoomState,
+  RtcSignal,
+  ScoreLive,
+  ServerMessage,
+  StateSnapshot,
+} from "./messages";
