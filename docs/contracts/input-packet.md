@@ -22,3 +22,11 @@ are out of scope until then.
 
 Implementation: `packages/protocol/src/input.ts` (button bits) and `packages/web/src/input/`
 (devices → mask); `encodeInput`, `decodeInput` land in T21.
+
+## Local input config vs host default
+Which physical key/button/axis feeds each bit is **per-browser local configuration**, never sent
+over the wire — only the resulting mask is. Each peer therefore keeps its own mapping and never
+inherits another player's. A room/host announces an `InputConfig` as a *default*; a peer stores
+only its own overrides (`LocalInputConfig`, `wma.input.local` in localStorage) and resolves them
+over that default. Consequently two peers may emit different masks for the same physical gesture,
+but they replay each other's *masks*, so this is not a desync source.
