@@ -38,12 +38,16 @@ export {
 export {
   DEFAULT_DEADZONE,
   DEFAULT_HYSTERESIS,
+  attachGamepadEvents,
   createAxisState,
   playerMaskFromPad,
   readGamepads,
   type AxisOptions,
   type AxisState,
   type GamepadButtonLike,
+  type GamepadEventHandlers,
+  type GamepadEventLike,
+  type GamepadEventTarget,
   type GamepadLike,
   type GamepadsProvider,
 } from "./gamepad";
@@ -72,6 +76,7 @@ export {
   type StorageLike,
 } from "./remap";
 export {
+  browserUiDocument,
   createRemapUi,
   describeBinding,
   describeDevice,

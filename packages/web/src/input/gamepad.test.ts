@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BUTTON_BITS } from "@wma/protocol";
 import { DEFAULT_GAMEPAD_BINDINGS, playerBindings } from "./bindings";
 import {
+  attachGamepadEvents,
   createAxisState,
   playerMaskFromPad,
   readGamepads,
+  type GamepadEventTarget,
   type GamepadLike,
   type GamepadsProvider,
 } from "./gamepad";
@@ -158,5 +160,48 @@ describe("readGamepads", () => {
     const gamepads = [pad({ index: 0 }), null, pad({ index: 2 })];
     const provider: GamepadsProvider = { getGamepads: () => gamepads };
     expect(readGamepads(provider)).toBe(gamepads);
+  });
+});
+
+function fakeEventTarget(): GamepadEventTarget & {
+  emit: (type: "gamepadconnected" | "gamepaddisconnected", index: number) => void;
+} {
+  const listeners = new Map<string, Set<(event: { gamepad: GamepadLike }) => void>>();
+  return {
+    addEventListener(type, listener) {
+      const set = listeners.get(type) ?? new Set();
+      set.add(listener);
+      listeners.set(type, set);
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener);
+    },
+    emit(type, index) {
+      for (const listener of listeners.get(type) ?? []) {
+        listener({ gamepad: pad({ index }) });
+      }
+    },
+  };
+}
+
+describe("attachGamepadEvents", () => {
+  it("reports connect and disconnect with the gamepad index", () => {
+    const target = fakeEventTarget();
+    const onConnect = vi.fn();
+    const onDisconnect = vi.fn();
+    attachGamepadEvents(target, { onConnect, onDisconnect });
+    target.emit("gamepadconnected", 2);
+    target.emit("gamepaddisconnected", 2);
+    expect(onConnect).toHaveBeenCalledWith(2);
+    expect(onDisconnect).toHaveBeenCalledWith(2);
+  });
+
+  it("stops reporting after detach", () => {
+    const target = fakeEventTarget();
+    const onConnect = vi.fn();
+    const detach = attachGamepadEvents(target, { onConnect });
+    detach();
+    target.emit("gamepadconnected", 0);
+    expect(onConnect).not.toHaveBeenCalled();
   });
 });

@@ -76,6 +76,43 @@ export function renderTree(doc: UiDocument, node: ViewNode): UiElement {
   return el;
 }
 
+/**
+ * Real-DOM UiDocument adapter. Wraps created elements so `append` can unwrap
+ * them back to Nodes; the UI code never sees the real DOM types.
+ */
+export function browserUiDocument(root: Document = document): UiDocument {
+  return {
+    createElement(tag: string): UiElement {
+      const el = root.createElement(tag);
+      const wrapper = {
+        get className() {
+          return el.className;
+        },
+        set className(value: string) {
+          el.className = value;
+        },
+        get textContent() {
+          return el.textContent;
+        },
+        set textContent(value: string | null) {
+          el.textContent = value;
+        },
+        append(child: UiElement): void {
+          el.append((child as unknown as { el: Element }).el);
+        },
+        addEventListener(
+          type: "click",
+          listener: (event: UiEvent) => void,
+        ): void {
+          el.addEventListener(type, listener as unknown as EventListener);
+        },
+      } as UiElement & { el: Element };
+      wrapper.el = el;
+      return wrapper;
+    },
+  };
+}
+
 export interface RemapUiOptions {
   /** Connected gamepad indices, for the assignment list. */
   gamepads?: readonly number[];

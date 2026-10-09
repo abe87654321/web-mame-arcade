@@ -130,3 +130,45 @@ export function readGamepads(
 ): readonly (GamepadLike | null)[] {
   return provider.getGamepads();
 }
+
+export interface GamepadEventLike {
+  gamepad: GamepadLike;
+}
+
+export interface GamepadEventTarget {
+  addEventListener(
+    type: "gamepadconnected" | "gamepaddisconnected",
+    listener: (event: GamepadEventLike) => void,
+  ): void;
+  removeEventListener(
+    type: "gamepadconnected" | "gamepaddisconnected",
+    listener: (event: GamepadEventLike) => void,
+  ): void;
+}
+
+export interface GamepadEventHandlers {
+  onConnect?(index: number): void;
+  onDisconnect?(index: number): void;
+}
+
+/**
+ * Bridge browser gamepad hot-plug events to index callbacks. Gamepads are only
+ * visible after a user gesture in most browsers; callers should prompt for one.
+ */
+export function attachGamepadEvents(
+  target: GamepadEventTarget,
+  handlers: GamepadEventHandlers,
+): () => void {
+  const onConnect = (event: GamepadEventLike): void => {
+    handlers.onConnect?.(event.gamepad.index);
+  };
+  const onDisconnect = (event: GamepadEventLike): void => {
+    handlers.onDisconnect?.(event.gamepad.index);
+  };
+  target.addEventListener("gamepadconnected", onConnect);
+  target.addEventListener("gamepaddisconnected", onDisconnect);
+  return () => {
+    target.removeEventListener("gamepadconnected", onConnect);
+    target.removeEventListener("gamepaddisconnected", onDisconnect);
+  };
+}
