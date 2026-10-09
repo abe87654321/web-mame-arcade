@@ -45,7 +45,7 @@ describe("createRelay", () => {
       message: {
         t: "room.state",
         room: "r",
-        players: [{ slot: 0, name: "alice" }],
+        players: [{ slot: 0, name: "player" }],
         game: null,
         coreHash: null,
         romHash: null,
@@ -63,8 +63,8 @@ describe("createRelay", () => {
     expect(out.c1?.message).toMatchObject({
       t: "room.state",
       players: [
-        { slot: 0, name: "alice" },
-        { slot: 1, name: "bob" },
+        { slot: 0, name: "player" },
+        { slot: 1, name: "player" },
       ],
     });
     expect(out.c2?.message).toEqual(out.c1?.message);
@@ -102,7 +102,7 @@ describe("createRelay", () => {
     expect(Object.keys(out)).toEqual(["c1"]);
     expect(out.c1?.message).toMatchObject({
       t: "room.state",
-      players: [{ slot: 0, name: "alice" }],
+      players: [{ slot: 0, name: "player" }],
     });
   });
 

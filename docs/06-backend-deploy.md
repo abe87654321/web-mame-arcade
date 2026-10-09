@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | Web + static | Pages, WASM cores, signed ROM URLs | Nginx (HTTP/2, COOP/COEP, Brotli) | 443 `/`, `/static/cores/` |
 | API | Accounts, catalogue, rooms, leaderboards | Node 24 + Fastify, JWT | 443 `/api/` |
-| Room relay | Signalling, input log, fan-out, chat, live scores | Node 24 + uWebSockets.js, Redis pub/sub | 443 `/ws/` |
+| Room relay | Signalling, input log, fan-out, chat, live scores | Node 24 + uWebSockets.js, Redis pub/sub | 443 `/ws` |
 | TURN | NAT traversal | coturn | 3478 UDP/TCP, 5349 TLS |
 | Verifier | Replay input logs | native MAME + verify.lua, Redis queue | internal |
 | Video SFU (optional) | Video fallback | LiveKit + Egress | 7880, UDP 50000-60000 |

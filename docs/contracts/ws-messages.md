@@ -39,4 +39,6 @@ an invalid/expired token before adding the member. Issuance is the API's job (T3
 
 ## Relay error codes
 Relay replies to a client problem with `error { code, message }`. Codes used in T22:
-`invalid_token`, `room_full`, `not_joined`, `unknown_peer`, `bad_message`, `unsupported`.
+`invalid_token`, `room_full`, `already_joined`, `not_joined`, `unknown_peer`, `bad_message`,
+`unsupported`. A connection belongs to one room at a time: a `room.join` for a different room is
+rejected with `already_joined`.

@@ -124,8 +124,23 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
         close: () =>
           new Promise<void>((done) => {
             clearInterval(heartbeat);
-            for (const socket of sockets.values()) socket.terminate();
-            wss.close(() => httpServer.close(() => done()));
+            for (const socket of sockets.values()) {
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.close(1001, "relay shutting down");
+              } else {
+                socket.terminate();
+              }
+            }
+            const force = setTimeout(() => {
+              for (const socket of sockets.values()) socket.terminate();
+            }, 250);
+            force.unref();
+            wss.close(() =>
+              httpServer.close(() => {
+                clearTimeout(force);
+                done();
+              }),
+            );
           }),
       });
     });

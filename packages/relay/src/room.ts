@@ -51,21 +51,26 @@ export class RoomManager {
   /** Verify the token and seat the connection. Throws TokenError/RelayError. */
   join(connectionId: string, request: JoinRequest): RoomMember {
     const claims = this.verifier.verify(request.token);
-    const name = claims.name ?? claims.sub;
-    const room = this.ensureRoom(request.room);
+    const name = claims.name ?? "player";
 
+    const currentRoom = this.byConnection.get(connectionId);
+    if (currentRoom !== undefined && currentRoom !== request.room) {
+      throw new RelayError(
+        "already_joined",
+        `connection is already in room ${currentRoom}`,
+      );
+    }
+
+    const room = this.ensureRoom(request.room);
     const sameConnection = room.members.get(connectionId);
     if (sameConnection) return sameConnection;
 
+    // Same user reconnecting (or switching role) on a new socket: drop the old
+    // membership so the slot is freed, then seat again for the requested role.
     const reconnect = [...room.members.values()].find((m) => m.sub === claims.sub);
     if (reconnect) {
       room.members.delete(reconnect.connectionId);
       this.byConnection.delete(reconnect.connectionId);
-      reconnect.connectionId = connectionId;
-      reconnect.name = name;
-      room.members.set(connectionId, reconnect);
-      this.byConnection.set(connectionId, room.id);
-      return reconnect;
     }
 
     const slot = request.role === "player" ? this.freeSlot(room) : null;

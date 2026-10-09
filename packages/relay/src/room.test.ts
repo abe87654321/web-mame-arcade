@@ -65,6 +65,27 @@ describe("RoomManager.join", () => {
     expect(rooms.roomIdOf("c1")).toBeUndefined();
     expect(rooms.broadcastTargets("r")).toEqual(["c2"]);
   });
+
+  it("rejects joining a second room on the same connection", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "a", role: "player", token: "alice" });
+    try {
+      rooms.join("c1", { room: "b", role: "player", token: "alice" });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("already_joined");
+    }
+    expect(rooms.roomIdOf("c1")).toBe("a");
+    expect(rooms.broadcastTargets("b")).toEqual([]);
+  });
+
+  it("re-seats a viewer as a player when the role changes", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "viewer", token: "alice" });
+    const rejoin = rooms.join("c2", { room: "r", role: "player", token: "alice" });
+    expect(rejoin).toMatchObject({ role: "player", slot: 0 });
+    expect(rooms.snapshot("c2").players).toEqual([{ slot: 0, name: "player" }]);
+  });
 });
 
 describe("RoomManager.leave", () => {
