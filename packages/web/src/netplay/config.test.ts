@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { iceServersFromEnv } from "./config";
+import { defaultIceServers, iceServersFromEnv } from "./config";
 
 describe("iceServersFromEnv", () => {
   it("returns no servers for an empty environment", () => {
@@ -30,5 +30,11 @@ describe("iceServersFromEnv", () => {
     expect(iceServersFromEnv({ VITE_TURN_URL: "turns:turn.test:5349" })).toEqual([
       { urls: "turns:turn.test:5349" },
     ]);
+  });
+});
+
+describe("defaultIceServers", () => {
+  it("returns a list of ICE servers", () => {
+    expect(Array.isArray(defaultIceServers())).toBe(true);
   });
 });

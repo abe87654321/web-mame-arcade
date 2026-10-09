@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createRtcFactory, createWebSocketFactory } from "./browser";
+import {
+  browserRtcFactory,
+  browserWebSocketFactory,
+  createRtcFactory,
+  createWebSocketFactory,
+} from "./browser";
 import type { IceServer, PeerConnectionLike } from "./types";
 
 describe("createRtcFactory", () => {
@@ -32,6 +37,45 @@ describe("createWebSocketFactory", () => {
 
     factory.create("ws://relay.test/ws");
 
+    expect(seen).toEqual(["ws://relay.test/ws"]);
+  });
+});
+
+describe("browserRtcFactory", () => {
+  it("binds the global RTCPeerConnection", () => {
+    const original = (globalThis as { RTCPeerConnection?: unknown })
+      .RTCPeerConnection;
+    const seen: unknown[] = [];
+    class Stub {
+      constructor(config: unknown) {
+        seen.push(config);
+      }
+    }
+    (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection = Stub;
+    try {
+      browserRtcFactory().createPeerConnection({ iceServers: [{ urls: "stun:x" }] });
+    } finally {
+      (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection = original;
+    }
+    expect(seen).toEqual([{ iceServers: [{ urls: "stun:x" }] }]);
+  });
+});
+
+describe("browserWebSocketFactory", () => {
+  it("binds the global WebSocket", () => {
+    const original = (globalThis as { WebSocket?: unknown }).WebSocket;
+    const seen: string[] = [];
+    class Stub {
+      constructor(url: string) {
+        seen.push(url);
+      }
+    }
+    (globalThis as { WebSocket?: unknown }).WebSocket = Stub;
+    try {
+      browserWebSocketFactory().create("ws://relay.test/ws");
+    } finally {
+      (globalThis as { WebSocket?: unknown }).WebSocket = original;
+    }
     expect(seen).toEqual(["ws://relay.test/ws"]);
   });
 });

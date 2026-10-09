@@ -107,6 +107,15 @@ describe("createMesh", () => {
     expect(pc2.dataChannels[0]!.sent).toEqual([]);
   });
 
+  it("exposes the channel for a peer and null for an unknown slot", async () => {
+    const pc = new FakePeerConnection();
+    const { mesh, player } = harness(0, [pc]);
+    await mesh.setPlayers([player(0), player(1)]);
+
+    expect(mesh.channelTo(1)).toBe(pc.dataChannels[0]);
+    expect(mesh.channelTo(2)).toBeNull();
+  });
+
   it("reports inbound channel messages with their sender slot", async () => {
     const pc = new FakePeerConnection();
     const onMessage = vi.fn();

@@ -174,6 +174,15 @@ describe("RoomManager.signal", () => {
     }
   });
 
+  it("rejects a slot-less viewer as a signal sender", () => {
+    try {
+      seated().signal("c9", { t: "rtc.signal", to: 0 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
   it("keeps rooms isolated", () => {
     const rooms = seated();
     rooms.join("x1", { room: "other", role: "player", token: "dave" });
@@ -204,5 +213,13 @@ describe("RoomManager.snapshot", () => {
       dips: {},
       status: "waiting",
     });
+  });
+
+  it("reports a null self slot for a viewer", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    expect(rooms.snapshot("c9").self).toBeNull();
+    expect(rooms.snapshot("c1").self).toBe(0);
   });
 });

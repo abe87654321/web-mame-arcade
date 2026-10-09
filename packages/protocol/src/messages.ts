@@ -5,8 +5,9 @@
  * `input` is binary and is NOT a JSON message: encode/decode it with
  * `encodeInput`/`decodeInput` and tag it with {@link INPUT_TYPE}.
  *
- * Fields not pinned by the contract (room.state.players, dips, status, RTC
- * sdp/candidate) use provisional shapes; T22 may tighten them.
+ * Pinned by the contract (T22/T23): room.state players/dips/status plus the
+ * recipient's own `self` slot, and rtc.signal with its relay-stamped `from`
+ * (sdp/candidate stay opaque).
  */
 import { z } from "zod";
 import { PLAYER_SLOTS } from "./input.ts";
