@@ -5,13 +5,15 @@ import { FakeWebSocket, fakeSocketFactory } from "./test-fakes";
 function makeClient() {
   const socket = new FakeWebSocket();
   const onMessage = vi.fn();
+  const onBinary = vi.fn();
   const client = createRelayClient({
     url: "ws://relay.test/ws",
     join: { room: "r1", role: "player", token: "jwt" },
     socketFactory: fakeSocketFactory(socket),
     onMessage,
+    onBinary,
   });
-  return { socket, onMessage, client };
+  return { socket, onMessage, onBinary, client };
 }
 
 describe("createRelayClient", () => {
@@ -58,5 +60,34 @@ describe("createRelayClient", () => {
     const { client } = makeClient();
 
     expect(client.send({ t: "chat", text: "early" })).toBe(false);
+  });
+
+  it("asks for ArrayBuffer frames and forwards binary input", () => {
+    const { socket, onBinary } = makeClient();
+    const payload = new Uint8Array([1, 2, 3]).buffer;
+
+    expect(socket.binaryType).toBe("arraybuffer");
+    socket.emitMessage(payload);
+
+    expect(onBinary).toHaveBeenCalledWith(payload);
+  });
+
+  it("sends a binary input packet while open and refuses once closed", () => {
+    const { socket, client } = makeClient();
+    socket.open();
+    const packet = new Uint8Array([4, 5]).buffer;
+
+    expect(client.sendBinary(packet)).toBe(true);
+    expect(socket.sent.at(-1)).toBe(packet);
+
+    client.close();
+    expect(client.sendBinary(packet)).toBe(false);
+  });
+
+  it("ignores a non-binary, non-string frame", () => {
+    const { socket, onBinary, onMessage } = makeClient();
+    socket.emitMessage(42);
+    expect(onBinary).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
   });
 });

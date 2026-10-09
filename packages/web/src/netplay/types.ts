@@ -71,7 +71,9 @@ export interface RtcFactory {
 /** The WebSocket members the relay client uses. */
 export interface WebSocketLike {
   readonly readyState: number;
-  send(data: string): void;
+  /** Set to `"arraybuffer"` so inbound input packets are not Blobs. */
+  binaryType: string;
+  send(data: string | ArrayBuffer): void;
   close(): void;
   onopen: (() => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;

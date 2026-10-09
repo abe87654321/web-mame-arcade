@@ -129,14 +129,15 @@ export const CLOSED = 3;
 
 export class FakeWebSocket implements WebSocketLike {
   readyState = CONNECTING;
+  binaryType = "arraybuffer";
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
-  readonly sent: string[] = [];
+  readonly sent: (string | ArrayBuffer)[] = [];
   closes = 0;
 
-  send(data: string): void {
+  send(data: string | ArrayBuffer): void {
     if (this.readyState !== OPEN) throw new Error("send on a closed socket");
     this.sent.push(data);
   }
