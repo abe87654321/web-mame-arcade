@@ -7,8 +7,8 @@ export {
   RESERVED_MASK,
   decodeInput,
   encodeInput,
-} from "./input";
-export type { Button, InputPacket } from "./input";
+} from "./input.ts";
+export type { Button, InputPacket } from "./input.ts";
 
 export {
   INPUT_TYPE,
@@ -28,7 +28,7 @@ export {
   scoreLive,
   serverMessage,
   stateSnapshot,
-} from "./messages";
+} from "./messages.ts";
 export type {
   AnyMessage,
   Chat,
@@ -44,4 +44,4 @@ export type {
   ScoreLive,
   ServerMessage,
   StateSnapshot,
-} from "./messages";
+} from "./messages.ts";

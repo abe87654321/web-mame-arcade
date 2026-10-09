@@ -9,7 +9,7 @@
  * sdp/candidate) use provisional shapes; T22 may tighten them.
  */
 import { z } from "zod";
-import { PLAYER_SLOTS } from "./input";
+import { PLAYER_SLOTS } from "./input.ts";
 
 /** The one binary message type; everything else is JSON. */
 export const INPUT_TYPE = "input";
