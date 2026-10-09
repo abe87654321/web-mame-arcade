@@ -1,0 +1,14 @@
+[
+  {
+    "driver": "gridlee",
+    "title": "Gridlee",
+    "coreVersion": "0000000000000000000000000000000000000000000000000000000000000000",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": true,
+    "coreBaseUrl": "/static/cores/gridlee",
+    "romZipUrl": "/roms/gridlee.zip"
+  }
+]

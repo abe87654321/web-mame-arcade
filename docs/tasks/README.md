@@ -27,7 +27,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T11 Core wrapper** – `web/src/core/` typed `Core` interface (load, step, save, load, hash, readScore) around the
   stock WASM build; ROM zip mounted into FS. Docs: 02. Depends: T10.
 - [x] **T12 Input layer** – keyboard + Gamepad API → 16-bit mask per contract; remapping UI. Docs: contracts/input-packet. Depends: T11.
-- [ ] **T13 Game page + catalogue** – game list from a static JSON, play page, Nginx dev config with COOP/COEP. Depends: T11.
+- [x] **T13 Game page + catalogue** – game list from a static JSON, play page, Nginx dev config with COOP/COEP. Depends: T11.
 
 ## Phase 2 · Two-player lockstep
 - [ ] **T20 Netplay patch** – frame gate, `netplay_set_inputs`, `netplay_save_state/load_state`, `netplay_hash`,
