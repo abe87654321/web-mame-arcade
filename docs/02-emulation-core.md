@@ -9,20 +9,24 @@ git clone https://github.com/emscripten-core/emsdk && cd emsdk
 ./emsdk install 6.0.2 && ./emsdk activate 6.0.2 && source ./emsdk_env.sh
 # from the repo root, with emsdk sourced and mame/ initialised:
 core/build-wasm.sh gridlee
-# writes core/out/gridlee/<core_hash>/{mamegridlee.js,mamegridlee.wasm,manifest.json}
+# writes core/out/gridlee/<core_hash>/{gridlee.html,gridlee.js,gridlee.wasm,manifest.json}
 ```
 
 `core/build-wasm.sh <driver>` verifies the pinned emsdk (6.0.2) and MAME commit, runs
 `embuilder build sdl3 sdl3_ttf`, then `emmake make SUBTARGET=<driver> SOURCES=... IGNORE_GIT=1
-NEW_GIT_VERSION=<commit> STRIP_SYMBOLS=1`. It publishes the bundle under
+NEW_GIT_VERSION=<commit>`. The em++ link emits `gridlee.{html,js,wasm}` directly (the asmjs
+target extension is set in `scripts/src/main.lua:86`); the script publishes them under
 `core/out/<driver>/<core_hash>/`, where `<core_hash>` is the sha256 of the `.wasm` — the
 byte-identical cross-peer key (`contracts/core-version.md`) — and writes a `manifest.json`
 recording the driver, `core_hash`, `mame_commit`, `emsdk` and a sha256 per artifact (so the
 `.js` loader/glue is covered too, not just the `.wasm`). The script refuses to build if `mame/`
 is at a different commit or has uncommitted changes to tracked files, and it exports the exact
-emsdk it verified. `STRIP_SYMBOLS=1` is required: it triggers MAME's emscripten finalize step
-that emits the `.js`/`.wasm`/`.html` bundle. `core/out/` is gitignored; publish it to
-`/static/cores/<driver>/<core_hash>/` at deploy time.
+emsdk it verified plus `EMCC_CFLAGS=-Wno-mismatched-tags` (emsdk 6.0.2 ships Clang 23, which
+promotes the bundled `3rdparty/residfp` serialization-tag mismatch to an error under MAME's
+`-Werror`). Do **not** pass `STRIP_SYMBOLS=1`: `scripts/toolchain.lua:617` then adds an obsolete
+"asmjs finalize" `emcc` pass that feeds the already-linked `gridlee.html` back into `wasm-ld`
+and fails. `core/out/` is gitignored; publish it to `/static/cores/<driver>/<core_hash>/` at
+deploy time.
 Host deps above cover the emscripten build and the native build (MAME needs Qt6's `qmake6`/`moc`
 to generate the single-driver Makefile even for the default SDL build).
 Build the native verifier binary from the **same commit** (`make SUBTARGET=... -j$(nproc)`).

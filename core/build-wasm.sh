@@ -79,7 +79,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "output:      $OUT_ROOT/$DRIVER/<core_hash>/"
   echo
   echo "embuilder build sdl3 sdl3_ttf"
-  echo "emmake make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$MAME_PIN STRIP_SYMBOLS=1 -j$JOBS"
+  echo "emmake make -C $MAME_DIR SUBTARGET=$DRIVER SOURCES=$SOURCES IGNORE_GIT=1 NEW_GIT_VERSION=$MAME_PIN -j$JOBS"
   exit 0
 fi
 
@@ -130,11 +130,15 @@ for tool in "$EMCC" "$EMMAKE" "$EMBUILDER" \
   fi
 done
 
-# MAME's generated Makefile compiles via $(EMSDK)/emcc and the finalize step via
-# $(EMSCRIPTEN)/emcc (scripts/toolchain.lua:110-112,620), so export exactly the
-# toolchain we verify below rather than trusting the ambient environment.
+# MAME's generated Makefile compiles via $(EMSDK)/emcc (scripts/toolchain.lua:110-112),
+# so export exactly the toolchain we verify below rather than trusting the ambient
+# environment. EMCC_CFLAGS is appended to every emcc/em++ call: Clang 23 (emsdk
+# 6.0.2) promotes the residfp `friend class State` vs `struct State` tag mismatch
+# to an error under MAME's -Werror, so silence just that one warning while keeping
+# -Werror for everything else.
 export EMSDK="$EMSDK_DIR"
 export EMSCRIPTEN="$EMSCRIPTEN_DIR"
+export EMCC_CFLAGS="${EMCC_CFLAGS:-} -Wno-mismatched-tags"
 
 EMCC_VERSION="$("$EMCC" --version 2>/dev/null | sed -n '1s/.*) \([0-9][0-9.]*\).*/\1/p')"
 if [[ "$EMCC_VERSION" != "$EMSDK_PIN" ]]; then
@@ -146,16 +150,16 @@ fi
 # SDL libraries are required by MAME's browser build. Idempotent (cached).
 "$EMBUILDER" build sdl3 sdl3_ttf
 
-# STRIP_SYMBOLS=1 is what triggers MAME's asmjs finalize step (the emcc link
-# that emits .js/.wasm/.html); without it only intermediate objects are built
-# (scripts/toolchain.lua:584,617). IGNORE_GIT/NEW_GIT_VERSION pin the embedded
-# revision so a fixed commit builds reproducibly.
+# IGNORE_GIT/NEW_GIT_VERSION pin the embedded revision so a fixed commit builds
+# reproducibly. Do NOT pass STRIP_SYMBOLS=1: scripts/toolchain.lua:617 then adds
+# an obsolete "asmjs finalize" emcc pass that feeds the already-linked
+# <driver>.html back into wasm-ld and fails. The normal em++ link already emits
+# .html/.js/.wasm because asmjs sets the target extension (scripts/src/main.lua:86).
 "$EMMAKE" make -C "$MAME_DIR" \
   SUBTARGET="$DRIVER" \
   SOURCES="$SOURCES" \
   IGNORE_GIT=1 \
   NEW_GIT_VERSION="$MAME_SHA" \
-  STRIP_SYMBOLS=1 \
   -j"$JOBS"
 
 # Locate the emitted artifacts (mame<driver>.* primary, <driver>.* fallback).
