@@ -9,7 +9,7 @@ import {
 } from "./keyboard";
 
 function fakeTarget(): KeyboardTarget & {
-  dispatch: (type: "keydown" | "keyup", code: string) => boolean;
+  dispatch: (type: "keydown" | "keyup" | "blur", code: string) => boolean;
 } {
   const listeners = new Map<string, Set<(event: KeyboardEvent) => void>>();
   return {
@@ -39,6 +39,13 @@ describe("createKeyState", () => {
     expect(state.pressed().has("KeyZ")).toBe(true);
     state.release("KeyZ");
     expect(state.pressed().has("KeyZ")).toBe(false);
+  });
+
+  it("returns a snapshot that cannot mutate the state", () => {
+    const state = createKeyState();
+    state.press("KeyZ");
+    (state.pressed() as Set<string>).delete("KeyZ");
+    expect(state.pressed().has("KeyZ")).toBe(true);
   });
 });
 
@@ -104,6 +111,15 @@ describe("attachKeyboard", () => {
     const detach = attachKeyboard(target, state);
     detach();
     target.dispatch("keydown", "KeyZ");
+    expect(state.pressed().has("KeyZ")).toBe(false);
+  });
+
+  it("clears held keys when the target loses focus", () => {
+    const target = fakeTarget();
+    const state = createKeyState();
+    attachKeyboard(target, state);
+    target.dispatch("keydown", "KeyZ");
+    target.dispatch("blur", "");
     expect(state.pressed().has("KeyZ")).toBe(false);
   });
 });

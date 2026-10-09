@@ -23,7 +23,7 @@ export function createKeyState(): KeyState {
     release: (code) => {
       down.delete(code);
     },
-    pressed: () => down,
+    pressed: () => new Set(down),
     clear: () => down.clear(),
   };
 }
@@ -47,11 +47,11 @@ export function playerMaskFromKeys(
 
 export interface KeyboardTarget {
   addEventListener(
-    type: "keydown" | "keyup",
+    type: "keydown" | "keyup" | "blur",
     listener: (event: KeyboardEvent) => void,
   ): void;
   removeEventListener(
-    type: "keydown" | "keyup",
+    type: "keydown" | "keyup" | "blur",
     listener: (event: KeyboardEvent) => void,
   ): void;
 }
@@ -76,10 +76,16 @@ export function attachKeyboard(
   const onUp = (event: KeyboardEvent): void => {
     state.release(event.code);
   };
+  // A key held while the tab loses focus never gets its keyup; drop everything.
+  const onBlur = (): void => {
+    state.clear();
+  };
   target.addEventListener("keydown", onDown);
   target.addEventListener("keyup", onUp);
+  target.addEventListener("blur", onBlur);
   return () => {
     target.removeEventListener("keydown", onDown);
     target.removeEventListener("keyup", onUp);
+    target.removeEventListener("blur", onBlur);
   };
 }

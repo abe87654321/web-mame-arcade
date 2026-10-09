@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as protocol from "@wma/protocol";
-import { BUTTON_BITS, PLAYER_SLOTS, bitFor } from "./buttons";
+import { BUTTON_BITS, PLAYER_SLOTS, bitFor, toWireMask } from "./buttons";
 
 describe("buttons re-export", () => {
   it("exposes the protocol bit table unchanged", () => {
@@ -15,5 +15,10 @@ describe("buttons re-export", () => {
 
   it("re-exports four player slots", () => {
     expect(PLAYER_SLOTS).toBe(4);
+  });
+
+  it("masks reserved bits off a wire value", () => {
+    expect(toWireMask(0xffff)).toBe(0x0fff);
+    expect(toWireMask(BUTTON_BITS.b1)).toBe(BUTTON_BITS.b1);
   });
 });

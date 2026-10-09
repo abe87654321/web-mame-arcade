@@ -62,6 +62,11 @@ describe("assignDevice", () => {
     ] as const;
     expect(assignDevice(full, { kind: "gamepad", index: 3 })).toEqual(full);
   });
+
+  it("ignores an explicit slot outside the array", () => {
+    expect(assignDevice(empty, pad0, 9)).toEqual(empty);
+    expect(assignDevice(empty, pad0, -1)).toEqual(empty);
+  });
 });
 
 describe("releaseDevice", () => {

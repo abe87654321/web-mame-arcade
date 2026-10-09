@@ -1,5 +1,6 @@
 import { PLAYER_SLOTS } from "@wma/protocol";
 import type { FrameInputs } from "../core/types";
+import { toWireMask } from "./buttons";
 import type { InputDevice, RoomBindings } from "./bindings";
 import { sameDevice } from "./devices";
 import {
@@ -74,5 +75,10 @@ export function sampleFrameInputs(
     state.axes[slot] = axisState;
     return playerMaskFromPad(bindings, gamepad, axisState, options);
   });
-  return [masks[0] ?? 0, masks[1] ?? 0, masks[2] ?? 0, masks[3] ?? 0];
+  return [
+    toWireMask(masks[0] ?? 0),
+    toWireMask(masks[1] ?? 0),
+    toWireMask(masks[2] ?? 0),
+    toWireMask(masks[3] ?? 0),
+  ];
 }

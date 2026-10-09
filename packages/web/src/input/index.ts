@@ -17,6 +17,7 @@ export {
   PLAYER_SLOTS,
   RESERVED_MASK,
   bitFor,
+  toWireMask,
   type Button,
 } from "./buttons";
 export {

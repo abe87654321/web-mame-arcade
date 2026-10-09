@@ -48,6 +48,7 @@ export function assignDevice(
 ): DeviceSlots {
   const cleared = removeDevice(devices, device);
   if (slot !== undefined) {
+    if (slot < 0 || slot >= devices.length) return devices;
     const next = [...cleared];
     next[slot] = device;
     return next;
