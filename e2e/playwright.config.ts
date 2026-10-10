@@ -11,7 +11,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: "**/*.e2e.ts",
-  timeout: 180_000,
+  timeout: 600_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,
@@ -34,10 +34,12 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
+      // Also strict: reusing a dying/foreign dev server (e.g. just after a prior
+      // run) makes the page fail to boot and surfaces as a confusing timeout.
       command: "pnpm --filter @wma/web dev",
       cwd: "..",
       url: "http://localhost:5173",
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
     },
   ],

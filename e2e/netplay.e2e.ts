@@ -9,7 +9,8 @@
  * Distinct per-slot streams model two players acting independently. Because the
  * masks are keyed on the frame (not on when an animation tick fired), the
  * per-frame input union is identical on both peers regardless of timing jitter,
- * so the hash streams must match. Waits are generous: MAME boot + ~360 frames.
+ * so the hash streams must match. Waits are generous: MAME boot + enough frames
+ * for a few hash points, which under netem can take minutes at a few fps.
  *
  * The lockstep pre-fills the first `inputDelay` frames (docs/03 "Start") with
  * mask 0, so a fixture's first non-zero mask must sit at frame >= inputDelay;
@@ -25,8 +26,13 @@ import { mintToken } from "./support/token";
 const here = dirname(fileURLToPath(import.meta.url));
 const SECRET = "dev";
 const DRIVER = "gridlee";
-/** Require ≥ 6 hash points (frame % 60 === 0) on each tab. */
-const HASH_TARGET = 360;
+/**
+ * Require this many per-60-frame hash points on each tab before comparing.
+ * Deliberately a hash-point count, not a target frame: under `tc netem` the
+ * headless emulator runs at only a few fps, so a high frame target times out
+ * while a handful of points (frames 60, 120, 180, 240) already proves agreement.
+ */
+const MIN_HASHES = 4;
 
 interface GameEntry {
   driver: string;
@@ -80,33 +86,41 @@ test.describe("netplay lockstep", () => {
     const d1 = desyncFrames(p1);
     const d2 = desyncFrames(p2);
 
-    // Both peers are seated; the host enables Start once the other is ready.
+    // Both peers are seated. The SDL canvas is `position: fixed` and wins the
+    // headless hit-test over the lobby overlay, so invoke a button's click
+    // handler directly instead of a coordinate click.
     await expect(p1.locator(".lobby-slot")).toHaveCount(2);
     await expect(p2.locator(".lobby-slot")).toHaveCount(2);
 
-    // The SDL canvas is `position: fixed` and wins the headless hit-test over
-    // the lobby overlay, so invoke the button's click handler directly instead
-    // of a coordinate click.
     const press = (page: Page, selector: string): Promise<void> =>
       page.locator(selector).evaluate((el) => (el as HTMLElement).click());
 
+    // Both players ready up (canStart ignores the host's own flag).
+    await press(p1, ".ready-toggle");
     await press(p2, ".ready-toggle");
-    await expect(p1.locator(".start-game")).toBeEnabled();
-    await press(p1, ".start-game");
 
-    const reached = (hashes: Map<number, number>): number => Math.max(-1, ...hashes.keys());
+    // Join order is a race, so do not assume p1 is host: the host is the tab
+    // (lowest slot) that carries the Start button, exactly one of the two.
+    const startButtons = async (): Promise<number> =>
+      (await p1.locator(".start-game").count()) +
+      (await p2.locator(".start-game").count());
+    await expect.poll(startButtons, { timeout: 20_000 }).toBe(1);
+    const host = (await p1.locator(".start-game").count()) > 0 ? p1 : p2;
+    await expect(host.locator(".start-game")).toBeEnabled();
+    await press(host, ".start-game");
+
     await expect
-      .poll(() => reached(h1), { timeout: 120_000 })
-      .toBeGreaterThanOrEqual(HASH_TARGET);
+      .poll(() => h1.size, { timeout: 300_000 })
+      .toBeGreaterThanOrEqual(MIN_HASHES);
     await expect
-      .poll(() => reached(h2), { timeout: 120_000 })
-      .toBeGreaterThanOrEqual(HASH_TARGET);
+      .poll(() => h2.size, { timeout: 300_000 })
+      .toBeGreaterThanOrEqual(MIN_HASHES);
 
     expect(d1, "p1 saw a desync").toEqual([]);
     expect(d2, "p2 saw a desync").toEqual([]);
 
     const common = [...h1.keys()].filter((frame) => h2.has(frame)).sort((a, b) => a - b);
-    expect(common.length, "no overlapping hash frames").toBeGreaterThanOrEqual(5);
+    expect(common.length, "no overlapping hash frames").toBeGreaterThanOrEqual(MIN_HASHES);
     for (const frame of common) {
       expect(h2.get(frame), `hash mismatch at frame ${frame}`).toBe(h1.get(frame));
     }

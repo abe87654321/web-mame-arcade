@@ -17,6 +17,9 @@ export default tseslint.config(
       "**/public/roms/**",
       // Design-harness scratch output (git-ignored).
       "gan-harness/**",
+      // Playwright report/trace artifacts (git-ignored, generated locally).
+      "e2e/playwright-report/**",
+      "e2e/test-results/**",
     ],
   },
   js.configs.recommended,
