@@ -11,3 +11,5 @@ dist/
 coverage/
 *.log
 .DS_Store
+# GAN-style design harness output (T27 design exploration; see docs/tasks).
+gan-harness/
