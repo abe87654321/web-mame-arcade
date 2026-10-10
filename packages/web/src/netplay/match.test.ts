@@ -287,16 +287,19 @@ describe("createMatch", () => {
     match.close();
   });
 
-  it("has the host answer a desync with a state.snapshot", async () => {
+  it("has the host answer a desync with a state.snapshot at its own frame", async () => {
     const createSnapshot = vi.fn(async () => "http://relay/rooms/r/snapshot/1");
     const { socket, match } = harness(0, { createSnapshot });
     await flush();
-    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
     await flush();
     socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
     await flush();
+    // Advance the host past the flagged frame; the snapshot must carry the
+    // host's own position, not the relay's (older) desync frame.
+    for (let i = 0; i < 61; i++) match.tick(0x01);
 
-    socket.emitMessage(JSON.stringify({ t: "desync", frame: 60 }));
+    socket.emitMessage(JSON.stringify({ t: "desync", frame: 30 }));
     await flush();
 
     expect(createSnapshot).toHaveBeenCalledOnce();

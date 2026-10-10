@@ -30,6 +30,8 @@ export interface FrameTable {
   ackOf(player: number): number;
   /** Forget frames below `before` (already stepped) and refuse to refill them. */
   prune(before: number): void;
+  /** Forget every staged frame and refuse refills below `floor` (resync). */
+  clear(floor: number): void;
 }
 
 export function createFrameTable(slots: readonly number[]): FrameTable {
@@ -75,6 +77,14 @@ export function createFrameTable(slots: readonly number[]): FrameTable {
         if (frame < before) known.delete(frame);
       }
       if (before > floor) floor = before;
+    },
+
+    clear(nextFloor: number): void {
+      // Drop all staged input, including already-buffered future frames: after a
+      // resync they belong to the pre-snapshot timeline and must not be stepped.
+      known.clear();
+      ack.clear();
+      floor = nextFloor;
     },
   };
 }

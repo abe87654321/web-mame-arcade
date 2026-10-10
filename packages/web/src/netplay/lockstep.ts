@@ -137,8 +137,10 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       // queueing inputs the simulation may never reach.
       if (scheduleHead - current < maxLookahead) {
         const mask = localMask & 0xffff;
-        table.set(mySlot, scheduleHead, mask);
-        frames.push(mask);
+        // Only record/send the mask when the table accepted it, so the packet's
+        // frame history always matches what will actually be stepped here
+        // (first-wins means a resync or duplicate can make `set` return false).
+        if (table.set(mySlot, scheduleHead, mask)) frames.push(mask);
         scheduleHead += 1;
       }
 
@@ -176,12 +178,13 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
 
     resync(frame: number): void {
       // The core was just restored to the state at `frame`; continue from the
-      // next one with a clean input window. Past frames are forgotten so late
-      // redundancy cannot rewrite already-simulated history.
+      // next one with a clean input window. Every staged frame — including
+      // already-buffered future inputs from the pre-snapshot timeline — is
+      // dropped so nothing stale is stepped and the packet history restarts.
       current = frame + 1;
+      table.clear(current);
       scheduleHead = current;
       frames.length = 0;
-      table.prune(current);
       waitSince = null;
       if (status === "waiting") {
         status = "running";

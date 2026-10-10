@@ -106,7 +106,16 @@ const DEFAULT_INPUT_DELAY = 2;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
-  return relayUrl.replace(/^ws/, "http").replace(/\/ws$/, "");
+  try {
+    const url = new URL(relayUrl);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = url.pathname.replace(/\/ws$/, "");
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return relayUrl.replace(/^ws/, "http").replace(/\/ws$/, "");
+  }
 }
 
 export function createMatch(deps: MatchDeps): NetplayMatch {
@@ -280,20 +289,27 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     onDesync: (message) => {
       // Only the host can answer; peers wait for its snapshot (docs/03).
       if (!isHost() || !lockstep) return;
-      log?.("desync", { frame: message.frame });
+      // The snapshot must be labelled with the host's *current* position at
+      // save time, not the (older, latency-delayed) frame the relay flagged:
+      // the host keeps ticking between sending a hash and hearing `desync`, so
+      // the two differ in general. `frame()` is the next frame to step, so the
+      // last stepped frame is one less.
+      const frame = lockstep.frame() - 1;
+      if (frame < 0) return;
+      log?.("desync", { frame: message.frame, snapshotFrame: frame });
       let state: Uint8Array;
       try {
         state = deps.core.save();
       } catch (error) {
-        log?.("resync-error", { frame: message.frame, error: String(error) });
+        log?.("resync-error", { frame, error: String(error) });
         return;
       }
       void createSnapshot(state)
         .then((blobUrl) => {
-          session.send({ t: "state.snapshot", frame: message.frame, blobUrl });
-          log?.("resync-sent", { frame: message.frame });
+          session.send({ t: "state.snapshot", frame, blobUrl });
+          log?.("resync-sent", { frame });
         })
-        .catch((error) => log?.("resync-error", { frame: message.frame, error: String(error) }));
+        .catch((error) => log?.("resync-error", { frame, error: String(error) }));
     },
     onStateSnapshot: (message) => {
       void fetchSnapshot(message.blobUrl)

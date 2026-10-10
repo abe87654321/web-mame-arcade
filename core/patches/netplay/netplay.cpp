@@ -303,20 +303,16 @@ int netplay_load_state(uint8_t const *buf)
 //  the buffered inputs live in native statics and would otherwise keep the peer
 //  ahead of where it just loaded, silently refusing every later input
 //  (netplay_set_inputs drops frame < s_next_frame). Resume at frame + 1 and drop
-//  inputs already stepped. Deterministic: depends only on the snapshot frame.
+//  ALL buffered inputs: they belong to the pre-snapshot timeline and, being
+//  first-wins, a stale mask would otherwise be stepped. The JS driver re-supplies
+//  every frame through netplay_set_inputs. Deterministic: depends only on frame.
 //-------------------------------------------------
 
 void netplay_set_frame(uint32_t frame)
 {
 	netplay_enable();
 	s_next_frame = frame + 1;
-	for (auto it = s_pending.begin(); it != s_pending.end(); )
-	{
-		if (it->first <= frame)
-			it = s_pending.erase(it);
-		else
-			++it;
-	}
+	s_pending.clear();
 }
 
 

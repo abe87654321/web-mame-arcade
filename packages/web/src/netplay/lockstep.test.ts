@@ -267,6 +267,31 @@ describe("createLockstep", () => {
     expect(lockstep.frame()).toBe(120);
   });
 
+  it("drops buffered future peer inputs on resync", () => {
+    const core = fakeCore();
+    const lockstep = createLockstep({
+      core,
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: () => 0,
+    });
+
+    lockstep.onBytes(encodePeer(1, 0, [0x02]));
+    lockstep.tick(0x01);
+    expect(core.steps.map((s) => s.frame)).toEqual([0]);
+
+    // Peer frames 1..8 are buffered ahead of the simulation, then a resync
+    // restores a state at frame 3: those stale inputs must not be stepped.
+    lockstep.onBytes(encodePeer(1, 1, [3, 3, 3, 3, 3, 3, 3, 3]));
+    lockstep.resync(3);
+    lockstep.tick(0x01);
+
+    expect(core.steps.map((s) => s.frame)).toEqual([0]);
+  });
+
   it("resumes from the snapshot frame after a resync", () => {
     const core = fakeCore();
     const lockstep = createLockstep({
