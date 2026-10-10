@@ -28,23 +28,43 @@ function statusText(status: LobbyState["roomStatus"]): string {
   }
 }
 
+/** Purely visual column headers, aligned to the slot grid (hidden on short screens). */
+const SLOT_HEAD: ViewNode = {
+  tag: "li",
+  className: "slots-head",
+  children: [
+    { tag: "span", className: "slots-head__col", text: "#" },
+    { tag: "span", className: "slots-head__col", text: "name" },
+    { tag: "span", className: "slots-head__col", text: "tags" },
+    { tag: "span", className: "slots-head__col", text: "state" },
+  ],
+};
+
 function slotRow(player: LobbyState["players"][number]): ViewNode {
   const tags: ViewNode[] = [];
   if (player.host) tags.push({ tag: "span", className: "tag host", text: "host" });
   if (player.self) tags.push({ tag: "span", className: "tag you", text: "you" });
-  const state = player.ready
+
+  // Three lamp states: lit (ready), dark (connected, not ready), amber (connecting).
+  const ready = player.ready
     ? { className: "ready on", text: "ready" }
     : player.connected
       ? { className: "ready off", text: "not ready" }
-      : { className: "ready off", text: "connecting" };
+      : { className: "ready off connecting", text: "connecting" };
+
+  const classes = ["lobby-slot"];
+  if (player.self) classes.push("self");
+  if (!player.connected) classes.push("connecting");
+
   return {
     tag: "li",
-    className: player.self ? "lobby-slot self" : "lobby-slot",
+    className: classes.join(" "),
     children: [
       { tag: "span", className: "slot-id", text: `P${player.slot + 1}` },
       { tag: "span", className: "slot-name", text: player.name },
-      ...tags,
-      { tag: "span", className: state.className, text: state.text },
+      // Always present so the ready badge keeps its grid column when a row has no tags.
+      { tag: "span", className: "slot-tags", children: tags },
+      { tag: "span", className: ready.className, text: ready.text },
     ],
   };
 }
@@ -102,9 +122,16 @@ export function buildLobby(state: LobbyState, options: LobbyViewOptions): ViewNo
         ],
       },
       {
-        tag: "ul",
-        className: "lobby-slots",
-        children: state.players.map(slotRow),
+        tag: "div",
+        className: "lobby-players",
+        children: [
+          { tag: "div", className: "lobby-label", text: "Players" },
+          {
+            tag: "ul",
+            className: "lobby-slots",
+            children: [SLOT_HEAD, ...state.players.map(slotRow)],
+          },
+        ],
       },
       { tag: "div", className: "lobby-controls", children: controls },
       {
