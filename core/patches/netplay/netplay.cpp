@@ -296,6 +296,31 @@ int netplay_load_state(uint8_t const *buf)
 
 
 //-------------------------------------------------
+//  netplay_set_frame - resync the frame clock after
+//  a state was restored at `frame`
+//
+//  netplay_load_state restores only the machine save buffer; the step clock and
+//  the buffered inputs live in native statics and would otherwise keep the peer
+//  ahead of where it just loaded, silently refusing every later input
+//  (netplay_set_inputs drops frame < s_next_frame). Resume at frame + 1 and drop
+//  inputs already stepped. Deterministic: depends only on the snapshot frame.
+//-------------------------------------------------
+
+void netplay_set_frame(uint32_t frame)
+{
+	netplay_enable();
+	s_next_frame = frame + 1;
+	for (auto it = s_pending.begin(); it != s_pending.end(); )
+	{
+		if (it->first <= frame)
+			it = s_pending.erase(it);
+		else
+			++it;
+	}
+}
+
+
+//-------------------------------------------------
 //  netplay_hash - CRC32 over the full registered
 //  machine state (save_manager buffer)
 //

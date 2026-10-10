@@ -343,7 +343,7 @@ describe("createMatch", () => {
     await flush();
 
     expect(fetchSnapshot).toHaveBeenCalledWith("http://relay/blob/2");
-    expect(core.load).toHaveBeenCalledWith(bytes);
+    expect(core.load).toHaveBeenCalledWith(bytes, 100);
     expect(match.frame()).toBe(101);
     match.close();
   });

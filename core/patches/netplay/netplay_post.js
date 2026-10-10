@@ -57,6 +57,9 @@ var WMA_NETPLAY = (function () {
 				Module._free(ptr);
 			}
 		},
+		setFrame: function (frame) {
+			Module.cwrap('netplay_set_frame', null, ['number'])(frame >>> 0);
+		},
 		hash: function () {
 			return Module.cwrap('netplay_hash', 'number', [])() >>> 0;
 		}

@@ -298,7 +298,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     onStateSnapshot: (message) => {
       void fetchSnapshot(message.blobUrl)
         .then((bytes) => {
-          deps.core.load(bytes);
+          deps.core.load(bytes, message.frame);
           lockstep?.resync(message.frame);
           log?.("resync-applied", { frame: message.frame });
         })

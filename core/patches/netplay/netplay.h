@@ -34,6 +34,7 @@ NETPLAY_API void     netplay_step(uint32_t frame);
 NETPLAY_API int      netplay_state_size(void);
 NETPLAY_API int      netplay_save_state(uint8_t *buf);
 NETPLAY_API int      netplay_load_state(const uint8_t *buf);
+NETPLAY_API void     netplay_set_frame(uint32_t frame);
 NETPLAY_API uint32_t netplay_hash(void);
 
 // Internal hooks used by the patched emulation core (machine.cpp, ioport.cpp).

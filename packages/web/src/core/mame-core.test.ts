@@ -37,7 +37,7 @@ describe("MameCore", () => {
     expect(() => core.step(0, [0, 0, 0, 0])).toThrow(CoreCapabilityError);
     expect(() => core.save()).toThrow(CoreCapabilityError);
     expect(() => core.hash()).toThrow(CoreCapabilityError);
-    expect(() => core.load(new Uint8Array([1]))).toThrow(CoreCapabilityError);
+    expect(() => core.load(new Uint8Array([1]), 42)).toThrow(CoreCapabilityError);
   });
 
   it("throws CoreCapabilityError for readScore until T32", () => {
@@ -52,6 +52,7 @@ describe("MameCore", () => {
       setInputs: vi.fn(),
       saveState: vi.fn(() => new Uint8Array([1, 2])),
       loadState: vi.fn(),
+      setFrame: vi.fn(),
       hash: vi.fn(() => 0xdeadbeef),
       step: vi.fn(),
     };
@@ -61,7 +62,21 @@ describe("MameCore", () => {
     expect(netplay.setInputs).toHaveBeenCalledWith(7, 1, 2, 3, 4);
     expect(core.save()).toEqual(new Uint8Array([1, 2]));
     expect(core.hash()).toBe(0xdeadbeef);
-    core.load(new Uint8Array([5]));
+    core.load(new Uint8Array([5]), 42);
     expect(netplay.loadState).toHaveBeenCalledWith(new Uint8Array([5]));
+    expect(netplay.setFrame).toHaveBeenCalledWith(42);
+  });
+
+  it("throws when a pre-T25 core is asked to load with a frame", () => {
+    const netplay = {
+      enable: vi.fn(),
+      setInputs: vi.fn(),
+      saveState: vi.fn(),
+      loadState: vi.fn(),
+      hash: vi.fn(),
+      step: vi.fn(),
+    } as unknown as NetplayHooks;
+    const core = new MameCore(fakeModule(netplay), options);
+    expect(() => core.load(new Uint8Array([1]), 60)).toThrow(CoreCapabilityError);
   });
 });

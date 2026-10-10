@@ -14,10 +14,18 @@ export class MameCore implements Core {
   ) {}
 
   load(): Promise<void>;
-  load(state: Uint8Array): void;
-  load(state?: Uint8Array): Promise<void> | void {
+  load(state: Uint8Array, frame: number): void;
+  load(state?: Uint8Array, frame?: number): Promise<void> | void {
     if (state) {
-      this.netplay("load", "T20").loadState(state);
+      const np = this.netplay("load", "T20");
+      np.loadState(state);
+      if (frame !== undefined) {
+        // Resync the native frame clock; a core built before T25 lacks it.
+        if (typeof np.setFrame !== "function") {
+          throw new CoreCapabilityError("load", "T25 (core rebuild)");
+        }
+        np.setFrame(frame);
+      }
       return;
     }
     // The ROM is mounted in the module's preRun hook and MAME auto-starts, so
