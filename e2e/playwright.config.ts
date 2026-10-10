@@ -16,13 +16,21 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
-  use: { baseURL: "http://localhost:5173", trace: "retain-on-failure" },
+  // `channel: "chromium"` runs the full bundled Chromium (new headless) rather
+  // than the separate `chromium-headless-shell` download.
+  use: {
+    baseURL: "http://localhost:5173",
+    channel: "chromium",
+    trace: "retain-on-failure",
+  },
   webServer: [
     {
+      // Never reuse a running relay: the harness mints tokens for the "dev"
+      // secret, and a stale relay on 8787 would silently reject them.
       command: "WMA_RELAY_SECRET=dev pnpm --filter @wma/relay start",
       cwd: "..",
       port: 8787,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
     },
     {

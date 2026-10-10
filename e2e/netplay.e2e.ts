@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { collectHashes, desyncFrames } from "./support/hashes";
 import { mintToken } from "./support/token";
 
@@ -80,9 +80,15 @@ test.describe("netplay lockstep", () => {
     await expect(p1.locator(".lobby-slot")).toHaveCount(2);
     await expect(p2.locator(".lobby-slot")).toHaveCount(2);
 
-    await p2.locator(".ready-toggle").click();
+    // The SDL canvas is `position: fixed` and wins the headless hit-test over
+    // the lobby overlay, so invoke the button's click handler directly instead
+    // of a coordinate click.
+    const press = (page: Page, selector: string): Promise<void> =>
+      page.locator(selector).evaluate((el) => (el as HTMLElement).click());
+
+    await press(p2, ".ready-toggle");
     await expect(p1.locator(".start-game")).toBeEnabled();
-    await p1.locator(".start-game").click();
+    await press(p1, ".start-game");
 
     const reached = (hashes: Map<number, number>): number => Math.max(-1, ...hashes.keys());
     await expect
