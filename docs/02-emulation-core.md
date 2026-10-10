@@ -80,6 +80,11 @@ as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact sou
    rejected: they are ROM regions that can hold uninitialised bytes (determinism-auditor, T20).
 5. **Frame clock** – one emulated video frame (the first screen's real `frame_period()`, e.g. 60.6 Hz),
    not a fixed 1/60 s.
+6. **Frame-clock resync** – `netplay_set_frame(frame)` (T25) after `netplay_load_state`: sets the-step
+   clock to `frame + 1` and clears the buffered-input map. Without it a peer that loads a snapshot
+   behind its own clock keeps `s_next_frame` ahead, and `netplay_set_inputs` silently drops every later
+   frame (it refuses `frame < s_next_frame`) — a hard stall. The primitive is also what T40 rollback
+   needs to reload a past frame and re-simulate.
 
 `0004-build.patch` also widens the Emscripten `EXPORTED_FUNCTIONS` with `_free` and
 `EXPORTED_RUNTIME_METHODS` with `FS` and `HEAPU8`, so the wrapper can mount the ROM and do state

@@ -43,12 +43,15 @@ Docs: 03. Depends: T24.
 
 ## Acceptance criteria
 
-- [ ] Hash emitted by a seated player every 60 frames; relay broadcasts `desync` only on a
-      genuine same-frame mismatch.
-- [ ] Host `state.snapshot` fans out; a desynced peer fetches, loads and continues from the
-      snapshot frame without stalling.
-- [ ] Every desync/resync logged with room/frame (game/coreHash when available).
-- [ ] Tests added in protocol/relay/web; `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] Hash emitted by a seated player every 60 frames; relay broadcasts `desync` only on a
+      genuine same-frame mismatch (bounded frame jumps ignored, so no single peer can strand
+      the comparison).
+- [x] Host `state.snapshot` (labelled with the host's own last stepped frame) fans out; a
+      desynced peer fetches, loads and continues from the snapshot frame without stalling.
+- [x] Every desync/resync logged with room/frame (game/coreHash when available).
+- [x] Tests added in protocol/relay/web; `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] `core/build-wasm.sh gridlee` rebuilt with `netplay_set_frame`; new `core_hash`
+      `d26f80aa…` published and pointed to by `packages/web/public/games.json`.
 
 ## Notes for the agent
 

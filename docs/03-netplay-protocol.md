@@ -42,8 +42,12 @@ state of that frame and re-simulate up to now in one browser tick. Enable only i
 fit in 16 ms on a mid-range laptop.
 
 ## Desync detection
-Every 60 frames each peer sends `netplay_hash()`. Mismatch → host sends full state, everyone loads it.
-Log game + core version; repeated desyncs ⇒ remove the driver from online play.
+Every 60 frames each peer sends `netplay_hash()` to the relay (`hash {frame, crc32}`). The relay
+compares hashes **per frame across players**; a genuine same-frame mismatch broadcasts `desync`.
+The host (lowest slot) then saves its state and sends `state.snapshot {frame, blobUrl}` labelled
+with **its own last stepped frame** (not the relay's, which lags), and everyone else fetches the
+blob, `core.load(bytes, frame)` + resyncs the lockstep to `frame + 1`. Log game + core version;
+repeated desyncs ⇒ remove the driver from online play.
 
 ## Late join / reconnect
 Joiner receives the latest host state + inputs since, then fast-forwards to live.
