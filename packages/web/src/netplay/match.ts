@@ -289,12 +289,13 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     onDesync: (message) => {
       // Only the host can answer; peers wait for its snapshot (docs/03).
       if (!isHost() || !lockstep) return;
+      const active = lockstep;
       // The snapshot must be labelled with the host's *current* position at
       // save time, not the (older, latency-delayed) frame the relay flagged:
       // the host keeps ticking between sending a hash and hearing `desync`, so
       // the two differ in general. `frame()` is the next frame to step, so the
       // last stepped frame is one less.
-      const frame = lockstep.frame() - 1;
+      const frame = active.frame() - 1;
       if (frame < 0) return;
       log?.("desync", { frame: message.frame, snapshotFrame: frame });
       let state: Uint8Array;
@@ -307,6 +308,11 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       void createSnapshot(state)
         .then((blobUrl) => {
           session.send({ t: "state.snapshot", frame, blobUrl });
+          // Clear our own input window too: we still hold the desynced peer's
+          // pre-snapshot masks for frames > `frame`, and first-wins would reject
+          // its corrected masks, re-diverging immediately. `current` is already
+          // `frame + 1`, so this only drops stale staged input.
+          active.resync(frame);
           log?.("resync-sent", { frame });
         })
         .catch((error) => log?.("resync-error", { frame, error: String(error) }));

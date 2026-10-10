@@ -314,6 +314,52 @@ describe("createLockstep", () => {
     expect(core.steps.at(-1)).toEqual({ frame: 101, inputs: [0x01, 0, 0, 0] });
   });
 
+  it("keeps two peers aligned after a resync to the same frame", () => {
+    const coreA = fakeCore();
+    const coreB = fakeCore();
+    const maker = (core: ReturnType<typeof fakeCore>, mySlot: number, send: (p: Uint8Array) => void) =>
+      createLockstep({
+        core,
+        mySlot,
+        players: [0, 1],
+        inputDelay: 2,
+        startFrame: 0,
+        sendInput: send,
+        now: () => 0,
+      });
+    let sendToA: (p: Uint8Array) => void = () => {};
+    let sendToB: (p: Uint8Array) => void = () => {};
+    const a = maker(coreA, 0, (p) => sendToB(p));
+    const b = maker(coreB, 1, (p) => sendToA(p));
+    sendToA = (p) => a.onBytes(p);
+    sendToB = (p) => b.onBytes(p);
+
+    for (let i = 0; i < 20; i++) {
+      a.tick(0x01);
+      b.tick(0x02);
+    }
+
+    const frame = Math.min(a.frame(), b.frame()) - 1;
+    const startA = coreA.steps.length;
+    const startB = coreB.steps.length;
+    a.resync(frame);
+    b.resync(frame);
+    expect(a.frame()).toBe(frame + 1);
+    expect(b.frame()).toBe(frame + 1);
+
+    for (let i = 0; i < 10; i++) {
+      a.tick(0x01);
+      b.tick(0x02);
+    }
+
+    // Everything each peer re-simulates after the resync must be identical.
+    const common = Math.min(coreA.steps.length - startA, coreB.steps.length - startB);
+    expect(common).toBeGreaterThan(0);
+    expect(coreA.steps.slice(startA, startA + common)).toEqual(
+      coreB.steps.slice(startB, startB + common),
+    );
+  });
+
   it("never lets the wall clock reach the core", () => {
     const core = fakeCore();
     const now = vi.fn(() => 123);
