@@ -68,6 +68,16 @@ describe("renderTree", () => {
     expect(onClick).toHaveBeenCalledOnce();
     expect(event.preventDefault).toHaveBeenCalledOnce();
   });
+
+  it("propagates the disabled flag onto the element", () => {
+    const doc = fakeDoc();
+    const el = renderTree(doc, {
+      tag: "button",
+      text: "start",
+      disabled: true,
+    }) as FakeElement;
+    expect(el.disabled).toBe(true);
+  });
 });
 
 describe("browserUiDocument", () => {
