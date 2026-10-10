@@ -32,6 +32,20 @@ describe("per-slot test input script", () => {
     expect(script!(2, 1)).toBe(0); // unseated slot
   });
 
+  it("snapshots the script so a later global mutation cannot change inputs", () => {
+    const global: { __WMA_TEST_INPUT__?: { players?: Record<string, object> } } = {
+      __WMA_TEST_INPUT__: { players: { "0": { masks: [0, 0x08] } } },
+    };
+    const script = readInputScript(global);
+    expect(script).toBeDefined();
+
+    // Mutate both the inner array and the slot entry after arming.
+    (global.__WMA_TEST_INPUT__!.players!["0"] as { masks: number[] }).masks[1] = 0x04;
+    global.__WMA_TEST_INPUT__!.players!["0"] = { masks: [0, 0] };
+
+    expect(script!(0, 1)).toBe(0x08);
+  });
+
   it("ignores an absent or malformed global", () => {
     expect(readInputScript({})).toBeUndefined();
     expect(readInputScript({ __WMA_TEST_INPUT__: { nope: 1 } })).toBeUndefined();

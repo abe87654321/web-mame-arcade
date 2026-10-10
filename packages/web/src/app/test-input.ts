@@ -29,9 +29,29 @@ export function maskAt(script: SlotScript, frame: number): number {
   return 0;
 }
 
+/** Deep-copy one slot's script so a later mutation of the global cannot reach it. */
+function snapshotScript(script: unknown): SlotScript {
+  if (!script || typeof script !== "object") return {};
+  const source = script as SlotScript;
+  const copy: SlotScript = {};
+  if (Array.isArray(source.masks)) copy.masks = [...source.masks];
+  if (Array.isArray(source.segments)) {
+    copy.segments = source.segments.map((s) => ({
+      startFrame: s.startFrame,
+      endFrame: s.endFrame,
+      mask: s.mask,
+    }));
+  }
+  return copy;
+}
+
 /**
  * Build a `(slot, frame) => mask` source from an injected global, or
  * `undefined` when no valid per-slot script is present.
+ *
+ * The per-slot scripts are snapshotted at read time: a match's input table is
+ * fixed once armed, so a later mutation of `window.__WMA_TEST_INPUT__` cannot
+ * change the inputs (and could therefore never diverge one peer from another).
  */
 export function readInputScript(
   win: unknown,
@@ -40,9 +60,12 @@ export function readInputScript(
     ?.__WMA_TEST_INPUT__;
   if (!global || typeof global !== "object" || !global.players) return undefined;
   if (typeof global.players !== "object" || Array.isArray(global.players)) return undefined;
-  const players = global.players;
+  const snap: Record<string, SlotScript> = {};
+  for (const [slot, script] of Object.entries(global.players)) {
+    snap[slot] = snapshotScript(script);
+  }
   return (slot, frame) => {
-    const script = players[String(slot)];
+    const script = snap[String(slot)];
     return script ? maskAt(script, frame) : 0;
   };
 }

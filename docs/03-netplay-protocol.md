@@ -29,6 +29,11 @@ Start with delay-based lockstep; add rollback per game once stable.
   plays solo under the lockstep. This avoids the first player entering a room locking out later joiners.
 - `startFrame` is 0: every peer boots the same core + ROM, so frame 0 is the same state everywhere.
   Mid-game join / resume from a snapshot is T25.
+- The first `inputDelay` frames (`startFrame` .. `startFrame + inputDelay - 1`) are **neutral (mask 0)**
+  for every slot, by construction: the lockstep pre-fills them so the first real input lands `D` frames
+  after the start without any peer inventing a mask. An input log or a test script must therefore place
+  its first non-zero mask at frame `startFrame + inputDelay`; a mask written inside the delay window is
+  never requested and never stepped.
 
 ## Lockstep loop, per frame N
 1. Read local controls, schedule them for frame N + D (D = 2-3, tuned from measured ping).

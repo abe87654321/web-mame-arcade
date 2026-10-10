@@ -10,6 +10,10 @@
  * masks are keyed on the frame (not on when an animation tick fired), the
  * per-frame input union is identical on both peers regardless of timing jitter,
  * so the hash streams must match. Waits are generous: MAME boot + ~360 frames.
+ *
+ * The lockstep pre-fills the first `inputDelay` frames (docs/03 "Start") with
+ * mask 0, so a fixture's first non-zero mask must sit at frame >= inputDelay;
+ * this fixture is zero for the first 80 frames, well clear of that window.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
