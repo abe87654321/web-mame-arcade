@@ -6,7 +6,7 @@
  * (pure JS, testable in CI); the swap lands with the T44 scale-out work.
  */
 import { randomUUID } from "node:crypto";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import type { ServerMessage } from "@wma/protocol";
@@ -33,15 +33,88 @@ export interface RelayServer {
 
 const DEFAULT_PATH = "/ws";
 const DEFAULT_HEARTBEAT_MS = 30_000;
+/** Hard cap on a single snapshot blob (T25); object storage is T30. */
+const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 export function createRelayServer(options: RelayServerOptions): Promise<RelayServer> {
   const path = options.path ?? DEFAULT_PATH;
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const relay = createRelay({ verifier: options.verifier });
+  // Latest desync-recovery snapshot per room (T25). Unguessable id: only a peer
+  // that received the blob URL via `state.snapshot` can fetch it; the host gate
+  // lives on the WS message (RoomManager.snapshotForResync).
+  const snapshots = new Map<string, { id: string; bytes: Buffer }>();
 
-  const httpServer = createServer((_request, response) => {
+  function readBody(request: IncomingMessage): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      request.on("data", (chunk: Buffer) => {
+        total += chunk.length;
+        if (total > MAX_SNAPSHOT_BYTES) {
+          reject(new Error("too_large"));
+          request.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      request.on("end", () => resolve(Buffer.concat(chunks)));
+      request.on("error", reject);
+    });
+  }
+
+  async function handleSnapshotRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const { pathname } = new URL(request.url ?? "/", "http://localhost");
+    const post = /^\/rooms\/([^/]+)\/snapshot$/.exec(pathname);
+    const get = /^\/rooms\/([^/]+)\/snapshot\/([^/]+)$/.exec(pathname);
+
+    if (request.method === "POST" && post) {
+      const room = decodeURIComponent(post[1]!);
+      let body: Buffer;
+      try {
+        body = await readBody(request);
+      } catch {
+        response.writeHead(413, { "content-type": "text/plain" });
+        response.end("snapshot too large");
+        return;
+      }
+      if (body.length === 0) {
+        response.writeHead(400, { "content-type": "text/plain" });
+        response.end("empty snapshot");
+        return;
+      }
+      const id = randomUUID();
+      snapshots.set(room, { id, bytes: body });
+      const hostHeader = request.headers.host ?? "localhost";
+      const url = `http://${hostHeader}/rooms/${encodeURIComponent(room)}/snapshot/${id}`;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ url }));
+      return;
+    }
+
+    if (request.method === "GET" && get) {
+      const room = decodeURIComponent(get[1]!);
+      const id = get[2]!;
+      const stored = snapshots.get(room);
+      if (!stored || stored.id !== id) {
+        response.writeHead(404, { "content-type": "text/plain" });
+        response.end("no snapshot");
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.end(stored.bytes);
+      return;
+    }
+
     response.writeHead(426, { "content-type": "text/plain" });
     response.end("upgrade required");
+  }
+
+  const httpServer = createServer((request, response) => {
+    void handleSnapshotRequest(request, response);
   });
   const wss = new WebSocketServer({ noServer: true });
   const sockets = new Map<string, WebSocket>();

@@ -195,4 +195,51 @@ describe("createRelayServer", () => {
     const [code] = await closed;
     expect(code).toBe(1001);
   });
+
+  describe("snapshot blobs (T25)", () => {
+    const base = () => `http://127.0.0.1:${server.port}`;
+
+    it("stores a snapshot and serves it back at the returned url", async () => {
+      const bytes = new Uint8Array([1, 2, 3, 4]);
+      const post = await fetch(`${base()}/rooms/r/snapshot`, {
+        method: "POST",
+        body: bytes,
+      });
+      expect(post.status).toBe(200);
+      const { url } = (await post.json()) as { url: string };
+      expect(url).toContain("/rooms/r/snapshot/");
+
+      const get = await fetch(url);
+      expect(get.status).toBe(200);
+      expect(new Uint8Array(await get.arrayBuffer())).toEqual(bytes);
+    });
+
+    it("replaces the previous snapshot for a room", async () => {
+      const first = await fetch(`${base()}/rooms/r/snapshot`, {
+        method: "POST",
+        body: new Uint8Array([1]),
+      });
+      const { url: firstUrl } = (await first.json()) as { url: string };
+      const second = await fetch(`${base()}/rooms/r/snapshot`, {
+        method: "POST",
+        body: new Uint8Array([2]),
+      });
+      const { url: secondUrl } = (await second.json()) as { url: string };
+
+      // The stale url no longer resolves (latest-per-room).
+      expect((await fetch(firstUrl)).status).toBe(404);
+      expect(new Uint8Array(await (await fetch(secondUrl)).arrayBuffer())).toEqual(
+        new Uint8Array([2]),
+      );
+    });
+
+    it("404s an unknown snapshot id", async () => {
+      expect((await fetch(`${base()}/rooms/r/snapshot/nope`)).status).toBe(404);
+    });
+
+    it("400s an empty body", async () => {
+      const response = await fetch(`${base()}/rooms/r/snapshot`, { method: "POST" });
+      expect(response.status).toBe(400);
+    });
+  });
 });
