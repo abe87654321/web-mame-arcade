@@ -381,8 +381,11 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   appEl.append(rootEl, statusEl);
 
   const netplay = options.netplay ?? netplayFromEnv();
-  // e2e hook (T26): inert unless a test injected a per-slot script.
-  const inputScript = readInputScript(win);
+  // e2e hook (T26): dev-only, so a production bundle cannot be armed by a page
+  // to replay a scripted macro input (which the verifier would replay cleanly).
+  // The harness runs against the Vite dev server, where DEV is true.
+  const devEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  const inputScript = devEnv?.DEV ? readInputScript(win) : undefined;
 
   // SDL3's emscripten video backend resolves its canvas by the CSS selector
   // `#canvas` (`document.querySelector`); MAME's WebGL context creation fails
