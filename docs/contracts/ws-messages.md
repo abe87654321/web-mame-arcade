@@ -62,6 +62,24 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 - The host's `game.start` is gated on readiness in the UI only (all peers connected and all
   non-host players ready); the relay does not enforce readiness, so a lone host may still start.
 
+## Pinned in T25
+- `hash` is sent relay-ward only, by a **seated player**, every 60 simulated frames
+  (`frame % 60 == 0 && frame > 0`, the frame just stepped). The relay stamps the sender's
+  own slot (the wire message carries no slot) and compares hashes **per frame, across
+  players**: two distinct `crc32` values for the same `frame` is a desync.
+- On a genuine same-frame mismatch the relay broadcasts `desync { frame }` to the room.
+  A repeated `hash` from the same slot for the same frame is ignored (first write wins), so
+  a driven peer cannot flap the comparison. A lone player never triggers a `desync`.
+- `state.snapshot` is sent by the **host** (lowest occupied player slot) and only while the
+  room `status` is `"playing"`; the relay fans it out to every member **except the sender**.
+  The origin carries `frame` (the frame the snapshot represents, i.e. the last stepped frame)
+  and `blobUrl` (absolute URL of the relay's in-memory snapshot blob).
+- A receiving peer fetches `blobUrl`, calls `core.load(bytes)` with the reset frame, and
+  resumes the lockstep at `frame + 1`.
+- New error codes: `not_host` (a non-host sent `state.snapshot`), `not_playing`
+  (`state.snapshot` before `game.start`; reused for `hash` before the game starts).
+- Every desync and resync is logged with room, frame and (once available) game/`coreHash`.
+
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional
 display name), `exp` (required, unix seconds). The relay verifies it with the shared secret and rejects
