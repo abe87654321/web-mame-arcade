@@ -50,6 +50,22 @@ describe("createLockstep", () => {
     expect(packet.inputs).toEqual([0, 0, 0x10]);
   });
 
+  it("reports the frame the next tick will schedule", () => {
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0],
+      inputDelay: 2,
+      startFrame: 0,
+      sendInput: () => {},
+      now: () => 0,
+    });
+
+    expect(lockstep.scheduledFrame()).toBe(2);
+    lockstep.tick(0);
+    expect(lockstep.scheduledFrame()).toBe(3);
+  });
+
   it("blocks until every player's input for the frame is present", () => {
     const core = fakeCore();
     const lockstep = createLockstep({

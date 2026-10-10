@@ -63,6 +63,12 @@ export interface Lockstep {
   resync(frame: number): void;
   /** The next frame to simulate. */
   frame(): number;
+  /**
+   * The frame the next `tick` will schedule local input for. Used by the
+   * scripted-input e2e hook (T26) to feed a deterministic, frame-indexed mask
+   * instead of a wall-clock-sampled one.
+   */
+  scheduledFrame(): number;
   status(): LockstepStatus;
 }
 
@@ -193,6 +199,7 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
     },
 
     frame: () => current,
+    scheduledFrame: () => scheduleHead,
     status: () => status,
   };
 }

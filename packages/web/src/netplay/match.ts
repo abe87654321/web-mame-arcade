@@ -73,6 +73,13 @@ export interface MatchDeps {
   fetchSnapshot?: (blobUrl: string) => Promise<Uint8Array>;
   /** Optional structured log sink for desync/resync events (T25). */
   log?: (event: string, fields: Record<string, unknown>) => void;
+  /**
+   * Deterministic scripted input for the e2e harness (T26). When present,
+   * `tick` schedules `inputScript(ourSlot, scheduledFrame)` instead of the
+   * wall-clock-sampled mask, so a frame's input never depends on tick timing.
+   * Inert in production: only the e2e hook sets it.
+   */
+  inputScript?: (slot: number, frame: number) => number;
 }
 
 export interface NetplayMatch {
@@ -122,6 +129,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   const inputDelay = deps.inputDelay ?? DEFAULT_INPUT_DELAY;
   const startFrame = deps.startFrame ?? 0;
   const log = deps.log;
+  const inputScript = deps.inputScript;
   const createSnapshot =
     deps.createSnapshot ??
     (async (state: Uint8Array): Promise<string> => {
@@ -350,7 +358,17 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     });
 
   return {
-    tick: (localMask) => lockstep?.tick(localMask),
+    tick: (localMask) => {
+      if (!lockstep) return;
+      // The e2e harness (T26) supplies a deterministic per-slot mask keyed on
+      // the frame being scheduled, so the input a frame receives is independent
+      // of when this animation tick fired.
+      if (inputScript && self !== null) {
+        lockstep.tick(inputScript(self, lockstep.scheduledFrame()));
+        return;
+      }
+      lockstep.tick(localMask);
+    },
     frame: () => (lockstep ? lockstep.frame() : startFrame),
     status: () => status,
     isHost,
