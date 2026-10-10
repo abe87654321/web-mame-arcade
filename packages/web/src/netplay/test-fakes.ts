@@ -42,6 +42,12 @@ export class FakeDataChannel implements DataChannelLike {
     this.onopen?.();
   }
 
+  /** Test helper: simulate the remote closing this channel. */
+  remoteClose(): void {
+    this.readyState = "closed";
+    this.onclose?.();
+  }
+
   /** Test helper: simulate an inbound message. */
   emitMessage(data: unknown): void {
     this.onmessage?.({ data });

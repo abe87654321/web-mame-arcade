@@ -19,7 +19,13 @@ export type {
   LockstepStatus,
 } from "./lockstep";
 export { createMatch } from "./match";
-export type { MatchDeps, MatchStatus, NetplayMatch } from "./match";
+export type {
+  LobbyPlayer,
+  LobbyState,
+  MatchDeps,
+  MatchStatus,
+  NetplayMatch,
+} from "./match";
 export {
   browserRtcFactory,
   browserWebSocketFactory,

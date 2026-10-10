@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PROTOCOL_VERSION, encodeInput } from "@wma/protocol";
 import type { Core, FrameInputs } from "../core/types";
-import { createMatch, type MatchStatus } from "./match";
+import { createMatch, type LobbyState, type MatchStatus } from "./match";
 import {
   FakePeerConnection,
   FakeWebSocket,
@@ -25,12 +25,12 @@ function fakeCore() {
   } as unknown as Core & { steps: { frame: number; inputs: FrameInputs }[] };
 }
 
-function roomState(self: number | null, slots: number[]) {
+function roomState(self: number | null, slots: number[], ready: number[] = []) {
   return {
     t: "room.state",
     room: "r",
     self,
-    players: slots.map((slot) => ({ slot, name: `p${slot}` })),
+    players: slots.map((slot) => ({ slot, name: `p${slot}`, ready: ready.includes(slot) })),
     game: null,
     coreHash: null,
     romHash: null,
@@ -63,6 +63,7 @@ function harness(inputDelay = 2) {
   const pc = new FakePeerConnection();
   const core = fakeCore();
   const statuses: MatchStatus[] = [];
+  const lobbies: LobbyState[] = [];
   const match = createMatch({
     core,
     config,
@@ -71,9 +72,10 @@ function harness(inputDelay = 2) {
     now: () => 0,
     inputDelay,
     onStatus: (status) => statuses.push(status),
+    onLobby: (lobby) => lobbies.push(lobby),
   });
   socket.open();
-  return { socket, pc, core, match, statuses };
+  return { socket, pc, core, match, statuses, lobbies };
 }
 
 const flush = async (): Promise<void> => {
@@ -85,7 +87,7 @@ describe("createMatch", () => {
     const { socket, match } = harness();
     await flush();
 
-    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
     await flush();
 
     expect(match.isHost()).toBe(true);
@@ -186,5 +188,85 @@ describe("createMatch", () => {
     match.close();
 
     expect(socket.closes).toBe(1);
+  });
+
+  it("exposes a lobby snapshot with names, host/self and readiness", async () => {
+    const { socket, match } = harness();
+    await flush();
+
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
+    await flush();
+
+    const lobby = match.lobby();
+    expect(lobby.roomStatus).toBe("waiting");
+    expect(lobby.isHost).toBe(true);
+    expect(lobby.players).toEqual([
+      { slot: 0, name: "p0", host: true, self: true, connected: true, ready: false },
+      { slot: 1, name: "p1", host: false, self: false, connected: true, ready: true },
+    ]);
+    match.close();
+  });
+
+  it("emits onLobby on room.state and channel open", async () => {
+    const { socket, lobbies } = harness();
+    await flush();
+
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+
+    expect(lobbies.length).toBeGreaterThan(0);
+    expect(lobbies.at(-1)?.players).toHaveLength(2);
+  });
+
+  it("gates canStart on host, peers connected and all non-host ready", async () => {
+    const { socket, match } = harness();
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+
+    // Connected, but slot 1 has not readied.
+    expect(match.canStart()).toBe(false);
+    expect(match.lobby().canStart).toBe(false);
+
+    socket.emitMessage(JSON.stringify({ t: "player.ready", ready: true, player: 1 }));
+    await flush();
+
+    expect(match.canStart()).toBe(true);
+    expect(match.lobby().canStart).toBe(true);
+    match.close();
+  });
+
+  it("does not gate a lone host on readiness", async () => {
+    const { socket, match } = harness();
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+
+    expect(match.canStart()).toBe(true);
+    match.close();
+  });
+
+  it("setReady sends player.ready through the relay", async () => {
+    const { socket, match } = harness();
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+
+    expect(match.setReady(true)).toBe(true);
+    expect(socket.sent).toContain(JSON.stringify({ t: "player.ready", ready: true }));
+    match.close();
+  });
+
+  it("marks the lobby disconnected when the relay socket closes", async () => {
+    const { socket, match } = harness();
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+
+    socket.close();
+
+    expect(match.lobby().roomStatus).toBe("disconnected");
+    expect(match.setReady(true)).toBe(false);
+    match.close();
   });
 });

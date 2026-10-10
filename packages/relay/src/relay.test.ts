@@ -46,7 +46,7 @@ describe("createRelay", () => {
         t: "room.state",
         room: "r",
         self: 0,
-        players: [{ slot: 0, name: "player" }],
+        players: [{ slot: 0, name: "player", ready: false }],
         game: null,
         coreHash: null,
         romHash: null,
@@ -65,8 +65,8 @@ describe("createRelay", () => {
       t: "room.state",
       self: 0,
       players: [
-        { slot: 0, name: "player" },
-        { slot: 1, name: "player" },
+        { slot: 0, name: "player", ready: false },
+        { slot: 1, name: "player", ready: false },
       ],
     });
     expect(out.c2?.message).toMatchObject({ t: "room.state", self: 1 });
@@ -146,6 +146,35 @@ describe("createRelay", () => {
     expect(out[0]?.message).toMatchObject({ t: "error", code: "not_host" });
   });
 
+  it("stamps and fans out player.ready, then re-broadcasts room.state", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+
+    const out = r.handle("c1", { t: "player.ready", ready: true, player: 1 });
+
+    const toggles = out.filter((o) => o.message.t === "player.ready");
+    expect(toggles.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    for (const toggle of toggles) {
+      // The client-supplied player (1) is overwritten with the sender's slot (0).
+      expect(toggle.message).toEqual({ t: "player.ready", ready: true, player: 0 });
+    }
+    const states = out.filter((o) => o.message.t === "room.state");
+    expect(states.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    expect(states[0]?.message).toMatchObject({
+      t: "room.state",
+      players: [
+        { slot: 0, ready: true },
+        { slot: 1, ready: false },
+      ],
+    });
+  });
+
+  it("rejects player.ready from a connection that never joined", () => {
+    const out = relay().handle("c1", { t: "player.ready", ready: true });
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "not_joined" });
+  });
+
   it("marks T22-unowned client types as unsupported", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));
@@ -161,7 +190,7 @@ describe("createRelay", () => {
     expect(Object.keys(out)).toEqual(["c1"]);
     expect(out.c1?.message).toMatchObject({
       t: "room.state",
-      players: [{ slot: 0, name: "player" }],
+      players: [{ slot: 0, name: "player", ready: false }],
     });
   });
 

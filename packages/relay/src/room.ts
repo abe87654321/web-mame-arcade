@@ -6,6 +6,7 @@
 import {
   PLAYER_SLOTS,
   type GameStart,
+  type PlayerReady,
   type RoomState,
   type RtcSignal,
 } from "@wma/protocol";
@@ -23,6 +24,8 @@ export interface RoomMember {
   role: Role;
   /** Player slot 0-3, or null for viewers. */
   slot: number | null;
+  /** Lobby ready flag; false until the player toggles it (T27). */
+  ready: boolean;
 }
 
 export interface JoinRequest {
@@ -88,6 +91,7 @@ export class RoomManager {
       sameConnection.name = name;
       sameConnection.role = request.role;
       sameConnection.slot = slot;
+      sameConnection.ready = false;
       return sameConnection;
     }
 
@@ -106,6 +110,7 @@ export class RoomManager {
         name,
         role: request.role,
         slot,
+        ready: reconnect.ready,
       };
       room.members.set(connectionId, member);
       this.byConnection.set(connectionId, room.id);
@@ -119,6 +124,7 @@ export class RoomManager {
       name,
       role: request.role,
       slot,
+      ready: false,
     };
     room.members.set(connectionId, member);
     this.byConnection.set(connectionId, room.id);
@@ -187,13 +193,32 @@ export class RoomManager {
     return { roomId: room.id, from: sender.slot };
   }
 
+  /**
+   * Record a seated player's ready flag. Only seated players may toggle; a
+   * viewer or unjoined connection is rejected with `not_joined`. Returns the
+   * room id and the authoritative sender slot (client-supplied `player` is
+   * ignored). (docs/contracts/ws-messages.md, T27.)
+   */
+  setReady(
+    connectionId: string,
+    message: PlayerReady,
+  ): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "player.ready");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can set ready");
+    }
+    sender.ready = message.ready;
+    return { roomId: room.id, from: sender.slot };
+  }
+
   /** A `room.state` snapshot for the connection's room. */
   snapshot(connectionId: string): RoomState {
     const room = this.roomOf(connectionId, "snapshot");
     const players = [...room.members.values()]
       .filter((m): m is RoomMember & { slot: number } => m.slot !== null)
       .sort((a, b) => a.slot - b.slot)
-      .map((m) => ({ slot: m.slot, name: m.name }));
+      .map((m) => ({ slot: m.slot, name: m.name, ready: m.ready }));
     return {
       t: "room.state",
       room: room.id,

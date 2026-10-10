@@ -24,6 +24,8 @@ export interface MeshDeps {
   onMessage?: (from: number, data: unknown) => void;
   /** A peer's data channel opened; the mesh can now reach that slot. */
   onChannelOpen?: (slot: number) => void;
+  /** A peer's data channel closed; that slot is no longer reachable (T27). */
+  onChannelClose?: (slot: number) => void;
 }
 
 export interface Mesh {
@@ -40,7 +42,7 @@ export interface Mesh {
 }
 
 export function createMesh(deps: MeshDeps): Mesh {
-  const { mySlot, factory, iceServers, sendSignal, onMessage, onChannelOpen } = deps;
+  const { mySlot, factory, iceServers, sendSignal, onMessage, onChannelOpen, onChannelClose } = deps;
   const peers = new Map<number, RtcPeer>();
 
   function addPeer(slot: number): Promise<void> {
@@ -54,6 +56,7 @@ export function createMesh(deps: MeshDeps): Mesh {
         ? { onMessage: (data: unknown) => onMessage(slot, data) }
         : {}),
       ...(onChannelOpen ? { onOpen: () => onChannelOpen(slot) } : {}),
+      ...(onChannelClose ? { onClose: () => onChannelClose(slot) } : {}),
     });
     peers.set(slot, peer);
     return initiator ? peer.start() : Promise.resolve();

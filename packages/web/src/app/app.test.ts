@@ -14,6 +14,7 @@ import {
   type NetplayEnv,
 } from "./app";
 import {
+  FakePeerConnection,
   FakeWebSocket,
   fakeRtcFactory,
   fakeSocketFactory,
@@ -34,6 +35,9 @@ const entry: GameEntry = {
 
 interface FakeElement extends UiElement {
   children: FakeElement[];
+  disabled?: boolean;
+  listeners: ((event: { preventDefault(): void }) => void)[];
+  click(): void;
 }
 
 function makeElement(): FakeElement {
@@ -41,6 +45,8 @@ function makeElement(): FakeElement {
   const el = {
     className: "",
     children: [] as FakeElement[],
+    listeners: [] as ((event: { preventDefault(): void }) => void)[],
+    disabled: false,
     get textContent() {
       return text;
     },
@@ -51,9 +57,23 @@ function makeElement(): FakeElement {
     append(child: UiElement) {
       el.children.push(child as FakeElement);
     },
-    addEventListener() {},
+    addEventListener(_type: "click", listener: (event: { preventDefault(): void }) => void) {
+      el.listeners.push(listener);
+    },
+    click() {
+      for (const listener of el.listeners) listener({ preventDefault() {} });
+    },
   } as FakeElement;
   return el;
+}
+
+function findByClass(root: FakeElement, className: string): FakeElement | undefined {
+  if (root.className.split(" ").includes(className)) return root;
+  for (const child of root.children) {
+    const found = findByClass(child, className);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 function fakeDoc(): UiDocument {
@@ -140,8 +160,7 @@ function harness(netplay?: NetplayEnv): Harness {
 }
 
 async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 16; i++) await Promise.resolve();
 }
 
 describe("createApp", () => {
@@ -244,6 +263,92 @@ describe("createApp", () => {
     await flush();
 
     expect(h.status.textContent).toContain("not configured");
+    app.destroy();
+  });
+
+  it("renders the lobby from room.state and starts the game on the host button", async () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "room.state",
+        room: "abc",
+        self: 0,
+        players: [
+          { slot: 0, name: "You", ready: false },
+          { slot: 1, name: "Ryu", ready: true },
+        ],
+        game: null,
+        coreHash: null,
+        romHash: null,
+        dips: {},
+        status: "waiting",
+      }),
+    );
+    await flush();
+
+    expect(findByClass(h.root, "lobby")).toBeDefined();
+    expect(findByClass(h.root, "lobby-slot")).toBeDefined();
+    const start = findByClass(h.root, "start-game");
+    expect(start?.disabled).toBe(false);
+
+    start?.click();
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 2 }),
+    );
+    app.destroy();
+  });
+
+  it("returns to the catalogue when the lobby Leave button is clicked", async () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "room.state",
+        room: "abc",
+        self: 0,
+        players: [{ slot: 0, name: "You", ready: false }],
+        game: null,
+        coreHash: null,
+        romHash: null,
+        dips: {},
+        status: "waiting",
+      }),
+    );
+    await flush();
+
+    findByClass(h.root, "leave")?.click();
+
+    expect(h.hash.value).toBe("#/");
+    expect(h.root.children[0]?.className).toBe("catalogue");
     app.destroy();
   });
 

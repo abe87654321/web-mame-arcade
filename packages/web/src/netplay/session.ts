@@ -6,6 +6,7 @@
 import type {
   ClientMessage,
   GameStart,
+  PlayerReady,
   RoomState,
   RtcSignal,
   ServerMessage,
@@ -27,8 +28,14 @@ export interface SessionOptions {
   onRoomState?: (message: RoomState) => void;
   /** The host's `game.start`, fanned out by the relay. */
   onGameStart?: (message: GameStart) => void;
+  /** A player toggled its ready flag (relay-stamped slot + flag). */
+  onPlayerReady?: (message: PlayerReady) => void;
+  /** A peer's data channel opened or closed (lobby connected/ready badges). */
+  onPeersChanged?: () => void;
   /** A peer's data channel opened (may let a match start). */
   onChannelOpen?: (slot: number) => void;
+  /** The relay socket closed (self-disconnect). */
+  onClose?: () => void;
   /** A handler/message-processing error; never thrown out of the socket callback. */
   onError?: (error: unknown) => void;
 }
@@ -44,6 +51,8 @@ export interface NetplaySession {
   sendBinary(data: ArrayBuffer): boolean;
   /** Connected peer slots, ascending. */
   peers(): number[];
+  /** True when the data channel to `slot` is open (that peer is connected). */
+  peerOpen(slot: number): boolean;
   /** Our own player slot, or null before `room.state`/for a viewer. */
   self(): number | null;
   /** Player slots in the room, ascending, from the latest `room.state`. */
@@ -83,6 +92,7 @@ export function createSession(options: SessionOptions): NetplaySession {
       handleMessage(message).catch((error) => onError?.(error));
     },
     onBinary: (data) => onInput?.(new Uint8Array(data)),
+    ...(options.onClose ? { onClose: options.onClose } : {}),
   });
 
   function ensureMesh(mySlot: number): Mesh {
@@ -102,7 +112,17 @@ export function createSession(options: SessionOptions): NetplaySession {
           const bytes = toBytes(data);
           if (bytes) onInput?.(bytes);
         },
-        ...(options.onChannelOpen ? { onChannelOpen: options.onChannelOpen } : {}),
+        ...(options.onChannelOpen || options.onPeersChanged
+          ? {
+              onChannelOpen: (slot: number) => {
+                options.onChannelOpen?.(slot);
+                options.onPeersChanged?.();
+              },
+            }
+          : {}),
+        ...(options.onPeersChanged
+          ? { onChannelClose: () => options.onPeersChanged?.() }
+          : {}),
       });
     }
     return mesh;
@@ -130,11 +150,16 @@ export function createSession(options: SessionOptions): NetplaySession {
         await active.setPlayers(message.players);
         meshReady = true;
         await flushPendingSignals();
+        options.onPeersChanged?.();
         options.onRoomState?.(message);
         return;
       }
       case "game.start": {
         options.onGameStart?.(message);
+        return;
+      }
+      case "player.ready": {
+        options.onPlayerReady?.(message);
         return;
       }
       case "rtc.signal": {
@@ -165,6 +190,7 @@ export function createSession(options: SessionOptions): NetplaySession {
     },
     sendBinary: (data) => client.sendBinary(data),
     peers: () => (mesh ? mesh.peers() : []),
+    peerOpen: (slot) => mesh?.channelTo(slot)?.readyState === "open",
     self: () => selfSlot,
     players: () => [...roomPlayers],
     ready: () => {

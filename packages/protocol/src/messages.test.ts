@@ -18,7 +18,7 @@ const validMessages: AnyMessage[] = [
     t: "room.state",
     room: "r1",
     self: 0,
-    players: [{ slot: 0, name: "alice" }],
+    players: [{ slot: 0, name: "alice", ready: true }],
     game: "gridlee",
     coreHash: hash64,
     romHash: hash64,
@@ -29,7 +29,7 @@ const validMessages: AnyMessage[] = [
     t: "room.state",
     room: "r1",
     self: null,
-    players: [{ slot: 0, name: "alice" }],
+    players: [{ slot: 0, name: "alice", ready: false }],
     game: null,
     coreHash: null,
     romHash: null,
@@ -42,6 +42,8 @@ const validMessages: AnyMessage[] = [
     sdp: { type: "offer", sdp: "v=0" },
   },
   { t: "rtc.signal", to: 0, candidate: { candidate: "candidate:1", sdpMid: "0" } },
+  { t: "player.ready", ready: true },
+  { t: "player.ready", ready: false, player: 2 },
   { t: "game.start", startFrame: 0, inputDelay: 2 },
   { t: "state.snapshot", frame: 120, blobUrl: "https://example.test/snap" },
   { t: "hash", frame: 60, crc32: 0xdeadbeef },
@@ -111,7 +113,7 @@ describe("message schemas", () => {
     const base = {
       t: "room.state",
       room: "r1",
-      players: [{ slot: 0, name: "alice" }],
+      players: [{ slot: 0, name: "alice", ready: false }],
       game: null,
       coreHash: null,
       romHash: null,
@@ -121,6 +123,27 @@ describe("message schemas", () => {
     expect(safeParseMessage({ ...base, self: 0 }).success).toBe(true);
     expect(safeParseMessage({ ...base, self: null }).success).toBe(true);
     expect(safeParseMessage(base).success).toBe(false);
+  });
+
+  it("requires a ready flag on every player and stamps player.ready", () => {
+    expect(
+      safeParseMessage({
+        t: "room.state",
+        room: "r1",
+        self: 0,
+        players: [{ slot: 0, name: "alice" }],
+        game: null,
+        coreHash: null,
+        romHash: null,
+        dips: {},
+        status: "waiting",
+      }).success,
+    ).toBe(false);
+    expect(safeParseMessage({ t: "player.ready", ready: "yes" }).success).toBe(false);
+    expect(clientMessage.safeParse({ t: "player.ready", ready: true }).success).toBe(true);
+    expect(
+      serverMessage.safeParse({ t: "player.ready", ready: true, player: 1 }).success,
+    ).toBe(true);
   });
 
   it("carries the relay-stamped sender slot on forwarded rtc.signal", () => {
@@ -148,6 +171,7 @@ describe("message schemas", () => {
     const serverOnly = ["room.state", "desync", "error"] as const;
     const both = [
       "rtc.signal",
+      "player.ready",
       "game.start",
       "state.snapshot",
       "score.live",

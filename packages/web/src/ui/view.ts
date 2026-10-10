@@ -12,6 +12,7 @@ export interface UiEvent {
 export interface UiElement {
   className: string;
   textContent: string | null;
+  disabled?: boolean;
   append(child: UiElement): void;
   addEventListener(type: "click", listener: (event: UiEvent) => void): void;
 }
@@ -24,6 +25,7 @@ export interface ViewNode {
   tag: string;
   className?: string;
   text?: string;
+  disabled?: boolean;
   children?: ViewNode[];
   onClick?: () => void;
 }
@@ -32,6 +34,7 @@ export function renderTree(doc: UiDocument, node: ViewNode): UiElement {
   const el = doc.createElement(node.tag);
   if (node.className) el.className = node.className;
   if (node.text !== undefined) el.textContent = node.text;
+  if (node.disabled !== undefined) el.disabled = node.disabled;
   if (node.onClick) {
     const handler = node.onClick;
     el.addEventListener("click", (event) => {
@@ -62,6 +65,12 @@ export function wrapElement(el: Element): UiElement {
     },
     set textContent(value: string | null) {
       el.textContent = value;
+    },
+    get disabled() {
+      return (el as unknown as { disabled?: boolean }).disabled;
+    },
+    set disabled(value: boolean | undefined) {
+      (el as unknown as { disabled?: boolean }).disabled = value;
     },
     append(child: UiElement): void {
       el.append((child as unknown as { el: Element }).el);

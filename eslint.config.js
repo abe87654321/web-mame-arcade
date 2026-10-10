@@ -15,6 +15,8 @@ export default tseslint.config(
       // Dev-time copies of the built cores (huge Emscripten glue, not ours).
       "**/public/static/**",
       "**/public/roms/**",
+      // Design-harness scratch output (git-ignored).
+      "gan-harness/**",
     ],
   },
   js.configs.recommended,

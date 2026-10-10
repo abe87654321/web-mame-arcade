@@ -34,6 +34,8 @@ export interface RtcPeerOptions {
   onMessage?: (data: unknown) => void;
   /** The data channel opened; the peer can now talk to this slot. */
   onOpen?: () => void;
+  /** The data channel closed; the peer is no longer reachable (T27 lobby). */
+  onClose?: () => void;
 }
 
 export interface RtcPeer {
@@ -52,7 +54,7 @@ export interface RtcPeer {
 }
 
 export function createPeer(options: RtcPeerOptions): RtcPeer {
-  const { pc, initiator, onSignalling, onMessage, onOpen } = options;
+  const { pc, initiator, onSignalling, onMessage, onOpen, onClose } = options;
   const label = options.label ?? "netplay";
   let channel: DataChannelLike | null = null;
   let remoteSet = false;
@@ -63,6 +65,7 @@ export function createPeer(options: RtcPeerOptions): RtcPeer {
     active.binaryType = "arraybuffer";
     active.onmessage = (event) => onMessage?.(event.data);
     active.onopen = () => onOpen?.();
+    active.onclose = () => onClose?.();
     if (active.readyState === "open") onOpen?.();
   }
 
