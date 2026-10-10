@@ -223,6 +223,41 @@ describe("createRelay", () => {
     expect(logged).toEqual([{ event: "desync", fields: { room: "r", frame: 60 } }]);
   });
 
+  it("fans the host's state.snapshot to every other member", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c3", join("c3", "carol"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+
+    const out = byConnection(
+      r.handle("c1", {
+        t: "state.snapshot",
+        frame: 60,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      }),
+    );
+    expect(Object.keys(out).sort()).toEqual(["c2", "c3"]);
+    expect(out.c2?.message).toEqual({
+      t: "state.snapshot",
+      frame: 60,
+      blobUrl: "http://relay/rooms/r/snapshot/1",
+    });
+  });
+
+  it("rejects state.snapshot from a non-host", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    const out = r.handle("c2", {
+      t: "state.snapshot",
+      frame: 60,
+      blobUrl: "http://relay/rooms/r/snapshot/1",
+    });
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "not_host" });
+  });
+
   it("marks T22-unowned client types as unsupported", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));

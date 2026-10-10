@@ -98,9 +98,18 @@ export function createRelay({
               message: { t: "desync" as const, frame: result.frame },
             }));
           }
+          case "state.snapshot": {
+            // The host's recovery snapshot is fanned out to everyone else so
+            // each desynced peer can fetch and load it (T25, docs/03).
+            const { roomId, from } = rooms.snapshotForResync(connectionId, message);
+            log?.("resync", { room: roomId, frame: message.frame, from });
+            return rooms
+              .broadcastTargets(roomId)
+              .filter((target) => target !== connectionId)
+              .map((target) => ({ connectionId: target, message }));
+          }
           default:
-            // input/state.snapshot/score.live/game.end/chat are owned by later
-            // tasks (T30/T32/T36).
+            // input/score.live/game.end/chat are owned by later tasks (T30/T32/T36).
             return errorOut(
               connectionId,
               "unsupported",

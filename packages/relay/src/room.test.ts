@@ -405,6 +405,69 @@ describe("RoomManager.recordHash", () => {
   });
 });
 
+describe("RoomManager.snapshotForResync", () => {
+  function playing() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return rooms;
+  }
+
+  it("accepts the host's snapshot", () => {
+    expect(
+      playing().snapshotForResync("c1", {
+        t: "state.snapshot",
+        frame: 60,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      }),
+    ).toEqual({ roomId: "r", from: 0 });
+  });
+
+  it("rejects a non-host player", () => {
+    try {
+      playing().snapshotForResync("c2", {
+        t: "state.snapshot",
+        frame: 60,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_host");
+    }
+  });
+
+  it("rejects a slot-less viewer", () => {
+    const rooms = playing();
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    try {
+      rooms.snapshotForResync("c9", {
+        t: "state.snapshot",
+        frame: 60,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects a snapshot before the game starts", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    try {
+      rooms.snapshotForResync("c1", {
+        t: "state.snapshot",
+        frame: 60,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_playing");
+    }
+  });
+});
+
 describe("RoomManager.snapshot", () => {
   it("describes a pre-game room with nullable game fields", () => {
     const rooms = manager();

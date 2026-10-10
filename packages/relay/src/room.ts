@@ -10,6 +10,7 @@ import {
   type PlayerReady,
   type RoomState,
   type RtcSignal,
+  type StateSnapshot,
 } from "@wma/protocol";
 import type { TokenVerifier } from "./token.ts";
 
@@ -63,6 +64,14 @@ export interface HashResult {
   slot: number;
   frame: number;
   mismatch: boolean;
+}
+
+/** The lowest occupied player slot in a room (its host), or null if none. */
+function lowestSlot(room: Room): number | null {
+  const slots = [...room.members.values()]
+    .map((m) => m.slot)
+    .filter((slot): slot is number => slot !== null);
+  return slots.length > 0 ? Math.min(...slots) : null;
 }
 
 export class RoomManager {
@@ -187,11 +196,7 @@ export class RoomManager {
     if (!sender || sender.slot === null) {
       throw new RelayError("not_joined", "only seated players can start a game");
     }
-    const hostSlot = Math.min(
-      ...[...room.members.values()]
-        .map((m) => m.slot)
-        .filter((slot): slot is number => slot !== null),
-    );
+    const hostSlot = lowestSlot(room);
     if (sender.slot !== hostSlot) {
       throw new RelayError(
         "not_host",
@@ -260,6 +265,33 @@ export class RoomManager {
     }
     room.hashes.set(sender.slot, message.crc32);
     return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch };
+  }
+
+  /**
+   * Validate a host's `state.snapshot` for desync recovery (T25, docs/03). Only
+   * the host (lowest occupied player slot) in a `playing` room may send one; the
+   * relay then fans it out to the other members.
+   */
+  snapshotForResync(
+    connectionId: string,
+    _message: StateSnapshot,
+  ): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "state.snapshot");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can send a snapshot");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    const hostSlot = lowestSlot(room);
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot send a snapshot; host is slot ${hostSlot}`,
+      );
+    }
+    return { roomId: room.id, from: sender.slot };
   }
 
   /** A `room.state` snapshot for the connection's room. */
