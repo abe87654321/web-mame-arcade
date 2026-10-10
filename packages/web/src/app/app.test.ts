@@ -8,6 +8,7 @@ import type { UiDocument, UiElement } from "../ui/view";
 import {
   createApp,
   coreDirUrl,
+  installAudioUnlock,
   netplayFromEnv,
   type AppEnv,
   type NetplayEnv,
@@ -252,6 +253,33 @@ describe("createApp", () => {
     expect(h.listenerCount()).toBe(1);
     app.destroy();
     expect(h.listenerCount()).toBe(0);
+  });
+});
+
+describe("installAudioUnlock", () => {
+  it("resumes contexts created before the first gesture", () => {
+    const listeners = new Map<string, () => void>();
+    const win = {
+      addEventListener: (type: string, listener: () => void) => {
+        listeners.set(type, listener);
+      },
+      removeEventListener: (type: string) => {
+        listeners.delete(type);
+      },
+    } as unknown as Window;
+    class FakeAudioContext {
+      resume = vi.fn(async () => {});
+    }
+    (win as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
+
+    installAudioUnlock(win);
+    const Ctor = (win as unknown as { AudioContext: new () => FakeAudioContext })
+      .AudioContext;
+    const ctx = new Ctor();
+
+    expect(ctx.resume).not.toHaveBeenCalled();
+    listeners.get("pointerdown")?.();
+    expect(ctx.resume).toHaveBeenCalledOnce();
   });
 });
 

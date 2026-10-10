@@ -306,10 +306,57 @@ function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<
   });
 }
 
+interface ResumableAudioContext {
+  resume(): Promise<void>;
+}
+
+type AudioContextCtor = new (...args: unknown[]) => ResumableAudioContext;
+
+/**
+ * Browsers start AudioContexts suspended until a user gesture. MAME creates its
+ * context during boot (before any click), so capture every context via a Proxy
+ * around the constructor and resume them all on the first pointer/key gesture.
+ */
+export function installAudioUnlock(win: Window): void {
+  const target = win as unknown as {
+    AudioContext?: AudioContextCtor;
+    webkitAudioContext?: AudioContextCtor;
+  };
+  const contexts = new Set<ResumableAudioContext>();
+  let unlocked = false;
+
+  const wrap = (Ctor: AudioContextCtor | undefined): AudioContextCtor | undefined => {
+    if (!Ctor) return undefined;
+    return new Proxy(Ctor, {
+      construct(constructor, args, newTarget) {
+        const ctx = Reflect.construct(constructor, args, newTarget) as ResumableAudioContext;
+        contexts.add(ctx);
+        if (unlocked) void ctx.resume();
+        return ctx;
+      },
+    });
+  };
+
+  const Wrapped = wrap(target.AudioContext);
+  const WrappedWebkit = wrap(target.webkitAudioContext);
+  if (Wrapped) target.AudioContext = Wrapped;
+  if (WrappedWebkit) target.webkitAudioContext = WrappedWebkit;
+
+  const unlock = (): void => {
+    unlocked = true;
+    for (const ctx of contexts) void ctx.resume();
+    win.removeEventListener("pointerdown", unlock);
+    win.removeEventListener("keydown", unlock);
+  };
+  win.addEventListener("pointerdown", unlock);
+  win.addEventListener("keydown", unlock);
+}
+
 /** Wire the app to real browser globals and the static catalogue. */
 export async function startApp(options: StartOptions = {}): Promise<AppController> {
   const doc = options.doc ?? document;
   const win = options.win ?? window;
+  installAudioUnlock(win);
   const loadGames = options.loadGames ?? loadCatalogue;
   const loadCore = options.loadCore ?? browserCoreLoader;
 
