@@ -49,10 +49,31 @@ function injectScript(url: string): Promise<void> {
  * Emscripten build is not MODULARIZE'd: it reads a pre-seeded global `Module`,
  * runs preRun (where we mount the ROM) and auto-starts main.
  */
+/**
+ * MAME's SDL3 WebGL backend cannot render without a WebGL context. Probe a
+ * throwaway canvas so a browser with WebGL disabled fails with a clear message
+ * instead of an opaque "video_init failed" from the core.
+ */
+function requireWebgl(): void {
+  if (typeof document === "undefined") return; // non-DOM environment (tests)
+  const probe = document.createElement("canvas");
+  const gl =
+    probe.getContext("webgl2") ??
+    probe.getContext("webgl") ??
+    probe.getContext("experimental-webgl");
+  if (!gl) {
+    throw new Error(
+      "WebGL is unavailable in this browser; MAME needs WebGL to render. " +
+        "Enable hardware acceleration (or GPU/WebGL) and reload.",
+    );
+  }
+}
+
 export async function loadBrowserCore(
   init: BrowserCoreInit,
   deps: BrowserCoreDeps = {},
 ): Promise<Core> {
+  requireWebgl();
   const doFetch = deps.fetchImpl ?? fetch;
   const loadScript = deps.loadScript ?? injectScript;
   const trace = (stage: string): void => {
