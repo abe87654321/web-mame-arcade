@@ -143,6 +143,9 @@ export const clientMessage = z.discriminatedUnion("t", [
 export const serverMessage = z.discriminatedUnion("t", [
   roomState,
   rtcSignal,
+  // The relay fans the host's start out to every member so each peer agrees on
+  // startFrame/inputDelay before stepping (T24, docs/03).
+  gameStart,
   stateSnapshot,
   desync,
   scoreLive,

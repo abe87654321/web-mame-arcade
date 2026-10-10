@@ -35,10 +35,15 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T21 Protocol package** – `encodeInput/decodeInput`, zod message schemas, round-trip + fuzz tests. Docs: contracts/*. Depends: T00.
 - [x] **T22 Relay: rooms + signalling** – `room.join`, `room.state`, `rtc.signal`, auth token check. Docs: 03, 06, contracts/ws-messages. Depends: T21.
 - [x] **T23 WebRTC peer connection** – data channel (unordered, maxRetransmits 0), coturn in docker-compose. Docs: 03. Depends: T22.
-- [ ] **T24 Lockstep loop** – input delay D, 8-frame redundancy, wait/pause behaviour. Docs: 03. Depends: T20, T23.
+- [x] **T24 Lockstep loop** – input delay D, 8-frame redundancy, wait/pause behaviour. Docs: 03. Depends: T20, T23.
 - [ ] **T25 Desync detection + resync** – `hash` every 60 frames, `state.snapshot` recovery, logging. Docs: 03. Depends: T24.
 - [ ] **T26 Netplay test harness** – Playwright opens two tabs, runs a scripted input file, asserts equal hashes;
   Linux `tc netem` profiles (50/100/150 ms, 1% loss). Depends: T24, T25.
+- [ ] **T27 Lobby & room UI** – turn the minimal T24 start bar into a proper lobby: player slots with
+  names/ready state, host-only "Start game" enabled only when all peers are connected, room status
+  (waiting/playing), leave/disconnect handling, and a place for chat (T30/T36 server side). Reuses
+  `room.state`/`game.start` (T22/T24); feeds the viewer (T31) and replays (T35). Docs: 03, contracts/ws-messages.
+  Depends: T22, T24.
 
 ## Phase 3 · Spectating and leaderboard
 - [ ] **T30 Relay input log** – define `docs/contracts/input-log.md` (core/rom hash, DIPs, start state, per-frame

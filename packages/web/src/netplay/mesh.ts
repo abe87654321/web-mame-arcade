@@ -22,6 +22,8 @@ export interface MeshDeps {
   sendSignal: (to: number, signal: PeerSignalling) => void;
   /** Inbound data-channel message, tagged with the sending peer's slot. */
   onMessage?: (from: number, data: unknown) => void;
+  /** A peer's data channel opened; the mesh can now reach that slot. */
+  onChannelOpen?: (slot: number) => void;
 }
 
 export interface Mesh {
@@ -38,7 +40,7 @@ export interface Mesh {
 }
 
 export function createMesh(deps: MeshDeps): Mesh {
-  const { mySlot, factory, iceServers, sendSignal, onMessage } = deps;
+  const { mySlot, factory, iceServers, sendSignal, onMessage, onChannelOpen } = deps;
   const peers = new Map<number, RtcPeer>();
 
   function addPeer(slot: number): Promise<void> {
@@ -51,6 +53,7 @@ export function createMesh(deps: MeshDeps): Mesh {
       ...(onMessage
         ? { onMessage: (data: unknown) => onMessage(slot, data) }
         : {}),
+      ...(onChannelOpen ? { onOpen: () => onChannelOpen(slot) } : {}),
     });
     peers.set(slot, peer);
     return initiator ? peer.start() : Promise.resolve();

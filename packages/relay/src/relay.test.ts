@@ -122,6 +122,30 @@ describe("createRelay", () => {
     expect(out[0]?.message).toMatchObject({ t: "error", code: "already_joined" });
   });
 
+  it("broadcasts the host's game.start and flips status to playing", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+
+    const out = r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+
+    const starts = out.filter((o) => o.message.t === "game.start");
+    expect(starts.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    const states = out.filter((o) => o.message.t === "room.state");
+    expect(states.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    for (const state of states) {
+      expect(state.message).toMatchObject({ t: "room.state", status: "playing" });
+    }
+  });
+
+  it("rejects game.start from a non-host player", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    const out = r.handle("c2", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "not_host" });
+  });
+
   it("marks T22-unowned client types as unsupported", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));

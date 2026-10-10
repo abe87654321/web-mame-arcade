@@ -12,6 +12,8 @@ describe("buildMameArgs", () => {
     expect(buildMameArgs(input)).toEqual([
       "gridlee",
       "-rompath", "/roms",
+      "-video", "bgfx",
+      "-bgfx_backend", "gles",
       "-skip_gameinfo",
       "-nvram_directory", "/session",
       "-inipath", "/session",

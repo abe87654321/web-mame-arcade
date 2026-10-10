@@ -5,11 +5,24 @@ import type { Core } from "../core/types";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import {
+  browserRtcFactory,
+  browserWebSocketFactory,
+  createMatch,
+  defaultIceServers,
+  relayConfigFromEnv,
+  type IceServer,
+  type MatchStatus,
+  type NetplayMatch,
+  type RtcFactory,
+  type WebSocketFactory,
+} from "../netplay";
+import {
   browserUiDocument,
   renderTree,
   wrapElement,
   type UiDocument,
   type UiElement,
+  type ViewNode,
 } from "../ui/view";
 import { buildList } from "./list-view";
 import {
@@ -26,6 +39,17 @@ import { gameHref, startRouter, type Route, type RouterTarget } from "./router";
  * wiring is exercised in tests with fakes; `startApp` builds the real env.
  */
 
+/** Relay wiring for netplay routes; injected so tests need no network. */
+export interface NetplayEnv {
+  relayUrl: string;
+  token: string;
+  iceServers: IceServer[];
+  socketFactory: WebSocketFactory;
+  factory: RtcFactory;
+  /** Milliseconds clock for the lockstep wait timer; defaults to Date.now. */
+  now?: () => number;
+}
+
 export interface AppEnv {
   doc: UiDocument;
   /** Container the current view is rendered into (cleared per route). */
@@ -38,12 +62,34 @@ export interface AppEnv {
   scheduler: FrameScheduler;
   keyboard: KeyboardTarget;
   gamepads: GamepadsProvider;
+  /** Set by `startApp`; absent in solo-only tests. */
+  netplay?: NetplayEnv;
+  /** Generates a fresh room id for "Play online"; defaults to `randomUUID`. */
+  newRoomId?: () => string;
+  /** The shared canvas MAME renders into; set by `startApp`, absent in tests. */
+  screen?: HTMLCanvasElement;
+}
+
+/** Room id for a new online game. UI-only; never part of the emulation path. */
+function defaultRoomId(): string {
+  const webCrypto = globalThis.crypto;
+  if (webCrypto && typeof webCrypto.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+  return `room-${Date.now().toString(36)}`;
+}
+
+export interface LoadCoreOptions {
+  /** Arm netplay so the machine freezes at boot and the lockstep drives it. */
+  netplay: boolean;
+  /** The canvas MAME renders into; must be in the DOM before boot. */
+  canvas?: unknown;
 }
 
 export interface AppDeps {
   env: AppEnv;
   games: readonly GameEntry[];
-  loadCore: (entry: GameEntry) => Promise<Core>;
+  loadCore: (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
 }
 
 export interface AppController {
@@ -54,19 +100,53 @@ function notFound(message: string): { tag: string; className: string; text: stri
   return { tag: "p", className: "not-found", text: message };
 }
 
+/** Minimal lobby bar: the host's manual "Start game" control (T24). */
+function lobbyView(onStart: () => void): ViewNode {
+  return {
+    tag: "div",
+    className: "lobby",
+    children: [
+      {
+        tag: "button",
+        className: "start-game",
+        text: "Start game",
+        onClick: onStart,
+      },
+    ],
+  };
+}
+
+function matchStatusText(status: MatchStatus): string {
+  switch (status) {
+    case "connecting":
+      return "connecting to room...";
+    case "waiting-for-peers":
+      return "waiting for players...";
+    case "waiting":
+      return "waiting for player...";
+    case "running":
+      return "playing online";
+  }
+}
+
 export function createApp(deps: AppDeps): AppController {
   let play: PlayController | null = null;
+  let match: NetplayMatch | null = null;
   let token = 0;
 
   const setStatus = (text: string): void => {
     deps.env.status.textContent = text;
   };
 
+  const teardown = (): void => {
+    match?.close();
+    match = null;
+    play?.destroy();
+    play = null;
+  };
+
   const render = (route: Route): void => {
-    if (play) {
-      play.destroy();
-      play = null;
-    }
+    teardown();
     token += 1;
     const myToken = token;
     deps.env.root.textContent = "";
@@ -78,6 +158,10 @@ export function createApp(deps: AppDeps): AppController {
           deps.env.doc,
           buildList(deps.games, {
             onSelect: (driver) => deps.env.navigate(gameHref(driver)),
+            onPlayOnline: (driver) =>
+              deps.env.navigate(
+                gameHref(driver, (deps.env.newRoomId ?? defaultRoomId)()),
+              ),
           }),
         ),
       );
@@ -99,13 +183,43 @@ export function createApp(deps: AppDeps): AppController {
       return;
     }
 
+    const netplay = deps.env.netplay;
+    if (route.room && !netplay) {
+      setStatus("online play is not configured (missing relay URL/token)");
+      deps.env.root.append(
+        renderTree(deps.env.doc, notFound("Online play is not configured")),
+      );
+      return;
+    }
+
+    // The canvas must be in the DOM before the core boots (SDL creates the
+    // WebGL context during runtime init), so mount it first, then load.
+    const screenUi = deps.env.screen ? wrapElement(deps.env.screen) : null;
+    if (screenUi) deps.env.root.append(screenUi);
+
     setStatus(`loading ${entry.title}...`);
     void deps
-      .loadCore(entry)
+      .loadCore(entry, { netplay: Boolean(route.room), canvas: deps.env.screen })
       .then((core) => {
         if (myToken !== token) {
           core.destroy();
           return;
+        }
+        if (route.room && netplay) {
+          match = createMatch({
+            core,
+            config: {
+              relayUrl: netplay.relayUrl,
+              token: netplay.token,
+              room: route.room,
+              role: "player",
+              iceServers: netplay.iceServers,
+            },
+            socketFactory: netplay.socketFactory,
+            factory: netplay.factory,
+            now: netplay.now ?? (() => Date.now()),
+            onStatus: (status) => setStatus(matchStatusText(status)),
+          });
         }
         play = createPlayController({
           core,
@@ -115,8 +229,25 @@ export function createApp(deps: AppDeps): AppController {
           keyboard: deps.env.keyboard,
           gamepads: deps.env.gamepads,
           onStatus: setStatus,
+          ...(match ? { lockstep: match } : {}),
+          ...(screenUi ? { screen: screenUi } : {}),
         });
-        deps.env.root.append(play.screen);
+        if (match) {
+          deps.env.root.append(
+            renderTree(
+              deps.env.doc,
+              lobbyView(() => {
+                if (match?.start()) return;
+                setStatus(
+                  match?.isHost()
+                    ? "waiting for players..."
+                    : "only the host can start the game",
+                );
+              }),
+            ),
+          );
+        }
+        if (!screenUi) deps.env.root.append(play.screen);
       })
       .catch((error: unknown) => {
         if (myToken !== token) return;
@@ -135,8 +266,7 @@ export function createApp(deps: AppDeps): AppController {
     destroy: () => {
       token += 1;
       stop();
-      play?.destroy();
-      play = null;
+      teardown();
     },
   };
 }
@@ -144,9 +274,11 @@ export function createApp(deps: AppDeps): AppController {
 export interface StartOptions {
   catalogueUrl?: string;
   loadGames?: (url: string) => Promise<GameEntry[]>;
-  loadCore?: (entry: GameEntry) => Promise<Core>;
+  loadCore?: (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
   doc?: Document;
   win?: Window;
+  /** Overrides the relay wiring; by default it comes from `VITE_RELAY_*`. */
+  netplay?: NetplayEnv;
 }
 
 /**
@@ -159,7 +291,7 @@ export function coreDirUrl(entry: GameEntry): string {
 }
 
 /** Default core loader: fixed args, ROM mounted under `-rompath`. */
-function browserCoreLoader(entry: GameEntry): Promise<Core> {
+function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<Core> {
   const romPath = "/roms";
   const sessionPath = "/session";
   return loadBrowserCore({
@@ -169,13 +301,62 @@ function browserCoreLoader(entry: GameEntry): Promise<Core> {
     args: buildMameArgs({ driver: entry.driver, romPath, sessionPath }),
     romPath,
     romZipName: `${entry.driver}.zip`,
+    netplay: options.netplay,
+    ...(options.canvas ? { canvas: options.canvas } : {}),
   });
+}
+
+interface ResumableAudioContext {
+  resume(): Promise<void>;
+}
+
+type AudioContextCtor = new (...args: unknown[]) => ResumableAudioContext;
+
+/**
+ * Browsers start AudioContexts suspended until a user gesture. MAME creates its
+ * context during boot (before any click), so capture every context via a Proxy
+ * around the constructor and resume them all on the first pointer/key gesture.
+ */
+export function installAudioUnlock(win: Window): void {
+  const target = win as unknown as {
+    AudioContext?: AudioContextCtor;
+    webkitAudioContext?: AudioContextCtor;
+  };
+  const contexts = new Set<ResumableAudioContext>();
+  let unlocked = false;
+
+  const wrap = (Ctor: AudioContextCtor | undefined): AudioContextCtor | undefined => {
+    if (!Ctor) return undefined;
+    return new Proxy(Ctor, {
+      construct(constructor, args, newTarget) {
+        const ctx = Reflect.construct(constructor, args, newTarget) as ResumableAudioContext;
+        contexts.add(ctx);
+        if (unlocked) void ctx.resume();
+        return ctx;
+      },
+    });
+  };
+
+  const Wrapped = wrap(target.AudioContext);
+  const WrappedWebkit = wrap(target.webkitAudioContext);
+  if (Wrapped) target.AudioContext = Wrapped;
+  if (WrappedWebkit) target.webkitAudioContext = WrappedWebkit;
+
+  const unlock = (): void => {
+    unlocked = true;
+    for (const ctx of contexts) void ctx.resume();
+    win.removeEventListener("pointerdown", unlock);
+    win.removeEventListener("keydown", unlock);
+  };
+  win.addEventListener("pointerdown", unlock);
+  win.addEventListener("keydown", unlock);
 }
 
 /** Wire the app to real browser globals and the static catalogue. */
 export async function startApp(options: StartOptions = {}): Promise<AppController> {
   const doc = options.doc ?? document;
   const win = options.win ?? window;
+  installAudioUnlock(win);
   const loadGames = options.loadGames ?? loadCatalogue;
   const loadCore = options.loadCore ?? browserCoreLoader;
 
@@ -187,6 +368,14 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   const statusEl = doc.createElement("p");
   statusEl.className = "status";
   appEl.append(rootEl, statusEl);
+
+  const netplay = options.netplay ?? netplayFromEnv();
+
+  // SDL3's emscripten video backend resolves its canvas by the CSS selector
+  // `#canvas` (`document.querySelector`); MAME's WebGL context creation fails
+  // without it, so the shared render canvas carries that id.
+  const screenEl = doc.createElement("canvas");
+  screenEl.id = "canvas";
 
   return createApp({
     games,
@@ -203,6 +392,42 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       scheduler: browserScheduler(),
       keyboard: win,
       gamepads: win.navigator,
+      screen: screenEl,
+      ...(netplay ? { netplay } : {}),
     },
   });
+}
+
+/**
+ * Netplay wiring from Vite build env. `VITE_RELAY_URL` + `VITE_RELAY_TOKEN`
+ * win when set; otherwise (dev) the relay defaults to `ws://<page host>:8787/ws`
+ * so another machine on the LAN works, and the token may come from a `?token=`
+ * query param so each browser can use a distinct dev JWT.
+ * (T34 replaces the static dev token with a per-session JWT.)
+ */
+export function netplayFromEnv(): NetplayEnv | undefined {
+  const env = (import.meta as unknown as { env?: Record<string, string | boolean> })
+    .env ?? {};
+  const loc = (globalThis as { location?: { hostname?: string; search?: string } })
+    .location;
+
+  const explicit = relayConfigFromEnv({
+    ...(typeof env.VITE_RELAY_URL === "string" ? { VITE_RELAY_URL: env.VITE_RELAY_URL } : {}),
+    ...(typeof env.VITE_RELAY_TOKEN === "string" ? { VITE_RELAY_TOKEN: env.VITE_RELAY_TOKEN } : {}),
+  });
+  const relayUrl =
+    explicit?.relayUrl ?? (loc?.hostname ? `ws://${loc.hostname}:8787/ws` : undefined);
+  const queryToken = loc?.search
+    ? new URLSearchParams(loc.search).get("token") ?? undefined
+    : undefined;
+  const token = explicit?.token ?? (env.DEV ? queryToken : undefined);
+  if (!relayUrl || !token) return undefined;
+
+  return {
+    relayUrl,
+    token,
+    iceServers: defaultIceServers(),
+    socketFactory: browserWebSocketFactory(),
+    factory: browserRtcFactory(),
+  };
 }

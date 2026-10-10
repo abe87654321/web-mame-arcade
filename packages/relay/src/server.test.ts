@@ -138,10 +138,13 @@ describe("createRelayServer", () => {
     expect(await c.next()).toMatchObject({ t: "error", code: "bad_message" });
   });
 
-  it("rejects a binary frame as unsupported", async () => {
+  it("accepts a binary input frame without an error reply", async () => {
     const c = await client();
     c.sendRaw(new Uint8Array([1, 2, 3]));
-    expect(await c.next()).toMatchObject({ t: "error", code: "unsupported" });
+    // The input log/fan-out land with T30; until then the frame is accepted
+    // silently, so the next reply to the client is its room.state.
+    c.send(join("alice"));
+    expect(await c.next()).toMatchObject({ t: "room.state" });
   });
 
   it("broadcasts the room without a disconnecter", async () => {

@@ -14,6 +14,16 @@ export interface BrowserCoreInit {
   args: readonly string[];
   romPath: string;
   romZipName: string;
+  /**
+   * Arm the netplay frame gate at load so the machine freezes at boot and the
+   * lockstep drives every frame (T24, docs/03). Solo leaves this unset.
+   */
+  netplay?: boolean;
+  /**
+   * The canvas MAME/SDL renders into. Must already be in the DOM before boot,
+   * since SDL creates the WebGL context during runtime init.
+   */
+  canvas?: unknown;
 }
 
 export interface BrowserCoreDeps {
@@ -39,16 +49,44 @@ function injectScript(url: string): Promise<void> {
  * Emscripten build is not MODULARIZE'd: it reads a pre-seeded global `Module`,
  * runs preRun (where we mount the ROM) and auto-starts main.
  */
+/**
+ * MAME's SDL3 WebGL backend cannot render without a WebGL context. Probe a
+ * throwaway canvas so a browser with WebGL disabled fails with a clear message
+ * instead of an opaque "video_init failed" from the core.
+ */
+function requireWebgl(): void {
+  if (typeof document === "undefined") return; // non-DOM environment (tests)
+  const probe = document.createElement("canvas");
+  const gl =
+    probe.getContext("webgl2") ??
+    probe.getContext("webgl") ??
+    probe.getContext("experimental-webgl");
+  if (!gl) {
+    throw new Error(
+      "WebGL is unavailable in this browser; MAME needs WebGL to render. " +
+        "Enable hardware acceleration (or GPU/WebGL) and reload.",
+    );
+  }
+}
+
 export async function loadBrowserCore(
   init: BrowserCoreInit,
   deps: BrowserCoreDeps = {},
 ): Promise<Core> {
+  requireWebgl();
   const doFetch = deps.fetchImpl ?? fetch;
   const loadScript = deps.loadScript ?? injectScript;
+  const trace = (stage: string): void => {
+    if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+      console.info(`[core] ${stage}`);
+    }
+  };
 
+  trace("fetching manifest");
   const manifestJson = await (
     await doFetch(`${init.coreBaseUrl}/manifest.json`)
   ).json();
+  trace("fetching rom");
   const romZip = new Uint8Array(
     await (await doFetch(init.romZipUrl)).arrayBuffer(),
   );
@@ -60,38 +98,72 @@ export async function loadBrowserCore(
         await (await doFetch(`${init.coreBaseUrl}/${name}`)).arrayBuffer(),
       ),
     createModule: async (
-      _manifest: unknown,
+      manifest: unknown,
       args: readonly string[],
     ): Promise<CoreModule> => {
-      let settleReady!: (module: CoreModule) => void;
-      let abortReady!: (reason: Error) => void;
+      // The build names the glue after MAME's project (`mame<driver>.js`) but
+      // emits `<driver>.js` when that target is not used; always trust the
+      // manifest's artifact list rather than guessing.
+      const artifacts =
+        (manifest as { artifacts?: Record<string, string> }).artifacts ?? {};
+      const jsName =
+        Object.keys(artifacts).find((name) => name.endsWith(".js")) ??
+        `mame${init.driver}.js`;
+      let timer: ReturnType<typeof setTimeout>;
+      let settle!: (module: CoreModule) => void;
+      let abort!: (reason: Error) => void;
       const ready = new Promise<CoreModule>((resolve, reject) => {
-        settleReady = resolve;
-        abortReady = reject;
+        settle = (module) => {
+          clearTimeout(timer);
+          resolve(module);
+        };
+        abort = (reason) => {
+          clearTimeout(timer);
+          reject(reason);
+        };
+        timer = setTimeout(
+          () => abort(new Error("core did not finish booting within 90s")),
+          90_000,
+        );
       });
       const config: Record<string, unknown> = {
         arguments: [...args],
-        preRun: [
-          () =>
+        ...(init.canvas ? { canvas: init.canvas } : {}),
+        // Mount at runtime init, not preRun: the ROM needs `Module.FS`, which is
+        // only present once the runtime is up. This still runs before MAME's
+        // callMain() starts the machine.
+        onRuntimeInitialized: () => {
+          try {
             mountRom(
               config as unknown as CoreModule,
               init.romPath,
               init.romZipName,
               romZip,
-            ),
-        ],
-        onRuntimeInitialized: () =>
-          settleReady(config as unknown as CoreModule),
+            );
+          } catch (error) {
+            abort(error instanceof Error ? error : new Error(String(error)));
+            return;
+          }
+          settle(config as unknown as CoreModule);
+        },
         onAbort: (what: unknown) =>
-          abortReady(new Error(`core runtime aborted: ${String(what)}`)),
+          abort(new Error(`core runtime aborted: ${String(what)}`)),
       };
       (globalThis as Record<string, unknown>).Module = config;
-      await loadScript(`${init.coreBaseUrl}/mame${init.driver}.js`);
+      trace(`loading script ${jsName}`);
+      await loadScript(`${init.coreBaseUrl}/${jsName}`);
+      trace("script loaded, awaiting runtime");
       return ready;
     },
   };
 
+  trace("verifying artifacts + booting");
   const bundle = await loadCoreBundle(source, init.args);
+  trace("runtime ready");
+  // Arm netplay now: the post-js glue has run (so `module.netplay` exists) but
+  // the main loop has not ticked yet, so the machine freezes at boot instead of
+  // free-running ahead of the lockstep (T24, docs/03).
+  if (init.netplay) bundle.module.netplay?.enable();
   return new MameCore(bundle.module, {
     args: init.args,
     romPath: init.romPath,

@@ -20,6 +20,16 @@ Start with delay-based lockstep; add rollback per game once stable.
   `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`). coturn runs from `deploy/docker-compose.yml`
   with `use-auth-secret`; the API mints short-lived TURN credentials (T34).
 
+## Start
+- A netplay (`task lockstep`) core is **frozen at boot**: the loader arms `netplay_enable()` during
+  runtime init, so MAME does not free-run before the match starts. Peers therefore all sit at frame 0
+  with identical machine state; only the lockstep advances frames.
+- Starting is **manual**: the lowest-slot host clicks "Start game" in the lobby once every peer's data
+  channel is open, then sends `game.start {startFrame, inputDelay}`. A lone player may start too, which
+  plays solo under the lockstep. This avoids the first player entering a room locking out later joiners.
+- `startFrame` is 0: every peer boots the same core + ROM, so frame 0 is the same state everywhere.
+  Mid-game join / resume from a snapshot is T25.
+
 ## Lockstep loop, per frame N
 1. Read local controls, schedule them for frame N + D (D = 2-3, tuned from measured ping).
 2. Send to all peers and to the relay.

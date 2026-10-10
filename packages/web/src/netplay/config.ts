@@ -29,3 +29,20 @@ export function defaultIceServers(): IceServer[] {
   const env = (import.meta as unknown as { env?: NetplayEnv }).env ?? {};
   return iceServersFromEnv(env);
 }
+
+/** Relay endpoint + room-join JWT from Vite build env (T24/T34). */
+export interface RelayEnv {
+  VITE_RELAY_URL?: string;
+  VITE_RELAY_TOKEN?: string;
+}
+
+export interface RelayConfig {
+  relayUrl: string;
+  token: string;
+}
+
+/** The relay endpoint, or null until both URL and token are configured. */
+export function relayConfigFromEnv(env: RelayEnv): RelayConfig | null {
+  if (!env.VITE_RELAY_URL || !env.VITE_RELAY_TOKEN) return null;
+  return { relayUrl: env.VITE_RELAY_URL, token: env.VITE_RELAY_TOKEN };
+}

@@ -17,12 +17,13 @@ import { createSampleState, sampleFrameInputs } from "../input/sample";
 import type { UiDocument, UiElement } from "../ui/view";
 
 /**
- * Play-page controller (T13). Boots the core, mounts its canvas and runs one
- * input-sampling tick per animation frame. The stock Emscripten build runs MAME
- * itself and exposes no frame gate, so this loop only samples the local devices
- * into a FrameInputs tuple; it must NOT call `core.step()` (that arrives with
- * the T20 netplay patch). Sampling is stateless beyond axis hysteresis, and
- * nothing here reads the clock or randomness.
+ * Play-page controller (T13/T24). Boots the core, mounts its canvas and runs
+ * one input-sampling tick per animation frame. Solo, the stock Emscripten build
+ * runs MAME itself and this loop only samples the local devices. In netplay the
+ * injected `lockstep` owns the frame clock: each tick hands it the sampled
+ * `FrameInputs` and it calls `core.step` when every player's inputs are ready.
+ * Sampling is stateless beyond axis hysteresis, and nothing here reads the
+ * clock or randomness.
  */
 
 export interface FrameScheduler {
@@ -47,6 +48,13 @@ export interface PlayDeps {
   gamepads: GamepadsProvider;
   /** Effective input config; defaults to the built-in keyboard P1 config. */
   inputConfig?: InputConfig;
+  /** Netplay lockstep loop; when present it drives `core.step` (T24). */
+  lockstep?: { tick(localMask: number): void };
+  /**
+   * The canvas the core already rendered into (mounted before boot). When
+   * absent (tests), the controller creates one.
+   */
+  screen?: UiElement;
   /** Status line sink (boot/errors). */
   onStatus?: (text: string) => void;
 }
@@ -74,7 +82,7 @@ function boundKeyCodes(config: InputConfig): Set<string> {
 
 export function createPlayController(deps: PlayDeps): PlayController {
   const config = deps.inputConfig ?? DEFAULT_INPUT_CONFIG;
-  const screen = deps.document.createElement("canvas");
+  const screen = deps.screen ?? deps.document.createElement("canvas");
   screen.className = "screen";
 
   const keys: KeyState = createKeyState();
@@ -90,6 +98,10 @@ export function createPlayController(deps: PlayDeps): PlayController {
   const tick = (): void => {
     if (!running) return;
     current = sampleFrameInputs(config, keys, deps.gamepads.getGamepads(), sampleState);
+    // Netplay: this browser's own controls come from the local slot-0 config;
+    // the lockstep attributes them to our room slot. Solo leaves `current` for
+    // the local multi-slot view.
+    deps.lockstep?.tick(current[0] ?? 0);
     handle = deps.scheduler.request(tick);
   };
 

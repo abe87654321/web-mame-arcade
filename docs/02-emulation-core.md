@@ -64,7 +64,10 @@ as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact sou
 `Module.netplay` glue), and `0001-machine` / `0002-ioport` / `0003-save` / `0004-build` patches.
 1. **Frame gate** – in `running_machine::emscripten_main_loop()`, once netplay is active, step one game
    frame via `netplay_try_run_frame(frame)`; if that frame's inputs are missing, pump video and return
-   without stepping.
+   without stepping. A netplay core is **armed at load** (`netplay_enable()` from the JS glue during
+   runtime init, before `main()` starts the loop); `netplay_input_active()` activates lazily on the first
+   tick, so the machine is frozen at frame 0 and cannot free-run ahead of the lockstep (T24, docs/03).
+   Solo loads the same build without arming it, so the stock loop still runs.
 2. **Input injection** – `netplay_set_inputs(frame, p1, p2, p3, p4)`; masks are written into the bound
    `ioport_field`s (bits 0-3 joystick, 4-9 B1-B6, 10 start, 11 coin, by `field.player()`), and while
    netplay is active `ioport_field::frame_update()` ignores the local OSD sequence so only injected
@@ -78,7 +81,22 @@ as `netplay_patch` in `manifest.json`, tying a `core_hash` back to the exact sou
 5. **Frame clock** – one emulated video frame (the first screen's real `frame_period()`, e.g. 60.6 Hz),
    not a fixed 1/60 s.
 
+`0004-build.patch` also widens the Emscripten `EXPORTED_FUNCTIONS` with `_free` and
+`EXPORTED_RUNTIME_METHODS` with `FS` and `HEAPU8`, so the wrapper can mount the ROM and do state
+save/load; `netplay_post.js` attaches the stock `JSMAME` object to `Module` (upstream defines it but
+never exposes it). It also sets `-s GROWABLE_ARRAYBUFFERS=0`: with `ALLOW_MEMORY_GROWTH=1`, emsdk 6
+otherwise makes `HEAPU8` a view over a *resizable* ArrayBuffer, which the embedded-file loader's
+`TextDecoder.decode` rejects in current browsers. Newer T11 fields (`Module.FS`, `Module.JSMAME`)
+were assumed but only wired into the build here — the T11 tests use fakes, so a real browser boot is
+the check.
+
 ## Browser wrapper (`web/src/core/`)
+- `loadBrowserCore` must be handed the render canvas; it sets `Module.canvas` and the canvas is
+  already in the DOM (SDL creates the WebGL context in `initRuntime`, before `onRuntimeInitialized`).
+- The ROM is mounted in `onRuntimeInitialized` (not `preRun`, where `Module.FS` may not exist yet) but
+  still before MAME's `callMain`.
+- `netplay_post.js` resolves `cwrap` lazily, at call time: newer Emscripten returns the wasm export
+  directly from `cwrap`, and the post-js runs before the async wasm instance assigns `Module._netplay_*`.
 - Loads the core, mounts the ROM zip into Emscripten's FS, starts MAME with identical options on every peer:
   `-skip_gameinfo`, empty per-session `-nvram_directory`, no `.ini`, DIP values from the room host.
 - Exposes a typed `Core` interface: `load()`, `step(frame, inputs)`, `save()`, `load(state)`, `hash()`, `readScore()`.

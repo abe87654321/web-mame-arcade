@@ -1,11 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLAYER_SLOTS } from "@wma/protocol";
 import type { Core } from "../core/types";
 import type { GameEntry } from "../catalogue";
 import type { GamepadsProvider } from "../input/gamepad";
 import type { KeyboardTarget } from "../input/keyboard";
 import type { UiDocument, UiElement } from "../ui/view";
-import { createApp, coreDirUrl, type AppEnv } from "./app";
+import {
+  createApp,
+  coreDirUrl,
+  installAudioUnlock,
+  netplayFromEnv,
+  type AppEnv,
+  type NetplayEnv,
+} from "./app";
+import {
+  FakeWebSocket,
+  fakeRtcFactory,
+  fakeSocketFactory,
+} from "../netplay/test-fakes";
 
 const entry: GameEntry = {
   driver: "gridlee",
@@ -72,7 +84,7 @@ interface Harness {
   cores: Core[];
 }
 
-function harness(): Harness {
+function harness(netplay?: NetplayEnv): Harness {
   const doc = fakeDoc();
   const root = makeElement();
   const status = makeElement();
@@ -111,6 +123,7 @@ function harness(): Harness {
     scheduler: { request: () => 1, cancel: () => {} },
     keyboard,
     gamepads,
+    ...(netplay ? { netplay } : {}),
   };
   return {
     env,
@@ -148,7 +161,7 @@ describe("createApp", () => {
     h.fire();
     await flush();
 
-    expect(h.loadCore).toHaveBeenCalledWith(entry);
+    expect(h.loadCore).toHaveBeenCalledWith(entry, { netplay: false });
     expect(h.root.children).toHaveLength(1);
     expect(h.root.children[0]?.className).toBe("screen");
     expect(h.status.textContent).toContain("Gridlee");
@@ -198,12 +211,95 @@ describe("createApp", () => {
     app.destroy();
   });
 
+  it("joins the named room when a netplay route is configured", async () => {
+    const socket = new FakeWebSocket();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+
+    expect(h.loadCore).toHaveBeenCalledWith(entry, { netplay: true });
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "room.join", room: "abc", role: "player", token: "jwt" }),
+    );
+    app.destroy();
+    expect(socket.closes).toBe(1);
+  });
+
+  it("warns when an online route has no relay configuration", async () => {
+    const h = harness();
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+
+    expect(h.status.textContent).toContain("not configured");
+    app.destroy();
+  });
+
   it("detaches the router on destroy", () => {
     const h = harness();
     const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
     expect(h.listenerCount()).toBe(1);
     app.destroy();
     expect(h.listenerCount()).toBe(0);
+  });
+});
+
+describe("installAudioUnlock", () => {
+  it("resumes contexts created before the first gesture", () => {
+    const listeners = new Map<string, () => void>();
+    const win = {
+      addEventListener: (type: string, listener: () => void) => {
+        listeners.set(type, listener);
+      },
+      removeEventListener: (type: string) => {
+        listeners.delete(type);
+      },
+    } as unknown as Window;
+    class FakeAudioContext {
+      resume = vi.fn(async () => {});
+    }
+    (win as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
+
+    installAudioUnlock(win);
+    const Ctor = (win as unknown as { AudioContext: new () => FakeAudioContext })
+      .AudioContext;
+    const ctx = new Ctor();
+
+    expect(ctx.resume).not.toHaveBeenCalled();
+    listeners.get("pointerdown")?.();
+    expect(ctx.resume).toHaveBeenCalledOnce();
+  });
+});
+
+describe("netplayFromEnv", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("returns undefined when no relay env is configured", () => {
+    expect(netplayFromEnv()).toBeUndefined();
+  });
+
+  it("derives the LAN relay URL and dev token from the page", () => {
+    vi.stubGlobal("location", {
+      hostname: "192.168.3.110",
+      search: "?token=dev-jwt",
+    });
+
+    const env = netplayFromEnv();
+
+    expect(env?.relayUrl).toBe("ws://192.168.3.110:8787/ws");
+    expect(env?.token).toBe("dev-jwt");
   });
 });
 

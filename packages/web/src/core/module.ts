@@ -25,6 +25,12 @@ export interface JsMame {
  * build leaves `CoreModule.netplay` undefined.
  */
 export interface NetplayHooks {
+  /**
+   * Arm the frame gate. Call as soon as the core is loaded (before the first
+   * main-loop tick) so the machine freezes at boot; safe before the machine
+   * exists — activation is retried on the first tick (T24, docs/03).
+   */
+  enable(): void;
   setInputs(frame: number, p1: number, p2: number, p3: number, p4: number): void;
   saveState(): Uint8Array;
   loadState(state: Uint8Array): void;

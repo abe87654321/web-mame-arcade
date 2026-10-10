@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { defaultIceServers, iceServersFromEnv } from "./config";
+import {
+  defaultIceServers,
+  iceServersFromEnv,
+  relayConfigFromEnv,
+} from "./config";
 
 describe("iceServersFromEnv", () => {
   it("returns no servers for an empty environment", () => {
@@ -36,5 +40,22 @@ describe("iceServersFromEnv", () => {
 describe("defaultIceServers", () => {
   it("returns a list of ICE servers", () => {
     expect(Array.isArray(defaultIceServers())).toBe(true);
+  });
+});
+
+describe("relayConfigFromEnv", () => {
+  it("is null until both the relay URL and token are set", () => {
+    expect(relayConfigFromEnv({})).toBeNull();
+    expect(relayConfigFromEnv({ VITE_RELAY_URL: "ws://relay.test/ws" })).toBeNull();
+    expect(relayConfigFromEnv({ VITE_RELAY_TOKEN: "jwt" })).toBeNull();
+  });
+
+  it("returns the relay URL and token when both are present", () => {
+    expect(
+      relayConfigFromEnv({
+        VITE_RELAY_URL: "ws://relay.test/ws",
+        VITE_RELAY_TOKEN: "jwt",
+      }),
+    ).toEqual({ relayUrl: "ws://relay.test/ws", token: "jwt" });
   });
 });

@@ -58,9 +58,19 @@ export function createRelay({ verifier }: { verifier: TokenVerifier }): Relay {
             const { target, from } = rooms.signal(connectionId, message);
             return [{ connectionId: target, message: { ...message, from } }];
           }
+          case "game.start": {
+            // The host's start is fanned out to the whole room so every peer
+            // agrees on startFrame/inputDelay, and the updated room.state flips
+            // status to "playing" for the lobby UI (T24, docs/03).
+            const { roomId } = rooms.begin(connectionId, message);
+            const starts: Outbound[] = rooms
+              .broadcastTargets(roomId)
+              .map((target) => ({ connectionId: target, message }));
+            return [...starts, ...snapshotOut(roomId)];
+          }
           default:
-            // game.start/input/hash/state.snapshot/score.live/game.end/chat are
-            // owned by later tasks (T24/T30/T32/T36).
+            // input/hash/state.snapshot/score.live/game.end/chat are owned by
+            // later tasks (T30/T32/T36).
             return errorOut(
               connectionId,
               "unsupported",
