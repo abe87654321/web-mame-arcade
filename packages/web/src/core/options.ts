@@ -22,11 +22,10 @@ export function buildMameArgs(input: MameArgsInput): string[] {
   const args = [
     input.driver,
     "-rompath", input.romPath,
-    // The Emscripten/SDL OSD's desktop-GL renderer calls glShadeModel (absent in
-    // WebGL) and its bgfx backend misuses glGetInternalformativ under WebGL; the
-    // software renderer sidesteps GL entirely. Fixed value, so peers stay
-    // byte-identical.
-    "-video", "soft",
+    // This emscripten build registers only `opengl` and `bgfx` (there is no
+    // `soft`): `opengl` aborts on glShadeModel (absent in WebGL), so use bgfx.
+    // Fixed value, so peers stay byte-identical.
+    "-video", "bgfx",
     "-skip_gameinfo",
     "-nvram_directory", input.sessionPath,
     "-inipath", input.sessionPath,
