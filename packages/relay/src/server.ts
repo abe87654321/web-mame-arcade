@@ -35,15 +35,19 @@ const DEFAULT_PATH = "/ws";
 const DEFAULT_HEARTBEAT_MS = 30_000;
 /** Hard cap on a single snapshot blob (T25); object storage is T30. */
 const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
+/** Recent snapshots kept per room so a superseded blob URL still resolves (T25). */
+const MAX_SNAPSHOTS_PER_ROOM = 4;
 
 export function createRelayServer(options: RelayServerOptions): Promise<RelayServer> {
   const path = options.path ?? DEFAULT_PATH;
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const relay = createRelay({ verifier: options.verifier });
-  // Latest desync-recovery snapshot per room (T25). Unguessable id: only a peer
-  // that received the blob URL via `state.snapshot` can fetch it; the host gate
-  // lives on the WS message (RoomManager.snapshotForResync).
-  const snapshots = new Map<string, { id: string; bytes: Buffer }>();
+  // Recent desync-recovery snapshots per room (T25), newest first. Keeping a
+  // short history means a url handed out just before another desync still
+  // resolves instead of 404ing mid-fetch. Unguessable id: only a peer that
+  // received the blob URL via `state.snapshot` can fetch it; the host gate lives
+  // on the WS message (RoomManager.snapshotForResync).
+  const snapshots = new Map<string, { id: string; bytes: Buffer }[]>();
 
   function readBody(request: IncomingMessage): Promise<Buffer> {
     return new Promise((resolve, reject) => {
@@ -87,9 +91,21 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
         return;
       }
       const id = randomUUID();
-      snapshots.set(room, { id, bytes: body });
+      const history = snapshots.get(room) ?? [];
+      history.unshift({ id, bytes: body });
+      if (history.length > MAX_SNAPSHOTS_PER_ROOM) history.length = MAX_SNAPSHOTS_PER_ROOM;
+      snapshots.set(room, history);
+      // Honour a TLS-terminating proxy so the blob url is not mixed-content.
+      const forwarded = request.headers["x-forwarded-proto"];
+      const encrypted = (request.socket as { encrypted?: boolean }).encrypted === true;
+      const scheme =
+        typeof forwarded === "string" && forwarded.length > 0
+          ? forwarded.split(",")[0]!.trim()
+          : encrypted
+            ? "https"
+            : "http";
       const hostHeader = request.headers.host ?? "localhost";
-      const url = `http://${hostHeader}/rooms/${encodeURIComponent(room)}/snapshot/${id}`;
+      const url = `${scheme}://${hostHeader}/rooms/${encodeURIComponent(room)}/snapshot/${id}`;
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ url }));
       return;
@@ -98,8 +114,8 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     if (request.method === "GET" && get) {
       const room = decodeURIComponent(get[1]!);
       const id = get[2]!;
-      const stored = snapshots.get(room);
-      if (!stored || stored.id !== id) {
+      const stored = (snapshots.get(room) ?? []).find((entry) => entry.id === id);
+      if (!stored) {
         response.writeHead(404, { "content-type": "text/plain" });
         response.end("no snapshot");
         return;

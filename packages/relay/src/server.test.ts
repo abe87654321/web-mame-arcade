@@ -214,7 +214,7 @@ describe("createRelayServer", () => {
       expect(new Uint8Array(await get.arrayBuffer())).toEqual(bytes);
     });
 
-    it("replaces the previous snapshot for a room", async () => {
+    it("keeps a short history of snapshots so recent urls keep resolving", async () => {
       const first = await fetch(`${base()}/rooms/r/snapshot`, {
         method: "POST",
         body: new Uint8Array([1]),
@@ -226,11 +226,22 @@ describe("createRelayServer", () => {
       });
       const { url: secondUrl } = (await second.json()) as { url: string };
 
-      // The stale url no longer resolves (latest-per-room).
-      expect((await fetch(firstUrl)).status).toBe(404);
+      // A url handed out just before another desync still resolves.
+      expect(new Uint8Array(await (await fetch(firstUrl)).arrayBuffer())).toEqual(
+        new Uint8Array([1]),
+      );
       expect(new Uint8Array(await (await fetch(secondUrl)).arrayBuffer())).toEqual(
         new Uint8Array([2]),
       );
+
+      // Only the most recent few are retained.
+      for (let i = 0; i < 5; i++) {
+        await fetch(`${base()}/rooms/r/snapshot`, {
+          method: "POST",
+          body: new Uint8Array([10 + i]),
+        });
+      }
+      expect((await fetch(firstUrl)).status).toBe(404);
     });
 
     it("404s an unknown snapshot id", async () => {

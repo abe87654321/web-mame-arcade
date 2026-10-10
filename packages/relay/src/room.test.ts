@@ -373,6 +373,19 @@ describe("RoomManager.recordHash", () => {
     );
   });
 
+  it("ignores an absurd frame jump that would strand the comparison", () => {
+    const rooms = playing();
+    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
+    // A malicious huge frame must not move the comparison frame past real ones.
+    expect(
+      rooms.recordHash("c1", { t: "hash", frame: 0xffffffff, crc32: 0 }).mismatch,
+    ).toBe(false);
+    // The genuine frame 60 comparison still works.
+    expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0x1234 }).mismatch).toBe(
+      true,
+    );
+  });
+
   it("rejects a slot-less viewer", () => {
     const rooms = playing();
     rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });

@@ -73,6 +73,14 @@ function lowestSlot(room: Room): number | null {
   return slots.length > 0 ? Math.min(...slots) : null;
 }
 
+/**
+ * Largest frame advance accepted between hash comparisons (T25). Legitimate
+ * hashes arrive every 60 frames; the window is generous enough to survive a
+ * long stall yet small enough that no single peer can strand the comparison
+ * frame far ahead of the real game clock.
+ */
+const MAX_HASH_FRAME_JUMP = 60 * 100;
+
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly byConnection = new Map<string, string>();
@@ -249,6 +257,12 @@ export class RoomManager {
       throw new RelayError("not_playing", `room ${room.id} has not started`);
     }
     if (message.frame < room.hashFrame) {
+      return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
+    }
+    // A single peer must not be able to suppress detection by announcing an
+    // absurd frame (which would strand `hashFrame` past every real one). Ignore
+    // a jump larger than a generous window; legitimate hashes advance ~60.
+    if (room.hashFrame >= 0 && message.frame - room.hashFrame > MAX_HASH_FRAME_JUMP) {
       return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
     }
     if (message.frame > room.hashFrame) {
