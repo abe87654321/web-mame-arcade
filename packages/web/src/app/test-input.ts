@@ -39,7 +39,7 @@ export function readInputScript(
   const global = (win as { __WMA_TEST_INPUT__?: TestInputGlobal } | undefined)
     ?.__WMA_TEST_INPUT__;
   if (!global || typeof global !== "object" || !global.players) return undefined;
-  if (typeof global.players !== "object") return undefined;
+  if (typeof global.players !== "object" || Array.isArray(global.players)) return undefined;
   const players = global.players;
   return (slot, frame) => {
     const script = players[String(slot)];

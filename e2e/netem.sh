@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-profiles=("50ms 0%" "100ms 0%" "150ms 1%")
+profiles=("50ms 1%" "100ms 1%" "150ms 1%")
 if [ "$#" -gt 0 ]; then
   profiles=("$*")
 fi
