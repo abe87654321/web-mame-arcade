@@ -415,22 +415,12 @@ describe("RoomManager.snapshotForResync", () => {
   }
 
   it("accepts the host's snapshot", () => {
-    expect(
-      playing().snapshotForResync("c1", {
-        t: "state.snapshot",
-        frame: 60,
-        blobUrl: "http://relay/rooms/r/snapshot/1",
-      }),
-    ).toEqual({ roomId: "r", from: 0 });
+    expect(playing().snapshotForResync("c1")).toEqual({ roomId: "r", from: 0 });
   });
 
   it("rejects a non-host player", () => {
     try {
-      playing().snapshotForResync("c2", {
-        t: "state.snapshot",
-        frame: 60,
-        blobUrl: "http://relay/rooms/r/snapshot/1",
-      });
+      playing().snapshotForResync("c2");
       throw new Error("expected a throw");
     } catch (error) {
       expect((error as RelayError).code).toBe("not_host");
@@ -441,11 +431,7 @@ describe("RoomManager.snapshotForResync", () => {
     const rooms = playing();
     rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
     try {
-      rooms.snapshotForResync("c9", {
-        t: "state.snapshot",
-        frame: 60,
-        blobUrl: "http://relay/rooms/r/snapshot/1",
-      });
+      rooms.snapshotForResync("c9");
       throw new Error("expected a throw");
     } catch (error) {
       expect((error as RelayError).code).toBe("not_joined");
@@ -456,11 +442,7 @@ describe("RoomManager.snapshotForResync", () => {
     const rooms = manager();
     rooms.join("c1", { room: "r", role: "player", token: "alice" });
     try {
-      rooms.snapshotForResync("c1", {
-        t: "state.snapshot",
-        frame: 60,
-        blobUrl: "http://relay/rooms/r/snapshot/1",
-      });
+      rooms.snapshotForResync("c1");
       throw new Error("expected a throw");
     } catch (error) {
       expect((error as RelayError).code).toBe("not_playing");

@@ -101,7 +101,7 @@ export function createRelay({
           case "state.snapshot": {
             // The host's recovery snapshot is fanned out to everyone else so
             // each desynced peer can fetch and load it (T25, docs/03).
-            const { roomId, from } = rooms.snapshotForResync(connectionId, message);
+            const { roomId, from } = rooms.snapshotForResync(connectionId);
             log?.("resync", { room: roomId, frame: message.frame, from });
             return rooms
               .broadcastTargets(roomId)

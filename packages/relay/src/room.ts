@@ -10,7 +10,6 @@ import {
   type PlayerReady,
   type RoomState,
   type RtcSignal,
-  type StateSnapshot,
 } from "@wma/protocol";
 import type { TokenVerifier } from "./token.ts";
 
@@ -274,7 +273,6 @@ export class RoomManager {
    */
   snapshotForResync(
     connectionId: string,
-    _message: StateSnapshot,
   ): { roomId: string; from: number } {
     const room = this.roomOf(connectionId, "state.snapshot");
     const sender = room.members.get(connectionId);
