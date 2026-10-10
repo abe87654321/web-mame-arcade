@@ -324,6 +324,12 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
 
   const netplay = options.netplay ?? netplayFromEnv();
 
+  // SDL3's emscripten video backend resolves its canvas by the CSS selector
+  // `#canvas` (`document.querySelector`); MAME's WebGL context creation fails
+  // without it, so the shared render canvas carries that id.
+  const screenEl = doc.createElement("canvas");
+  screenEl.id = "canvas";
+
   return createApp({
     games,
     loadCore,
@@ -339,7 +345,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       scheduler: browserScheduler(),
       keyboard: win,
       gamepads: win.navigator,
-      screen: doc.createElement("canvas"),
+      screen: screenEl,
       ...(netplay ? { netplay } : {}),
     },
   });
