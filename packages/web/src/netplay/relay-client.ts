@@ -26,6 +26,8 @@ export interface RelayClientOptions {
   onMessage: (message: ServerMessage) => void;
   /** Inbound binary `input` frame (docs/contracts/input-packet.md). */
   onBinary?: (data: ArrayBuffer) => void;
+  /** The relay socket closed (self-disconnect); drives the lobby status (T27). */
+  onClose?: () => void;
 }
 
 export interface RelayClient {
@@ -70,6 +72,10 @@ export function createRelayClient(options: RelayClientOptions): RelayClient {
     }
     const parsed = serverMessage.safeParse(value);
     if (parsed.success) options.onMessage(parsed.data);
+  };
+
+  socket.onclose = () => {
+    options.onClose?.();
   };
 
   return {

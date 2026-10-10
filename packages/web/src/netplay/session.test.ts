@@ -14,7 +14,7 @@ function roomState(self: number | null, slots: number[]): ServerMessage {
     t: "room.state",
     room: "r",
     self,
-    players: slots.map((slot) => ({ slot, name: `p${slot}` })),
+    players: slots.map((slot) => ({ slot, name: `p${slot}`, ready: false })),
     game: null,
     coreHash: null,
     romHash: null,
@@ -28,6 +28,9 @@ interface HarnessExtras {
   onInput?: (bytes: Uint8Array) => void;
   onRoomState?: (message: ServerMessage) => void;
   onGameStart?: (message: { startFrame: number; inputDelay: number }) => void;
+  onPlayerReady?: (message: { t: "player.ready"; ready: boolean; player?: number }) => void;
+  onPeersChanged?: () => void;
+  onClose?: () => void;
   onError?: (error: unknown) => void;
 }
 
@@ -154,6 +157,40 @@ describe("createSession", () => {
     expect(session.players()).toEqual([0, 1]);
     // As the lower slot we initiate, so our data channel is already open.
     expect(session.ready()).toBe(true);
+  });
+
+  it("reports per-slot connection and notifies on peer change", async () => {
+    const pc = new FakePeerConnection();
+    const onPeersChanged = vi.fn();
+    const { session } = harness([pc], { onPeersChanged });
+
+    expect(session.peerOpen(1)).toBe(false);
+    await session.handleMessage(roomState(0, [0, 1]));
+
+    expect(session.peerOpen(1)).toBe(true);
+    expect(onPeersChanged).toHaveBeenCalled();
+  });
+
+  it("forwards player.ready to onPlayerReady", async () => {
+    const onPlayerReady = vi.fn();
+    const { session } = harness([], { onPlayerReady });
+
+    await session.handleMessage({ t: "player.ready", ready: true, player: 1 });
+
+    expect(onPlayerReady).toHaveBeenCalledWith({
+      t: "player.ready",
+      ready: true,
+      player: 1,
+    });
+  });
+
+  it("notifies onClose when the relay socket closes", () => {
+    const onClose = vi.fn();
+    const { socket } = harness([], { onClose });
+
+    socket.close();
+
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("forwards game.start and room.state to their callbacks", async () => {
