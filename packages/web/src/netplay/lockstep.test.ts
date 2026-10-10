@@ -202,6 +202,71 @@ describe("createLockstep", () => {
     expect(coreA.steps.slice(0, common)).toEqual(coreB.steps.slice(0, common));
   });
 
+  it("emits a hash every 60 frames with the crc from the core", () => {
+    const hashes: [number, number][] = [];
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: () => 0,
+      hash: () => 0xabc,
+      hashInterval: 60,
+      onHash: (frame, crc) => hashes.push([frame, crc]),
+    });
+
+    for (let i = 0; i < 60; i++) lockstep.tick(0x01);
+    expect(hashes).toEqual([]);
+
+    lockstep.tick(0x01);
+    expect(hashes).toEqual([[60, 0xabc]]);
+
+    for (let i = 0; i < 60; i++) lockstep.tick(0x01);
+    expect(hashes).toEqual([
+      [60, 0xabc],
+      [120, 0xabc],
+    ]);
+  });
+
+  it("hashes every boundary crossed within one tick", () => {
+    const hashes: [number, number][] = [];
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0],
+      inputDelay: 130,
+      startFrame: 0,
+      sendInput: () => {},
+      now: () => 0,
+      hash: () => 0xabc,
+      hashInterval: 60,
+      onHash: (frame, crc) => hashes.push([frame, crc]),
+    });
+
+    lockstep.tick(0x01);
+    expect(hashes).toEqual([
+      [60, 0xabc],
+      [120, 0xabc],
+    ]);
+  });
+
+  it("emits nothing when no hash hook is provided", () => {
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: () => 0,
+      hashInterval: 60,
+    });
+    for (let i = 0; i < 120; i++) lockstep.tick(0x01);
+    expect(lockstep.frame()).toBe(120);
+  });
+
   it("never lets the wall clock reach the core", () => {
     const core = fakeCore();
     const now = vi.fn(() => 123);

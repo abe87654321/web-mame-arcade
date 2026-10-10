@@ -33,6 +33,15 @@ export interface LockstepDeps {
   now: () => number;
   /** Status transitions ("waiting"/"running"); never called every tick. */
   onStatus?: (status: LockstepStatus) => void;
+  /**
+   * CRC32 of the machine state at the frame just stepped (T25). Called only at
+   * hash boundaries; requires the T20 netplay core.
+   */
+  hash?: () => number;
+  /** Report a hash every this many frames; default 60 (docs/03). */
+  hashInterval?: number;
+  /** Receives `(frame, crc32)` at each boundary; the match forwards it to the relay. */
+  onHash?: (frame: number, crc32: number) => void;
   /** Report "waiting" after this many ms without the next frame. */
   waitTimeoutMs?: number;
   /** Cap how far the local schedule may run ahead of the simulation. */
@@ -54,11 +63,13 @@ export interface Lockstep {
 
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_MAX_LOOKAHEAD = 256;
+const DEFAULT_HASH_INTERVAL = 60;
 
 export function createLockstep(deps: LockstepDeps): Lockstep {
   const { core, mySlot, players, inputDelay, startFrame, sendInput, now } = deps;
   const waitTimeoutMs = deps.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const maxLookahead = deps.maxLookahead ?? DEFAULT_MAX_LOOKAHEAD;
+  const hashInterval = deps.hashInterval ?? DEFAULT_HASH_INTERVAL;
 
   const table = createFrameTable(players);
   let current = startFrame;
@@ -100,6 +111,16 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
   function stepReadyFrames(): void {
     while (table.ready(current)) {
       core.step(current, table.get(current));
+      // Hash right after the frame is stepped so `hash()` reflects exactly the
+      // frame reported, even when one tick crosses several boundaries (T25).
+      if (
+        deps.hash &&
+        deps.onHash &&
+        current > 0 &&
+        current % hashInterval === 0
+      ) {
+        deps.onHash(current, deps.hash());
+      }
       table.prune(current + 1);
       current += 1;
     }
