@@ -266,6 +266,7 @@ describe("createMatch", () => {
     socket.close();
 
     expect(match.lobby().roomStatus).toBe("disconnected");
+    expect(match.setReady(true)).toBe(false);
     match.close();
   });
 });

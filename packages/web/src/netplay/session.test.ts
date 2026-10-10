@@ -171,6 +171,20 @@ describe("createSession", () => {
     expect(onPeersChanged).toHaveBeenCalled();
   });
 
+  it("refreshes lobby connectivity when a peer's data channel closes", async () => {
+    const pc = new FakePeerConnection();
+    const onPeersChanged = vi.fn();
+    const { session } = harness([pc], { onPeersChanged });
+    await session.handleMessage(roomState(0, [0, 1]));
+    expect(session.peerOpen(1)).toBe(true);
+
+    onPeersChanged.mockClear();
+    pc.dataChannels[0]?.remoteClose();
+
+    expect(session.peerOpen(1)).toBe(false);
+    expect(onPeersChanged).toHaveBeenCalled();
+  });
+
   it("forwards player.ready to onPlayerReady", async () => {
     const onPlayerReady = vi.fn();
     const { session } = harness([], { onPlayerReady });

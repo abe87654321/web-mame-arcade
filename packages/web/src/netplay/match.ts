@@ -274,7 +274,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       return true;
     },
     setReady: (ready) => {
-      if (closed || self === null) return false;
+      if (closed || disconnected || self === null) return false;
       return session.send({ t: "player.ready", ready });
     },
     lobby,

@@ -120,6 +120,9 @@ export function createSession(options: SessionOptions): NetplaySession {
               },
             }
           : {}),
+        ...(options.onPeersChanged
+          ? { onChannelClose: () => options.onPeersChanged?.() }
+          : {}),
       });
     }
     return mesh;
