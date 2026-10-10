@@ -212,6 +212,9 @@ describe("createRelayServer", () => {
       const get = await fetch(url);
       expect(get.status).toBe(200);
       expect(new Uint8Array(await get.arrayBuffer())).toEqual(bytes);
+      // Cross-origin fetch from the (COEP) web app must be allowed.
+      expect(post.headers.get("access-control-allow-origin")).toBe("*");
+      expect(get.headers.get("access-control-allow-origin")).toBe("*");
     });
 
     it("keeps a short history of snapshots so recent urls keep resolving", async () => {

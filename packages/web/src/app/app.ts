@@ -235,6 +235,7 @@ export function createApp(deps: AppDeps): AppController {
             now: netplay.now ?? (() => Date.now()),
             onStatus: (status) => setStatus(matchStatusText(status)),
             onLobby: renderLobby,
+            log: (event, fields) => console.warn("[netplay]", event, fields),
           });
           renderLobby(match.lobby());
           deps.env.root.append(host);

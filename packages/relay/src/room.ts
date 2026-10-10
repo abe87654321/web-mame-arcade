@@ -74,12 +74,14 @@ function lowestSlot(room: Room): number | null {
 }
 
 /**
- * Largest frame advance accepted between hash comparisons (T25). Legitimate
- * hashes arrive every 60 frames; the window is generous enough to survive a
- * long stall yet small enough that no single peer can strand the comparison
- * frame far ahead of the real game clock.
+ * Largest frame advance accepted between hash comparisons (T25), and the
+ * farthest a hash frame may sit from the room's start. Legitimate hashes
+ * advance ~60 per report; the window (one hour of frames) tolerates a long
+ * stall yet rejects an absurd frame that would strand the comparison far ahead
+ * of the real game clock. Note a peer can always *suppress* detection by simply
+ * not reporting; that is the verifier/anti-cheat's job (T33/T36), not the relay.
  */
-const MAX_HASH_FRAME_JUMP = 60 * 100;
+const MAX_HASH_FRAME_JUMP = 60 * 60 * 60;
 
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
@@ -261,8 +263,13 @@ export class RoomManager {
     }
     // A single peer must not be able to suppress detection by announcing an
     // absurd frame (which would strand `hashFrame` past every real one). Ignore
-    // a jump larger than a generous window; legitimate hashes advance ~60.
-    if (room.hashFrame >= 0 && message.frame - room.hashFrame > MAX_HASH_FRAME_JUMP) {
+    // any frame further than a generous window from the room's start, and any
+    // jump larger than that window; legitimate hashes advance ~60 per report.
+    const origin = room.start?.startFrame ?? 0;
+    if (
+      message.frame > origin + MAX_HASH_FRAME_JUMP ||
+      (room.hashFrame >= 0 && message.frame - room.hashFrame > MAX_HASH_FRAME_JUMP)
+    ) {
       return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
     }
     if (message.frame > room.hashFrame) {

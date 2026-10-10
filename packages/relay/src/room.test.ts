@@ -375,12 +375,13 @@ describe("RoomManager.recordHash", () => {
 
   it("ignores an absurd frame jump that would strand the comparison", () => {
     const rooms = playing();
-    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
-    // A malicious huge frame must not move the comparison frame past real ones.
+    // The very first hash is absurd: it must not move the comparison frame and
+    // disable detection for the rest of the match.
     expect(
       rooms.recordHash("c1", { t: "hash", frame: 0xffffffff, crc32: 0 }).mismatch,
     ).toBe(false);
     // The genuine frame 60 comparison still works.
+    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
     expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0x1234 }).mismatch).toBe(
       true,
     );

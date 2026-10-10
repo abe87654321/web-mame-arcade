@@ -23,6 +23,8 @@ export interface RelayServerOptions {
   path?: string;
   /** Ping interval in ms; default 30s. */
   heartbeatMs?: number;
+  /** Structured desync/resync log; defaults to JSON lines on stdout. */
+  log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
 export interface RelayServer {
@@ -41,7 +43,12 @@ const MAX_SNAPSHOTS_PER_ROOM = 4;
 export function createRelayServer(options: RelayServerOptions): Promise<RelayServer> {
   const path = options.path ?? DEFAULT_PATH;
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
-  const relay = createRelay({ verifier: options.verifier });
+  const relay = createRelay({
+    verifier: options.verifier,
+    log:
+      options.log ??
+      ((event, fields) => console.log(JSON.stringify({ event, ...fields }))),
+  });
   // Recent desync-recovery snapshots per room (T25), newest first. Keeping a
   // short history means a url handed out just before another desync still
   // resolves instead of 404ing mid-fetch. Unguessable id: only a peer that
@@ -74,6 +81,23 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     const { pathname } = new URL(request.url ?? "/", "http://localhost");
     const post = /^\/rooms\/([^/]+)\/snapshot$/.exec(pathname);
     const get = /^\/rooms\/([^/]+)\/snapshot\/([^/]+)$/.exec(pathname);
+    // The relay is a different origin than the web app (and the app is served
+    // COEP: require-corp), so the snapshot fetch is cross-origin: it needs CORS
+    // and a cross-origin resource policy or the browser blocks it (T25).
+    const cors = {
+      "access-control-allow-origin": "*",
+      "cross-origin-resource-policy": "cross-origin",
+    };
+
+    if (request.method === "OPTIONS" && (post || get)) {
+      response.writeHead(204, {
+        ...cors,
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      response.end();
+      return;
+    }
 
     if (request.method === "POST" && post) {
       const room = decodeURIComponent(post[1]!);
@@ -81,12 +105,12 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
       try {
         body = await readBody(request);
       } catch {
-        response.writeHead(413, { "content-type": "text/plain" });
+        response.writeHead(413, { ...cors, "content-type": "text/plain" });
         response.end("snapshot too large");
         return;
       }
       if (body.length === 0) {
-        response.writeHead(400, { "content-type": "text/plain" });
+        response.writeHead(400, { ...cors, "content-type": "text/plain" });
         response.end("empty snapshot");
         return;
       }
@@ -106,7 +130,7 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
             : "http";
       const hostHeader = request.headers.host ?? "localhost";
       const url = `${scheme}://${hostHeader}/rooms/${encodeURIComponent(room)}/snapshot/${id}`;
-      response.writeHead(200, { "content-type": "application/json" });
+      response.writeHead(200, { ...cors, "content-type": "application/json" });
       response.end(JSON.stringify({ url }));
       return;
     }
@@ -116,11 +140,11 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
       const id = get[2]!;
       const stored = (snapshots.get(room) ?? []).find((entry) => entry.id === id);
       if (!stored) {
-        response.writeHead(404, { "content-type": "text/plain" });
+        response.writeHead(404, { ...cors, "content-type": "text/plain" });
         response.end("no snapshot");
         return;
       }
-      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.writeHead(200, { ...cors, "content-type": "application/octet-stream" });
       response.end(stored.bytes);
       return;
     }
