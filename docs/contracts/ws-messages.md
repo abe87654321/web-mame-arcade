@@ -7,6 +7,7 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `room.join` | client → relay | room, role (`player`/`viewer`), token | join a room |
 | `room.state` | relay → client | room, self, players[], game, coreHash, romHash, dips, status | room snapshot (`self` = recipient's slot or null; game fields null pre-game) |
 | `rtc.signal` | both | to, sdp?, candidate? (client); from, to, sdp?, candidate? (relay) | WebRTC signalling relay |
+| `player.ready` | both | ready, player? (relay-stamped slot) | a player toggles its own lobby ready flag |
 | `game.start` | host → relay → all | startFrame, inputDelay | begins input log; relay fans it out and sets status `playing` |
 | `input` | player → relay | binary input packet | recorded + fanned out |
 | `state.snapshot` | host → relay → client | frame, blobUrl | late join / desync recovery |
@@ -24,7 +25,7 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 (`"input"`) and codec it with `encodeInput`/`decodeInput`.
 
 ## Pinned in T22
-- `room.state.players` is `{ slot: 0-3, name: string }[]` in slot order.
+- `room.state.players` is `{ slot: 0-3, name: string, ready: boolean }[]` in slot order.
 - `room.state.game`, `coreHash`, `romHash` are **null until the host picks a game and DIPs**; before
   that `dips` is `{}` and `status` is `"waiting"`. Once a game is set they carry the driver, the WASM
   core hash and ROM hash (both lowercase sha256 hex).
@@ -49,6 +50,17 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 - Binary `input` frames are accepted by the socket binding and currently dropped (the append-only
   log and spectator fan-out land with T30/T31). They are never JSON-validated.
 - `room.state.status` becomes `"playing"` on a successful `game.start`; `snapshot` reflects it.
+
+## Pinned in T27
+- `room.state.players[].ready` is the player's lobby ready flag, default `false` on join.
+- `player.ready` is a single strict schema used in both directions: a client sends
+  `{ t: "player.ready", ready: boolean }`; the relay stamps the sender's own `player` slot and
+  fans it out to the room as `{ t: "player.ready", ready, player }`, then re-broadcasts
+  `room.state` so every lobby shows the updated flags.
+- A `player.ready` from a non-seated connection (a viewer, or one that has not joined) is rejected
+  with `not_joined`; `player` is relay-authoritative and any client-supplied value is ignored.
+- The host's `game.start` is gated on readiness in the UI only (all peers connected and all
+  non-host players ready); the relay does not enforce readiness, so a lone host may still start.
 
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional
