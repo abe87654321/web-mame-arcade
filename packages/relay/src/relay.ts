@@ -26,7 +26,14 @@ function errorOut(connectionId: string, code: string, message: string): Outbound
   return [{ connectionId, message: { t: "error", code, message } }];
 }
 
-export function createRelay({ verifier }: { verifier: TokenVerifier }): Relay {
+export function createRelay({
+  verifier,
+  log,
+}: {
+  verifier: TokenVerifier;
+  /** Optional structured logger for desync/resync events (T25). */
+  log?: (event: string, fields: Record<string, unknown>) => void;
+}): Relay {
   const rooms = new RoomManager(verifier);
 
   function snapshotOut(roomId: string): Outbound[] {
@@ -80,9 +87,20 @@ export function createRelay({ verifier }: { verifier: TokenVerifier }): Relay {
               .map((target) => ({ connectionId: target, message }));
             return [...starts, ...snapshotOut(roomId)];
           }
+          case "hash": {
+            // Compare this player's frame hash against the others'; a genuine
+            // same-frame mismatch is broadcast as `desync` (T25, docs/03).
+            const result = rooms.recordHash(connectionId, message);
+            if (!result.mismatch) return [];
+            log?.("desync", { room: result.roomId, frame: result.frame });
+            return rooms.broadcastTargets(result.roomId).map((target) => ({
+              connectionId: target,
+              message: { t: "desync" as const, frame: result.frame },
+            }));
+          }
           default:
-            // input/hash/state.snapshot/score.live/game.end/chat are owned by
-            // later tasks (T30/T32/T36).
+            // input/state.snapshot/score.live/game.end/chat are owned by later
+            // tasks (T30/T32/T36).
             return errorOut(
               connectionId,
               "unsupported",

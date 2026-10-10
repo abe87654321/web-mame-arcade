@@ -175,6 +175,54 @@ describe("createRelay", () => {
     expect(out[0]?.message).toMatchObject({ t: "error", code: "not_joined" });
   });
 
+  it("broadcasts a desync when two players report different hashes for a frame", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+
+    // The first hash has nothing to compare against: no desync.
+    expect(r.handle("c1", { t: "hash", frame: 60, crc32: 0xaaaa })).toEqual([]);
+
+    const out = byConnection(r.handle("c2", { t: "hash", frame: 60, crc32: 0xbbbb }));
+    expect(Object.keys(out).sort()).toEqual(["c1", "c2"]);
+    for (const entry of Object.values(out)) {
+      expect(entry.message).toEqual({ t: "desync", frame: 60 });
+    }
+  });
+
+  it("does not broadcast when both players agree", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+
+    r.handle("c1", { t: "hash", frame: 60, crc32: 0xaaaa });
+    expect(r.handle("c2", { t: "hash", frame: 60, crc32: 0xaaaa })).toEqual([]);
+  });
+
+  it("rejects hash before the game starts", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    const out = r.handle("c1", { t: "hash", frame: 60, crc32: 0 });
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "not_playing" });
+  });
+
+  it("logs a detected desync", () => {
+    const logged: { event: string; fields: Record<string, unknown> }[] = [];
+    const r = createRelay({
+      verifier: fakeVerifier,
+      log: (event, fields) => logged.push({ event, fields }),
+    });
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    r.handle("c1", { t: "hash", frame: 60, crc32: 0xaaaa });
+    r.handle("c2", { t: "hash", frame: 60, crc32: 0xbbbb });
+
+    expect(logged).toEqual([{ event: "desync", fields: { room: "r", frame: 60 } }]);
+  });
+
   it("marks T22-unowned client types as unsupported", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));

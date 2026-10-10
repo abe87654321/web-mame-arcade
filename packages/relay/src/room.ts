@@ -6,6 +6,7 @@
 import {
   PLAYER_SLOTS,
   type GameStart,
+  type HashMessage,
   type PlayerReady,
   type RoomState,
   type RtcSignal,
@@ -50,6 +51,18 @@ interface Room {
   members: Map<string, RoomMember>;
   status: RoomStatus;
   start: { startFrame: number; inputDelay: number } | null;
+  /** Frame the hash comparison is currently on (T25), or -1 before any hash. */
+  hashFrame: number;
+  /** This frame's crc32 per player slot; reset whenever a newer frame arrives. */
+  hashes: Map<number, number>;
+}
+
+/** Outcome of a `hash` message; `mismatch` triggers a `desync` broadcast. */
+export interface HashResult {
+  roomId: string;
+  slot: number;
+  frame: number;
+  mismatch: boolean;
 }
 
 export class RoomManager {
@@ -190,6 +203,8 @@ export class RoomManager {
     }
     room.status = "playing";
     room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
+    room.hashFrame = -1;
+    room.hashes.clear();
     return { roomId: room.id, from: sender.slot };
   }
 
@@ -210,6 +225,41 @@ export class RoomManager {
     }
     sender.ready = message.ready;
     return { roomId: room.id, from: sender.slot };
+  }
+
+  /**
+   * Record a seated player's frame hash for desync detection (T25, docs/03).
+   * Hashes are compared per frame across players; a genuine same-frame
+   * disagreement is reported so the caller can broadcast `desync`. Only seated
+   * players in a `playing` room may report; a repeated hash from the same slot
+   * for the same frame is ignored (first write wins) and a stale frame is
+   * dropped, so a driven peer cannot flap the comparison.
+   */
+  recordHash(connectionId: string, message: HashMessage): HashResult {
+    const room = this.roomOf(connectionId, "hash");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can report a hash");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    if (message.frame < room.hashFrame) {
+      return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
+    }
+    if (message.frame > room.hashFrame) {
+      room.hashFrame = message.frame;
+      room.hashes.clear();
+    }
+    if (room.hashes.has(sender.slot)) {
+      return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
+    }
+    let mismatch = false;
+    for (const value of room.hashes.values()) {
+      if (value !== message.crc32) mismatch = true;
+    }
+    room.hashes.set(sender.slot, message.crc32);
+    return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch };
   }
 
   /** A `room.state` snapshot for the connection's room. */
@@ -246,7 +296,14 @@ export class RoomManager {
   private ensureRoom(roomId: string): Room {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = { id: roomId, members: new Map(), status: "waiting", start: null };
+      room = {
+        id: roomId,
+        members: new Map(),
+        status: "waiting",
+        start: null,
+        hashFrame: -1,
+        hashes: new Map(),
+      };
       this.rooms.set(roomId, room);
     }
     return room;
