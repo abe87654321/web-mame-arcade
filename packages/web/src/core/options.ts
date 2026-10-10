@@ -24,8 +24,11 @@ export function buildMameArgs(input: MameArgsInput): string[] {
     "-rompath", input.romPath,
     // This emscripten build registers only `opengl` and `bgfx` (there is no
     // `soft`): `opengl` aborts on glShadeModel (absent in WebGL), so use bgfx.
-    // Fixed value, so peers stay byte-identical.
+    // Force the GLES backend: only `bgfx/shaders/essl` is embedded, and bgfx's
+    // default `auto` picks the desktop-GL backend which needs glsl shaders.
+    // Fixed values, so peers stay byte-identical.
     "-video", "bgfx",
+    "-bgfx_backend", "gles",
     "-skip_gameinfo",
     "-nvram_directory", input.sessionPath,
     "-inipath", input.sessionPath,
