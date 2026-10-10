@@ -5,11 +5,13 @@
  */
 import type {
   ClientMessage,
+  Desync,
   GameStart,
   PlayerReady,
   RoomState,
   RtcSignal,
   ServerMessage,
+  StateSnapshot,
 } from "@wma/protocol";
 import { createMesh, type Mesh } from "./mesh";
 import type { PeerSignalling } from "./peer";
@@ -30,6 +32,10 @@ export interface SessionOptions {
   onGameStart?: (message: GameStart) => void;
   /** A player toggled its ready flag (relay-stamped slot + flag). */
   onPlayerReady?: (message: PlayerReady) => void;
+  /** The relay detected a desync; the host answers with a snapshot (T25). */
+  onDesync?: (message: Desync) => void;
+  /** A host snapshot to fetch, load and resume from (T25). */
+  onStateSnapshot?: (message: StateSnapshot) => void;
   /** A peer's data channel opened or closed (lobby connected/ready badges). */
   onPeersChanged?: () => void;
   /** A peer's data channel opened (may let a match start). */
@@ -160,6 +166,14 @@ export function createSession(options: SessionOptions): NetplaySession {
       }
       case "player.ready": {
         options.onPlayerReady?.(message);
+        return;
+      }
+      case "desync": {
+        options.onDesync?.(message);
+        return;
+      }
+      case "state.snapshot": {
+        options.onStateSnapshot?.(message);
         return;
       }
       case "rtc.signal": {

@@ -56,6 +56,11 @@ export interface Lockstep {
   tick(localMask: number): void;
   /** Feed an encoded packet from a peer or the relay. */
   onBytes(bytes: Uint8Array): void;
+  /**
+   * Resume after the machine was restored to the state at `frame` (desync
+   * recovery, T25). Drops the stepped history and continues from `frame + 1`.
+   */
+  resync(frame: number): void;
   /** The next frame to simulate. */
   frame(): number;
   status(): LockstepStatus;
@@ -166,6 +171,21 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       } catch {
         // Malformed or foreign-version packets are dropped; a bad peer must not
         // crash the loop.
+      }
+    },
+
+    resync(frame: number): void {
+      // The core was just restored to the state at `frame`; continue from the
+      // next one with a clean input window. Past frames are forgotten so late
+      // redundancy cannot rewrite already-simulated history.
+      current = frame + 1;
+      scheduleHead = current;
+      frames.length = 0;
+      table.prune(current);
+      waitSince = null;
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
       }
     },
 

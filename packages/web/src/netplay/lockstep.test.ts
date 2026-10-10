@@ -267,6 +267,28 @@ describe("createLockstep", () => {
     expect(lockstep.frame()).toBe(120);
   });
 
+  it("resumes from the snapshot frame after a resync", () => {
+    const core = fakeCore();
+    const lockstep = createLockstep({
+      core,
+      mySlot: 0,
+      players: [0],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: () => 0,
+    });
+
+    for (let i = 0; i < 5; i++) lockstep.tick(0x01);
+    expect(lockstep.frame()).toBe(5);
+
+    lockstep.resync(100);
+    expect(lockstep.frame()).toBe(101);
+
+    lockstep.tick(0x01);
+    expect(core.steps.at(-1)).toEqual({ frame: 101, inputs: [0x01, 0, 0, 0] });
+  });
+
   it("never lets the wall clock reach the core", () => {
     const core = fakeCore();
     const now = vi.fn(() => 123);

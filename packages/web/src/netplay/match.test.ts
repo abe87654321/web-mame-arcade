@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PROTOCOL_VERSION, encodeInput } from "@wma/protocol";
 import type { Core, FrameInputs } from "../core/types";
-import { createMatch, type LobbyState, type MatchStatus } from "./match";
+import { createMatch, type LobbyState, type MatchDeps, type MatchStatus } from "./match";
 import {
   FakePeerConnection,
   FakeWebSocket,
@@ -17,8 +17,8 @@ function fakeCore() {
     step(frame: number, inputs: FrameInputs) {
       steps.push({ frame, inputs });
     },
-    save: vi.fn(),
-    hash: vi.fn(),
+    save: vi.fn(() => new Uint8Array([9, 9])),
+    hash: vi.fn(() => 0xabc),
     readScore: vi.fn(),
     reset: vi.fn(),
     destroy: vi.fn(),
@@ -58,7 +58,7 @@ const config = {
   iceServers: [],
 };
 
-function harness(inputDelay = 2) {
+function harness(inputDelay = 2, overrides: Partial<MatchDeps> = {}) {
   const socket = new FakeWebSocket();
   const pc = new FakePeerConnection();
   const core = fakeCore();
@@ -73,6 +73,7 @@ function harness(inputDelay = 2) {
     inputDelay,
     onStatus: (status) => statuses.push(status),
     onLobby: (lobby) => lobbies.push(lobby),
+    ...overrides,
   });
   socket.open();
   return { socket, pc, core, match, statuses, lobbies };
@@ -267,6 +268,83 @@ describe("createMatch", () => {
 
     expect(match.lobby().roomStatus).toBe("disconnected");
     expect(match.setReady(true)).toBe(false);
+    match.close();
+  });
+
+  it("sends a frame hash every 60 frames while playing", async () => {
+    const { socket, match } = harness(0);
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    for (let i = 0; i < 61; i++) match.tick(0x01);
+
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "hash", frame: 60, crc32: 0xabc }),
+    );
+    match.close();
+  });
+
+  it("has the host answer a desync with a state.snapshot", async () => {
+    const createSnapshot = vi.fn(async () => "http://relay/rooms/r/snapshot/1");
+    const { socket, match } = harness(0, { createSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(JSON.stringify({ t: "desync", frame: 60 }));
+    await flush();
+
+    expect(createSnapshot).toHaveBeenCalledOnce();
+    expect(socket.sent).toContain(
+      JSON.stringify({
+        t: "state.snapshot",
+        frame: 60,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      }),
+    );
+    match.close();
+  });
+
+  it("leaves the snapshot to the host when a non-host sees a desync", async () => {
+    const createSnapshot = vi.fn(async () => "http://relay/rooms/r/snapshot/1");
+    const { socket, match } = harness(0, { createSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(JSON.stringify({ t: "desync", frame: 60 }));
+    await flush();
+
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(socket.sent.some((m) => String(m).includes("state.snapshot"))).toBe(false);
+    match.close();
+  });
+
+  it("fetches, loads and resumes from a host snapshot", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const fetchSnapshot = vi.fn(async () => bytes);
+    const { socket, core, match } = harness(0, { fetchSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(
+      JSON.stringify({ t: "state.snapshot", frame: 100, blobUrl: "http://relay/blob/2" }),
+    );
+    await flush();
+
+    expect(fetchSnapshot).toHaveBeenCalledWith("http://relay/blob/2");
+    expect(core.load).toHaveBeenCalledWith(bytes);
+    expect(match.frame()).toBe(101);
     match.close();
   });
 });
