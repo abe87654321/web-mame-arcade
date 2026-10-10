@@ -29,6 +29,8 @@ interface HarnessExtras {
   onRoomState?: (message: ServerMessage) => void;
   onGameStart?: (message: { startFrame: number; inputDelay: number }) => void;
   onPlayerReady?: (message: { t: "player.ready"; ready: boolean; player?: number }) => void;
+  onDesync?: (message: { t: "desync"; frame: number }) => void;
+  onStateSnapshot?: (message: { t: "state.snapshot"; frame: number; blobUrl: string }) => void;
   onPeersChanged?: () => void;
   onClose?: () => void;
   onError?: (error: unknown) => void;
@@ -205,6 +207,26 @@ describe("createSession", () => {
     socket.close();
 
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("forwards desync and state.snapshot to their callbacks", async () => {
+    const onDesync = vi.fn();
+    const onStateSnapshot = vi.fn();
+    const { session } = harness([], { onDesync, onStateSnapshot });
+
+    await session.handleMessage({ t: "desync", frame: 60 });
+    await session.handleMessage({
+      t: "state.snapshot",
+      frame: 60,
+      blobUrl: "http://relay/rooms/r/snapshot/1",
+    });
+
+    expect(onDesync).toHaveBeenCalledWith({ t: "desync", frame: 60 });
+    expect(onStateSnapshot).toHaveBeenCalledWith({
+      t: "state.snapshot",
+      frame: 60,
+      blobUrl: "http://relay/rooms/r/snapshot/1",
+    });
   });
 
   it("forwards game.start and room.state to their callbacks", async () => {

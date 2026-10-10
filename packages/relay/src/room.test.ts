@@ -316,6 +316,154 @@ describe("RoomManager.setReady", () => {
   });
 });
 
+describe("RoomManager.recordHash", () => {
+  function playing() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return rooms;
+  }
+
+  it("reports no mismatch for two slots agreeing on a frame", () => {
+    const rooms = playing();
+    expect(rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd })).toEqual({
+      roomId: "r",
+      slot: 0,
+      frame: 60,
+      mismatch: false,
+    });
+    expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0xabcd }).mismatch).toBe(
+      false,
+    );
+  });
+
+  it("reports a mismatch when two slots disagree on a frame", () => {
+    const rooms = playing();
+    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
+    expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0x1234 }).mismatch).toBe(
+      true,
+    );
+  });
+
+  it("ignores a repeated hash for the same slot and frame (first wins)", () => {
+    const rooms = playing();
+    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
+    expect(rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0x9999 }).mismatch).toBe(
+      false,
+    );
+    // The first value is authoritative, so c2 agreeing with it is no mismatch.
+    expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0xabcd }).mismatch).toBe(
+      false,
+    );
+  });
+
+  it("compares only the latest frame", () => {
+    const rooms = playing();
+    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
+    rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0x1234 });
+    // Both move on to frame 120 with the same value: fresh comparison, no mismatch.
+    rooms.recordHash("c1", { t: "hash", frame: 120, crc32: 0xaa });
+    expect(rooms.recordHash("c2", { t: "hash", frame: 120, crc32: 0xaa }).mismatch).toBe(
+      false,
+    );
+    // Stale frame 60 is ignored.
+    expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0x1234 }).mismatch).toBe(
+      false,
+    );
+  });
+
+  it("ignores an absurd frame jump that would strand the comparison", () => {
+    const rooms = playing();
+    // The very first hash is absurd: it must not move the comparison frame and
+    // disable detection for the rest of the match.
+    expect(
+      rooms.recordHash("c1", { t: "hash", frame: 0xffffffff, crc32: 0 }).mismatch,
+    ).toBe(false);
+    // The genuine frame 60 comparison still works.
+    rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0xabcd });
+    expect(rooms.recordHash("c2", { t: "hash", frame: 60, crc32: 0x1234 }).mismatch).toBe(
+      true,
+    );
+  });
+
+  it("rejects a slot-less viewer", () => {
+    const rooms = playing();
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    try {
+      rooms.recordHash("c9", { t: "hash", frame: 60, crc32: 0 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects an unjoined connection", () => {
+    try {
+      playing().recordHash("ghost", { t: "hash", frame: 60, crc32: 0 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects a hash before the game starts", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    try {
+      rooms.recordHash("c1", { t: "hash", frame: 60, crc32: 0 });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_playing");
+    }
+  });
+});
+
+describe("RoomManager.snapshotForResync", () => {
+  function playing() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return rooms;
+  }
+
+  it("accepts the host's snapshot", () => {
+    expect(playing().snapshotForResync("c1")).toEqual({ roomId: "r", from: 0 });
+  });
+
+  it("rejects a non-host player", () => {
+    try {
+      playing().snapshotForResync("c2");
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_host");
+    }
+  });
+
+  it("rejects a slot-less viewer", () => {
+    const rooms = playing();
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    try {
+      rooms.snapshotForResync("c9");
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects a snapshot before the game starts", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    try {
+      rooms.snapshotForResync("c1");
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_playing");
+    }
+  });
+});
+
 describe("RoomManager.snapshot", () => {
   it("describes a pre-game room with nullable game fields", () => {
     const rooms = manager();

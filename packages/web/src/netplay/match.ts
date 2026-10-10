@@ -18,7 +18,6 @@ import type { Core } from "../core/types";
 import { createLockstep, type Lockstep } from "./lockstep";
 import { createSession, type NetplaySession } from "./session";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
-
 export type MatchStatus =
   | "connecting"
   | "waiting-for-peers"
@@ -63,6 +62,17 @@ export interface MatchDeps {
   onStatus?: (status: MatchStatus) => void;
   /** Lobby snapshot on every room.state / ready / peer / status change (T27). */
   onLobby?: (state: LobbyState) => void;
+  /** Hash every this many frames; default 60 (T25, docs/03). */
+  hashInterval?: number;
+  /**
+   * Upload a save state and return a fetchable URL (T25). Defaults to POSTing
+   * to the relay's in-memory snapshot endpoint derived from `relayUrl`.
+   */
+  createSnapshot?: (state: Uint8Array) => Promise<string>;
+  /** Fetch a snapshot blob by URL (T25). Defaults to `fetch(url)`. */
+  fetchSnapshot?: (blobUrl: string) => Promise<Uint8Array>;
+  /** Optional structured log sink for desync/resync events (T25). */
+  log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
 export interface NetplayMatch {
@@ -94,9 +104,41 @@ interface RosterEntry {
 
 const DEFAULT_INPUT_DELAY = 2;
 
+/** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
+function httpBase(relayUrl: string): string {
+  try {
+    const url = new URL(relayUrl);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = url.pathname.replace(/\/ws$/, "");
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return relayUrl.replace(/^ws/, "http").replace(/\/ws$/, "");
+  }
+}
+
 export function createMatch(deps: MatchDeps): NetplayMatch {
   const inputDelay = deps.inputDelay ?? DEFAULT_INPUT_DELAY;
   const startFrame = deps.startFrame ?? 0;
+  const log = deps.log;
+  const createSnapshot =
+    deps.createSnapshot ??
+    (async (state: Uint8Array): Promise<string> => {
+      const url = `${httpBase(deps.config.relayUrl)}/rooms/${encodeURIComponent(deps.config.room)}/snapshot`;
+      const response = await fetch(url, {
+        method: "POST",
+        body: state as unknown as BodyInit,
+      });
+      const body = (await response.json()) as { url: string };
+      return body.url;
+    });
+  const fetchSnapshot =
+    deps.fetchSnapshot ??
+    (async (blobUrl: string): Promise<Uint8Array> => {
+      const response = await fetch(blobUrl);
+      return new Uint8Array(await response.arrayBuffer());
+    });
 
   let lockstep: Lockstep | null = null;
   let coreReady = false;
@@ -190,6 +232,13 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       },
       now: deps.now,
       onStatus: setStatus,
+      hash: () => deps.core.hash(),
+      ...(deps.hashInterval !== undefined ? { hashInterval: deps.hashInterval } : {}),
+      onHash: (frame, crc32) => {
+        // Relay-ward only: it compares per frame across players and broadcasts
+        // `desync` on a genuine mismatch (T25, docs/03).
+        session.send({ t: "hash", frame, crc32 });
+      },
     });
     setStatus("running");
   }
@@ -237,6 +286,46 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       startLockstep(message.startFrame, message.inputDelay);
     },
     onInput: (bytes) => lockstep?.onBytes(bytes),
+    onDesync: (message) => {
+      // Only the host can answer; peers wait for its snapshot (docs/03).
+      if (!isHost() || !lockstep) return;
+      const active = lockstep;
+      // The snapshot must be labelled with the host's *current* position at
+      // save time, not the (older, latency-delayed) frame the relay flagged:
+      // the host keeps ticking between sending a hash and hearing `desync`, so
+      // the two differ in general. `frame()` is the next frame to step, so the
+      // last stepped frame is one less.
+      const frame = active.frame() - 1;
+      if (frame < 0) return;
+      log?.("desync", { frame: message.frame, snapshotFrame: frame });
+      let state: Uint8Array;
+      try {
+        state = deps.core.save();
+      } catch (error) {
+        log?.("resync-error", { frame, error: String(error) });
+        return;
+      }
+      void createSnapshot(state)
+        .then((blobUrl) => {
+          session.send({ t: "state.snapshot", frame, blobUrl });
+          // Clear our own input window too: we still hold the desynced peer's
+          // pre-snapshot masks for frames > `frame`, and first-wins would reject
+          // its corrected masks, re-diverging immediately. `current` is already
+          // `frame + 1`, so this only drops stale staged input.
+          active.resync(frame);
+          log?.("resync-sent", { frame });
+        })
+        .catch((error) => log?.("resync-error", { frame, error: String(error) }));
+    },
+    onStateSnapshot: (message) => {
+      void fetchSnapshot(message.blobUrl)
+        .then((bytes) => {
+          deps.core.load(bytes, message.frame);
+          lockstep?.resync(message.frame);
+          log?.("resync-applied", { frame: message.frame });
+        })
+        .catch((error) => log?.("resync-error", { frame: message.frame, error: String(error) }));
+    },
     // A start may have arrived while the core/channel was still coming up.
     onChannelOpen: () => {
       maybeStartPending();

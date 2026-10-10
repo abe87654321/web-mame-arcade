@@ -33,6 +33,15 @@ export interface LockstepDeps {
   now: () => number;
   /** Status transitions ("waiting"/"running"); never called every tick. */
   onStatus?: (status: LockstepStatus) => void;
+  /**
+   * CRC32 of the machine state at the frame just stepped (T25). Called only at
+   * hash boundaries; requires the T20 netplay core.
+   */
+  hash?: () => number;
+  /** Report a hash every this many frames; default 60 (docs/03). */
+  hashInterval?: number;
+  /** Receives `(frame, crc32)` at each boundary; the match forwards it to the relay. */
+  onHash?: (frame: number, crc32: number) => void;
   /** Report "waiting" after this many ms without the next frame. */
   waitTimeoutMs?: number;
   /** Cap how far the local schedule may run ahead of the simulation. */
@@ -47,6 +56,11 @@ export interface Lockstep {
   tick(localMask: number): void;
   /** Feed an encoded packet from a peer or the relay. */
   onBytes(bytes: Uint8Array): void;
+  /**
+   * Resume after the machine was restored to the state at `frame` (desync
+   * recovery, T25). Drops the stepped history and continues from `frame + 1`.
+   */
+  resync(frame: number): void;
   /** The next frame to simulate. */
   frame(): number;
   status(): LockstepStatus;
@@ -54,11 +68,13 @@ export interface Lockstep {
 
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_MAX_LOOKAHEAD = 256;
+const DEFAULT_HASH_INTERVAL = 60;
 
 export function createLockstep(deps: LockstepDeps): Lockstep {
   const { core, mySlot, players, inputDelay, startFrame, sendInput, now } = deps;
   const waitTimeoutMs = deps.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const maxLookahead = deps.maxLookahead ?? DEFAULT_MAX_LOOKAHEAD;
+  const hashInterval = deps.hashInterval ?? DEFAULT_HASH_INTERVAL;
 
   const table = createFrameTable(players);
   let current = startFrame;
@@ -100,6 +116,16 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
   function stepReadyFrames(): void {
     while (table.ready(current)) {
       core.step(current, table.get(current));
+      // Hash right after the frame is stepped so `hash()` reflects exactly the
+      // frame reported, even when one tick crosses several boundaries (T25).
+      if (
+        deps.hash &&
+        deps.onHash &&
+        current > 0 &&
+        current % hashInterval === 0
+      ) {
+        deps.onHash(current, deps.hash());
+      }
       table.prune(current + 1);
       current += 1;
     }
@@ -111,8 +137,10 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       // queueing inputs the simulation may never reach.
       if (scheduleHead - current < maxLookahead) {
         const mask = localMask & 0xffff;
-        table.set(mySlot, scheduleHead, mask);
-        frames.push(mask);
+        // Only record/send the mask when the table accepted it, so the packet's
+        // frame history always matches what will actually be stepped here
+        // (first-wins means a resync or duplicate can make `set` return false).
+        if (table.set(mySlot, scheduleHead, mask)) frames.push(mask);
         scheduleHead += 1;
       }
 
@@ -145,6 +173,22 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       } catch {
         // Malformed or foreign-version packets are dropped; a bad peer must not
         // crash the loop.
+      }
+    },
+
+    resync(frame: number): void {
+      // The core was just restored to the state at `frame`; continue from the
+      // next one with a clean input window. Every staged frame — including
+      // already-buffered future inputs from the pre-snapshot timeline — is
+      // dropped so nothing stale is stepped and the packet history restarts.
+      current = frame + 1;
+      table.clear(current);
+      scheduleHead = current;
+      frames.length = 0;
+      waitSince = null;
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
       }
     },
 

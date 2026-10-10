@@ -34,6 +34,12 @@ export interface NetplayHooks {
   setInputs(frame: number, p1: number, p2: number, p3: number, p4: number): void;
   saveState(): Uint8Array;
   loadState(state: Uint8Array): void;
+  /**
+   * Resync the native frame clock after `loadState` restored a snapshot at
+   * `frame`: resume stepping at `frame + 1` and drop inputs already stepped
+   * (T25 desync recovery, docs/03).
+   */
+  setFrame(frame: number): void;
   hash(): number;
   step(frame: number): void;
 }

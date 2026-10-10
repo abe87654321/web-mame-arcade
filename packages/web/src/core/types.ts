@@ -35,8 +35,12 @@ export interface Core {
   step(frame: number, inputs: FrameInputs): void;
   /** Snapshot full machine state. Needs the T20 core. */
   save(): Uint8Array;
-  /** Restore a snapshot from save(), or boot when called with no argument. */
-  load(state: Uint8Array): void;
+  /**
+   * Restore a snapshot from save() and resync the native frame clock to
+   * continue at `frame + 1` (T25 desync recovery). Called with no argument it
+   * boots (see the `load()` overload above).
+   */
+  load(state: Uint8Array, frame: number): void;
   /** CRC32 of main RAM at the current frame. Needs the T20 core. */
   hash(): StateHash;
   /** Current player-1 score. Needs T32 (scoremap). */

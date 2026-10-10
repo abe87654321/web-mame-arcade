@@ -6,6 +6,7 @@
 import {
   PLAYER_SLOTS,
   type GameStart,
+  type HashMessage,
   type PlayerReady,
   type RoomState,
   type RtcSignal,
@@ -50,7 +51,37 @@ interface Room {
   members: Map<string, RoomMember>;
   status: RoomStatus;
   start: { startFrame: number; inputDelay: number } | null;
+  /** Frame the hash comparison is currently on (T25), or -1 before any hash. */
+  hashFrame: number;
+  /** This frame's crc32 per player slot; reset whenever a newer frame arrives. */
+  hashes: Map<number, number>;
 }
+
+/** Outcome of a `hash` message; `mismatch` triggers a `desync` broadcast. */
+export interface HashResult {
+  roomId: string;
+  slot: number;
+  frame: number;
+  mismatch: boolean;
+}
+
+/** The lowest occupied player slot in a room (its host), or null if none. */
+function lowestSlot(room: Room): number | null {
+  const slots = [...room.members.values()]
+    .map((m) => m.slot)
+    .filter((slot): slot is number => slot !== null);
+  return slots.length > 0 ? Math.min(...slots) : null;
+}
+
+/**
+ * Largest frame advance accepted between hash comparisons (T25), and the
+ * farthest a hash frame may sit from the room's start. Legitimate hashes
+ * advance ~60 per report; the window (one hour of frames) tolerates a long
+ * stall yet rejects an absurd frame that would strand the comparison far ahead
+ * of the real game clock. Note a peer can always *suppress* detection by simply
+ * not reporting; that is the verifier/anti-cheat's job (T33/T36), not the relay.
+ */
+const MAX_HASH_FRAME_JUMP = 60 * 60 * 60;
 
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
@@ -174,11 +205,7 @@ export class RoomManager {
     if (!sender || sender.slot === null) {
       throw new RelayError("not_joined", "only seated players can start a game");
     }
-    const hostSlot = Math.min(
-      ...[...room.members.values()]
-        .map((m) => m.slot)
-        .filter((slot): slot is number => slot !== null),
-    );
+    const hostSlot = lowestSlot(room);
     if (sender.slot !== hostSlot) {
       throw new RelayError(
         "not_host",
@@ -190,6 +217,8 @@ export class RoomManager {
     }
     room.status = "playing";
     room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
+    room.hashFrame = -1;
+    room.hashes.clear();
     return { roomId: room.id, from: sender.slot };
   }
 
@@ -209,6 +238,78 @@ export class RoomManager {
       throw new RelayError("not_joined", "only seated players can set ready");
     }
     sender.ready = message.ready;
+    return { roomId: room.id, from: sender.slot };
+  }
+
+  /**
+   * Record a seated player's frame hash for desync detection (T25, docs/03).
+   * Hashes are compared per frame across players; a genuine same-frame
+   * disagreement is reported so the caller can broadcast `desync`. Only seated
+   * players in a `playing` room may report; a repeated hash from the same slot
+   * for the same frame is ignored (first write wins) and a stale frame is
+   * dropped, so a driven peer cannot flap the comparison.
+   */
+  recordHash(connectionId: string, message: HashMessage): HashResult {
+    const room = this.roomOf(connectionId, "hash");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can report a hash");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    if (message.frame < room.hashFrame) {
+      return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
+    }
+    // A single peer must not be able to suppress detection by announcing an
+    // absurd frame (which would strand `hashFrame` past every real one). Ignore
+    // any frame further than a generous window from the room's start, and any
+    // jump larger than that window; legitimate hashes advance ~60 per report.
+    const origin = room.start?.startFrame ?? 0;
+    if (
+      message.frame > origin + MAX_HASH_FRAME_JUMP ||
+      (room.hashFrame >= 0 && message.frame - room.hashFrame > MAX_HASH_FRAME_JUMP)
+    ) {
+      return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
+    }
+    if (message.frame > room.hashFrame) {
+      room.hashFrame = message.frame;
+      room.hashes.clear();
+    }
+    if (room.hashes.has(sender.slot)) {
+      return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch: false };
+    }
+    let mismatch = false;
+    for (const value of room.hashes.values()) {
+      if (value !== message.crc32) mismatch = true;
+    }
+    room.hashes.set(sender.slot, message.crc32);
+    return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch };
+  }
+
+  /**
+   * Validate a host's `state.snapshot` for desync recovery (T25, docs/03). Only
+   * the host (lowest occupied player slot) in a `playing` room may send one; the
+   * relay then fans it out to the other members.
+   */
+  snapshotForResync(
+    connectionId: string,
+  ): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "state.snapshot");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can send a snapshot");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    const hostSlot = lowestSlot(room);
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot send a snapshot; host is slot ${hostSlot}`,
+      );
+    }
     return { roomId: room.id, from: sender.slot };
   }
 
@@ -246,7 +347,14 @@ export class RoomManager {
   private ensureRoom(roomId: string): Room {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = { id: roomId, members: new Map(), status: "waiting", start: null };
+      room = {
+        id: roomId,
+        members: new Map(),
+        status: "waiting",
+        start: null,
+        hashFrame: -1,
+        hashes: new Map(),
+      };
       this.rooms.set(roomId, room);
     }
     return room;
