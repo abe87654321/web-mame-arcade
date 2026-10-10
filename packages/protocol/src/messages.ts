@@ -44,7 +44,7 @@ export const roomState = z.strictObject({
   // The recipient's own slot (null for viewers), so a client can pick its
   // role in a pair's negotiation; every member gets a personal snapshot.
   self: slot.nullable(),
-  players: z.array(z.strictObject({ slot, name: z.string() })),
+  players: z.array(z.strictObject({ slot, name: z.string(), ready: z.boolean() })),
   // Null until the host sets a game/DIPs; `dips` is `{}` and status `waiting`
   // pre-game (docs/contracts/ws-messages.md).
   game: z.string().min(1).nullable(),
@@ -62,6 +62,14 @@ export const rtcSignal = z.strictObject({
   to: slot,
   sdp: sessionDescription.optional(),
   candidate: iceCandidate.optional(),
+});
+
+export const playerReady = z.strictObject({
+  t: z.literal("player.ready"),
+  ready: z.boolean(),
+  // Sender slot, stamped by the relay on the forwarded message; ignored on the
+  // client→relay direction (docs/contracts/ws-messages.md, T27).
+  player: slot.optional(),
 });
 
 export const gameStart = z.strictObject({
@@ -114,6 +122,7 @@ const jsonSchemas = [
   roomJoin,
   roomState,
   rtcSignal,
+  playerReady,
   gameStart,
   stateSnapshot,
   hashMessage,
@@ -131,6 +140,7 @@ export const anyMessage = z.discriminatedUnion("t", jsonSchemas);
 export const clientMessage = z.discriminatedUnion("t", [
   roomJoin,
   rtcSignal,
+  playerReady,
   gameStart,
   stateSnapshot,
   hashMessage,
@@ -143,6 +153,9 @@ export const clientMessage = z.discriminatedUnion("t", [
 export const serverMessage = z.discriminatedUnion("t", [
   roomState,
   rtcSignal,
+  // The relay stamps the sender's slot and fans a toggled ready flag out to the
+  // room, then re-broadcasts room.state (T27).
+  playerReady,
   // The relay fans the host's start out to every member so each peer agrees on
   // startFrame/inputDelay before stepping (T24, docs/03).
   gameStart,
@@ -156,6 +169,7 @@ export const serverMessage = z.discriminatedUnion("t", [
 export type RoomJoin = z.infer<typeof roomJoin>;
 export type RoomState = z.infer<typeof roomState>;
 export type RtcSignal = z.infer<typeof rtcSignal>;
+export type PlayerReady = z.infer<typeof playerReady>;
 export type GameStart = z.infer<typeof gameStart>;
 export type StateSnapshot = z.infer<typeof stateSnapshot>;
 export type HashMessage = z.infer<typeof hashMessage>;
