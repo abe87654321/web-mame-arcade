@@ -11,6 +11,7 @@ import {
   defaultIceServers,
   relayConfigFromEnv,
   type IceServer,
+  type LobbyState,
   type MatchStatus,
   type NetplayMatch,
   type RtcFactory,
@@ -22,9 +23,9 @@ import {
   wrapElement,
   type UiDocument,
   type UiElement,
-  type ViewNode,
 } from "../ui/view";
 import { buildList } from "./list-view";
+import { buildLobby } from "./lobby-view";
 import {
   browserScheduler,
   createPlayController,
@@ -98,22 +99,6 @@ export interface AppController {
 
 function notFound(message: string): { tag: string; className: string; text: string } {
   return { tag: "p", className: "not-found", text: message };
-}
-
-/** Minimal lobby bar: the host's manual "Start game" control (T24). */
-function lobbyView(onStart: () => void): ViewNode {
-  return {
-    tag: "div",
-    className: "lobby",
-    children: [
-      {
-        tag: "button",
-        className: "start-game",
-        text: "Start game",
-        onClick: onStart,
-      },
-    ],
-  };
 }
 
 function matchStatusText(status: MatchStatus): string {
@@ -197,6 +182,13 @@ export function createApp(deps: AppDeps): AppController {
     const screenUi = deps.env.screen ? wrapElement(deps.env.screen) : null;
     if (screenUi) deps.env.root.append(screenUi);
 
+    // The lobby overlay is a fixed-position element the match re-renders from
+    // its `onLobby` snapshots (T27); created before the core loads so it can be
+    // appended on top of the canvas.
+    const lobbyHost: UiElement | null =
+      route.room && netplay ? deps.env.doc.createElement("div") : null;
+    if (lobbyHost) lobbyHost.className = "lobby-host";
+
     setStatus(`loading ${entry.title}...`);
     void deps
       .loadCore(entry, { netplay: Boolean(route.room), canvas: deps.env.screen })
@@ -205,7 +197,30 @@ export function createApp(deps: AppDeps): AppController {
           core.destroy();
           return;
         }
-        if (route.room && netplay) {
+        if (route.room && netplay && lobbyHost) {
+          const host = lobbyHost;
+          const renderLobby = (state: LobbyState): void => {
+            host.textContent = "";
+            host.append(
+              renderTree(
+                deps.env.doc,
+                buildLobby(state, {
+                  onStart: () => {
+                    if (match?.start()) return;
+                    setStatus(
+                      match?.isHost()
+                        ? "waiting for players..."
+                        : "only the host can start the game",
+                    );
+                  },
+                  onSetReady: (ready) => {
+                    match?.setReady(ready);
+                  },
+                  onLeave: () => deps.env.navigate("#/"),
+                }),
+              ),
+            );
+          };
           match = createMatch({
             core,
             config: {
@@ -219,7 +234,10 @@ export function createApp(deps: AppDeps): AppController {
             factory: netplay.factory,
             now: netplay.now ?? (() => Date.now()),
             onStatus: (status) => setStatus(matchStatusText(status)),
+            onLobby: renderLobby,
           });
+          renderLobby(match.lobby());
+          deps.env.root.append(host);
         }
         play = createPlayController({
           core,
@@ -232,21 +250,6 @@ export function createApp(deps: AppDeps): AppController {
           ...(match ? { lockstep: match } : {}),
           ...(screenUi ? { screen: screenUi } : {}),
         });
-        if (match) {
-          deps.env.root.append(
-            renderTree(
-              deps.env.doc,
-              lobbyView(() => {
-                if (match?.start()) return;
-                setStatus(
-                  match?.isHost()
-                    ? "waiting for players..."
-                    : "only the host can start the game",
-                );
-              }),
-            ),
-          );
-        }
         if (!screenUi) deps.env.root.append(play.screen);
       })
       .catch((error: unknown) => {

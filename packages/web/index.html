@@ -5,6 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Web MAME Arcade</title>
     <style>
+      /* Dithered theme tokens (T27 baseline): warm paper surface, dark brown
+         ink, burnt-orange accent, hard edges and a hard offset shadow. */
+      :root {
+        --bg: #fff4cf;
+        --surface: #fffaf0;
+        --surface-warm: #ffdca8;
+        --fg: #2a1810;
+        --fg-2: #593625;
+        --muted: #8a6652;
+        --border: #d9aa7a;
+        --border-soft: #efd0ab;
+        --accent: #d24b1f;
+        --accent-on: #ffffff;
+        --success: #3d8f4f;
+        --warn: #b8730f;
+        --danger: #b83a2f;
+        --font-display: "Courier New", ui-monospace, monospace;
+        --font-body: Inter, system-ui, sans-serif;
+        --font-mono: "Courier New", ui-monospace, monospace;
+        --radius-sm: 4px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --elev-raised: 6px 6px 0 rgba(42, 24, 16, 0.26);
+        --focus-ring: 0 0 0 4px rgba(210, 75, 31, 0.28);
+      }
       html,
       body {
         margin: 0;
@@ -21,14 +46,182 @@
         object-fit: contain;
         image-rendering: pixelated;
       }
-      /* Overlays: the canvas fills the viewport, so lobby/status must float on
-         top of it rather than flow below it. */
-      .lobby {
+      /* Overlays: the canvas fills the viewport, so the lobby/status must float
+         on top of it rather than flow below it. */
+      .lobby-host {
         position: fixed;
-        top: 12px;
-        left: 50%;
-        transform: translateX(-50%);
+        top: 20px;
+        right: 20px;
         z-index: 10;
+      }
+      .lobby {
+        width: 340px;
+        max-width: calc(100vw - 40px);
+        box-sizing: border-box;
+        background: var(--surface);
+        color: var(--fg);
+        font: 14px/1.45 var(--font-body);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--elev-raised);
+        padding: 16px;
+      }
+      .lobby-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .lobby-title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 20px;
+        letter-spacing: 0;
+      }
+      .lobby-status {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+      .lobby-status.waiting::before {
+        content: "\25CF";
+        color: var(--warn);
+        margin-right: 4px;
+      }
+      .lobby-status.playing::before,
+      .lobby-status.ended::before {
+        content: "\25CF";
+        color: var(--success);
+        margin-right: 4px;
+      }
+      .lobby-status.disconnected::before {
+        content: "\25CF";
+        color: var(--danger);
+        margin-right: 4px;
+      }
+      .lobby-slots {
+        list-style: none;
+        margin: 0 0 12px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .lobby-slot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        background: var(--surface-warm);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md);
+      }
+      .lobby-slot.self {
+        border-color: var(--accent);
+      }
+      .slot-id {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+        width: 26px;
+      }
+      .slot-name {
+        flex: 1;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tag {
+        font: 700 10px/1 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 3px 6px;
+        border-radius: var(--radius-sm);
+      }
+      .tag.host {
+        background: var(--accent);
+        color: var(--accent-on);
+      }
+      .tag.you {
+        border: 1px solid var(--border);
+        color: var(--fg-2);
+      }
+      .ready {
+        font: 700 10px/1 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .ready.on {
+        color: var(--success);
+      }
+      .ready.off {
+        color: var(--muted);
+      }
+      .lobby-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .lobby-controls button {
+        font: 700 13px/1 var(--font-body);
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        color: var(--fg);
+        cursor: pointer;
+      }
+      .lobby-controls button:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .lobby-controls button:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+      .lobby-controls button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .lobby-controls .start-game {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-on);
+      }
+      .lobby-controls .start-game:hover:not(:disabled) {
+        background: color-mix(in oklab, var(--accent), black 8%);
+        color: var(--accent-on);
+      }
+      .lobby-controls .leave {
+        margin-left: auto;
+        color: var(--muted);
+      }
+      .lobby-hint {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .chat {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border-soft);
+      }
+      .chat h3 {
+        margin: 0 0 4px;
+        font: 700 11px/1 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+      .chat p {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
       }
       .status {
         position: fixed;
@@ -36,13 +229,9 @@
         bottom: 8px;
         margin: 0;
         z-index: 10;
-        color: #ddd;
-        font: 13px/1.4 system-ui, sans-serif;
-      }
-      .lobby button {
-        padding: 8px 16px;
-        font: 14px system-ui, sans-serif;
-        cursor: pointer;
+        color: #eee;
+        font: 13px/1.4 var(--font-body);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
       }
     </style>
   </head>
