@@ -54,6 +54,18 @@ export function createRelay({ verifier }: { verifier: TokenVerifier }): Relay {
             const roomId = rooms.roomIdOf(member.connectionId);
             return roomId ? snapshotOut(roomId) : [];
           }
+          case "player.ready": {
+            // Stamp the sender's own slot and fan the toggle out, then reflect
+            // the new flags in everyone's room.state (T27, docs/contracts).
+            const { roomId, from } = rooms.setReady(connectionId, message);
+            const toggles: Outbound[] = rooms
+              .broadcastTargets(roomId)
+              .map((target) => ({
+                connectionId: target,
+                message: { ...message, player: from },
+              }));
+            return [...toggles, ...snapshotOut(roomId)];
+          }
           case "rtc.signal": {
             const { target, from } = rooms.signal(connectionId, message);
             return [{ connectionId: target, message: { ...message, from } }];

@@ -84,7 +84,7 @@ describe("RoomManager.join", () => {
     rooms.join("c1", { room: "r", role: "viewer", token: "alice" });
     const rejoin = rooms.join("c2", { room: "r", role: "player", token: "alice" });
     expect(rejoin).toMatchObject({ role: "player", slot: 0 });
-    expect(rooms.snapshot("c2").players).toEqual([{ slot: 0, name: "player" }]);
+    expect(rooms.snapshot("c2").players).toEqual([{ slot: 0, name: "player", ready: false }]);
   });
 
   it("keeps the exact slot when a user reconnects through a hole", () => {
@@ -258,6 +258,64 @@ describe("RoomManager.begin", () => {
   });
 });
 
+describe("RoomManager.setReady", () => {
+  function seated() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    return rooms;
+  }
+
+  it("records a player's ready flag in the room snapshot", () => {
+    const rooms = seated();
+    expect(rooms.setReady("c1", { t: "player.ready", ready: true })).toEqual({
+      roomId: "r",
+      from: 0,
+    });
+    expect(rooms.snapshot("c2").players).toEqual([
+      { slot: 0, name: "player", ready: true },
+      { slot: 1, name: "player", ready: false },
+    ]);
+  });
+
+  it("ignores a client-supplied player slot (relay-authoritative)", () => {
+    const rooms = seated();
+    rooms.setReady("c1", { t: "player.ready", ready: true, player: 1 });
+    expect(rooms.snapshot("c1").players[0]).toEqual({
+      slot: 0,
+      name: "player",
+      ready: true,
+    });
+  });
+
+  it("allows toggling back to not ready", () => {
+    const rooms = seated();
+    rooms.setReady("c1", { t: "player.ready", ready: true });
+    rooms.setReady("c1", { t: "player.ready", ready: false });
+    expect(rooms.snapshot("c1").players[0]?.ready).toBe(false);
+  });
+
+  it("rejects a slot-less viewer", () => {
+    const rooms = seated();
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    try {
+      rooms.setReady("c9", { t: "player.ready", ready: true });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects an unjoined connection", () => {
+    try {
+      seated().setReady("ghost", { t: "player.ready", ready: true });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+});
+
 describe("RoomManager.snapshot", () => {
   it("describes a pre-game room with nullable game fields", () => {
     const rooms = manager();
@@ -268,8 +326,8 @@ describe("RoomManager.snapshot", () => {
       room: "r",
       self: 1,
       players: [
-        { slot: 0, name: "Bob" },
-        { slot: 1, name: "Alice" },
+        { slot: 0, name: "Bob", ready: false },
+        { slot: 1, name: "Alice", ready: false },
       ],
       game: null,
       coreHash: null,
