@@ -22,6 +22,10 @@ export function buildMameArgs(input: MameArgsInput): string[] {
   const args = [
     input.driver,
     "-rompath", input.romPath,
+    // The Emscripten/SDL OSD has a desktop-GL renderer (glShadeModel, absent in
+    // WebGL) and a bgfx one with Emscripten (essl/WebGL) shaders embedded; force
+    // bgfx so video works under WebGL. Fixed value, so peers stay byte-identical.
+    "-video", "bgfx",
     "-skip_gameinfo",
     "-nvram_directory", input.sessionPath,
     "-inipath", input.sessionPath,
