@@ -12,7 +12,7 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 import type { ServerMessage } from "@wma/protocol";
 import { type JobQueue, createMemoryJobQueue } from "./job-queue.ts";
 import { type LogStore, createLocalDiskLogStore } from "./log-store.ts";
-import { createRelay, type ClosedLog, type Outbound } from "./relay.ts";
+import { createRelay, type ClosedLog, type RelayOut } from "./relay.ts";
 import type { TokenVerifier } from "./token.ts";
 
 export interface RelayServerOptions {
@@ -208,8 +208,18 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     }
   }
 
-  function dispatch(out: Outbound[]): void {
-    for (const { connectionId, message } of out) send(connectionId, message);
+  function dispatch(out: RelayOut[]): void {
+    for (const entry of out) {
+      const socket = sockets.get(entry.connectionId);
+      if (!socket || socket.readyState !== WebSocket.OPEN) continue;
+      if ("message" in entry) {
+        socket.send(JSON.stringify(entry.message));
+        // A viewer.state reply may carry catch-up input frames to send next (T31).
+        for (const frame of entry.frames ?? []) socket.send(frame);
+      } else {
+        socket.send(entry.binary);
+      }
+    }
   }
 
   wss.on("connection", (socket: WebSocket) => {

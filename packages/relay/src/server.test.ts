@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket, { type RawData } from "ws";
-import { encodeInput } from "@wma/protocol";
+import { decodeInput, encodeInput } from "@wma/protocol";
 import { gunzipInputLog } from "./input-log";
 import { createMemoryJobQueue } from "./job-queue";
 import { createMemoryLogStore } from "./log-store";
@@ -21,10 +21,25 @@ class TestClient {
   readonly socket: WebSocket;
   private queue: unknown[] = [];
   private waiters: ((message: unknown) => void)[] = [];
+  private binaries: Uint8Array[] = [];
+  private binaryWaiters: ((bytes: Uint8Array) => void)[] = [];
 
   constructor(port: number) {
     this.socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-    this.socket.on("message", (data: RawData) => {
+    this.socket.on("message", (data: RawData, isBinary: boolean) => {
+      if (isBinary) {
+        // Binary input fan-out (T31); keep it off the JSON queue.
+        const buffer = Array.isArray(data)
+          ? Buffer.concat(data)
+          : Buffer.isBuffer(data)
+            ? data
+            : Buffer.from(data);
+        const bytes = new Uint8Array(buffer);
+        const waiter = this.binaryWaiters.shift();
+        if (waiter) waiter(bytes);
+        else this.binaries.push(bytes);
+        return;
+      }
       const message = JSON.parse(data.toString());
       const waiter = this.waiters.shift();
       if (waiter) waiter(message);
@@ -44,6 +59,21 @@ class TestClient {
       this.waiters.push((message) => {
         clearTimeout(timer);
         resolve(message as Record<string, unknown>);
+      });
+    });
+  }
+
+  nextBinary(): Promise<Uint8Array> {
+    const queued = this.binaries.shift();
+    if (queued !== undefined) return Promise.resolve(queued);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("timed out waiting for binary frame")),
+        TIMEOUT_MS,
+      );
+      this.binaryWaiters.push((bytes) => {
+        clearTimeout(timer);
+        resolve(bytes);
       });
     });
   }
@@ -258,6 +288,78 @@ describe("createRelayServer", () => {
     it("400s an empty body", async () => {
       const response = await fetch(`${base()}/rooms/r/snapshot`, { method: "POST" });
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe("viewer fan-out (T31)", () => {
+    const gameSetMessage = {
+      t: "game.set",
+      driver: "gridlee",
+      coreHash: "a".repeat(64),
+      mameCommit: "b".repeat(40),
+      romHash: "c".repeat(64),
+      dips: { Difficulty: "Medium" },
+    };
+
+    async function seatedPair(): Promise<[TestClient, TestClient]> {
+      const a = await client();
+      a.send(join("alice"));
+      await a.next();
+      const b = await client();
+      b.send(join("bob"));
+      await a.next();
+      await b.next();
+      a.send(gameSetMessage);
+      a.send({ t: "game.start", startFrame: 0, inputDelay: 2 });
+      return [a, b];
+    }
+
+    it("hands a joining viewer the match state and catch-up inputs", async () => {
+      const [a] = await seatedPair();
+      a.sendRaw(
+        encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1, 4] }),
+      );
+      // Let the input frame reach the relay before the viewer joins.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const v = await client();
+      v.send({ t: "room.join", room: "r", role: "viewer", token: "watch" });
+      let handshake: Record<string, unknown> | undefined;
+      for (let i = 0; i < 10 && !handshake; i++) {
+        const message = await v.next();
+        if (message.t === "viewer.state") handshake = message;
+      }
+      expect(handshake).toMatchObject({
+        t: "viewer.state",
+        driver: "gridlee",
+        startFrame: 0,
+        inputDelay: 2,
+        players: [
+          { slot: 0, name: "player" },
+          { slot: 1, name: "player" },
+        ],
+        snapshot: null,
+      });
+      expect(decodeInput(await v.nextBinary())).toEqual({
+        version: 1,
+        player: 0,
+        ackFrame: 0,
+        firstFrame: 0,
+        inputs: [0, 0, 1, 4],
+      });
+    });
+
+    it("fans a player's input to another player over the socket", async () => {
+      const [a, b] = await seatedPair();
+      a.sendRaw(
+        encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1] }),
+      );
+      expect(decodeInput(await b.nextBinary())).toMatchObject({
+        version: 1,
+        player: 0,
+        firstFrame: 2,
+        inputs: [1],
+      });
     });
   });
 
