@@ -5,7 +5,7 @@ import { decodeInput, encodeInput } from "@wma/protocol";
 import { gunzipInputLog } from "./input-log";
 import { createMemoryJobQueue } from "./job-queue";
 import { createMemoryLogStore } from "./log-store";
-import { createRelayServer, type RelayServer } from "./server";
+import { createRelayServer, shouldDropFanout, type RelayServer } from "./server";
 import { TokenError, type TokenClaims, type TokenVerifier } from "./token";
 
 const fakeVerifier: TokenVerifier = {
@@ -288,6 +288,16 @@ describe("createRelayServer", () => {
     it("400s an empty body", async () => {
       const response = await fetch(`${base()}/rooms/r/snapshot`, { method: "POST" });
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe("outbound backpressure (T31)", () => {
+    it("drops fan-out only once a socket is past the buffer cap", () => {
+      expect(shouldDropFanout(0)).toBe(false);
+      expect(shouldDropFanout(4 * 1024 * 1024)).toBe(false); // exactly at the cap
+      expect(shouldDropFanout(4 * 1024 * 1024 + 1)).toBe(true);
+      expect(shouldDropFanout(999, 1000)).toBe(false);
+      expect(shouldDropFanout(1001, 1000)).toBe(true);
     });
   });
 

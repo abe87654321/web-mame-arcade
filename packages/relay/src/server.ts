@@ -49,6 +49,25 @@ const DEFAULT_HEARTBEAT_MS = 30_000;
 const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 /** Recent snapshots kept per room so a superseded blob URL still resolves (T25). */
 const MAX_SNAPSHOTS_PER_ROOM = 4;
+/**
+ * Per-socket outbound queue cap before fan-out frames are dropped (T31). A
+ * spectator or peer that stops draining its socket must never grow the relay's
+ * memory without bound: the input stream is best-effort redundancy for players
+ * (they also get inputs P2P) and a spectator that falls this far behind is
+ * better off resyncing than OOMing the relay.
+ */
+const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Whether a socket's outbound queue is too deep to accept another fan-out frame
+ * (T31). Exposed for testing; production uses the default cap.
+ */
+export function shouldDropFanout(
+  bufferedAmount: number,
+  max: number = MAX_BUFFERED_BYTES,
+): boolean {
+  return bufferedAmount > max;
+}
 
 export function createRelayServer(options: RelayServerOptions): Promise<RelayServer> {
   const path = options.path ?? DEFAULT_PATH;
@@ -212,11 +231,21 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     for (const entry of out) {
       const socket = sockets.get(entry.connectionId);
       if (!socket || socket.readyState !== WebSocket.OPEN) continue;
+      // A member that is not draining its socket (a stalled viewer or a dead
+      // peer) must not queue fan-out frames without bound (T31); drop them so
+      // the relay's memory stays flat. JSON protocol messages are still sent.
+      const backedUp = shouldDropFanout(socket.bufferedAmount);
+      if (backedUp) {
+        logger("relay-backpressure", {
+          connectionId: entry.connectionId,
+          buffered: socket.bufferedAmount,
+        });
+      }
       if ("message" in entry) {
         socket.send(JSON.stringify(entry.message));
         // A viewer.state reply may carry catch-up input frames to send next (T31).
-        for (const frame of entry.frames ?? []) socket.send(frame);
-      } else {
+        if (!backedUp) for (const frame of entry.frames ?? []) socket.send(frame);
+      } else if (!backedUp) {
         socket.send(entry.binary);
       }
     }
