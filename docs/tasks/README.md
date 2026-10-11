@@ -44,14 +44,20 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   (waiting/playing), leave/disconnect handling, and a place for chat (T30/T36 server side). Reuses
   `room.state`/`game.start` (T22/T24); feeds the viewer (T31) and replays (T35). Docs: 03, contracts/ws-messages.
   Depends: T22, T24.
-- [ ] **T28 Netplay communication hardening** – make the lockstep resilient to real networks and
-  browser behaviour, a follow-up to what T31 started: a visibility-aware collaborative pause (a
-  hidden/occluded tab throttles `requestAnimationFrame`, so that peer stops feeding inputs and
-  stalls everyone), extend the T31 stall recovery (`input.request`/`input.resync` from the relay
-  log) to mutual stalls and a host-snapshot fallback, keep the per-socket outbound backpressure
-  cap, prefer P2P with relay fallback and expose loss/jitter, and tune/adapt input delay from
-  measured RTT. Add a dev frame/lag/ack overlay and a golden-replay regression. Docs: 03, 04,
-  contracts/ws-messages, contracts/input-packet. Depends: T24, T25, T31.
+- [x] **T28 Netplay observability + save/load/hash spike** – before hardening the lockstep, make it
+  measurable and gather the data the next decisions need: a pure, clock-injected metrics module
+  (per-peer RTT from the input packet's `ack_frame`, jitter, gap-based loss, P2P-vs-relay source
+  tally), a DEV-only frame/lag/ack overlay, and a reproducible spike measuring `save()/load()/hash()`
+  ms and bytes on the WASM core and native MAME plus a state round-trip check (feeds T29/T40 and the
+  SLO-C decision T45). Docs: 02, 03, 08, contracts/input-packet, contracts/ws-messages. Depends: T24,
+  T25, T31. Acceptance: metrics + overlay unit tests; committed spike report (`core/spike/README.md`:
+  per-driver ms/bytes + round-trip PASS); no change to the emulation path.
+- [ ] **T29 Client lockstep hardening (deferred, pending T28 data)** – make the browser lockstep
+  resilient once the metrics show what actually stalls: visibility-aware collaborative pause (a
+  hidden/occluded tab throttles `requestAnimationFrame`, so that peer stops feeding inputs and stalls
+  everyone), mutual-stall recovery + a host-snapshot fallback, adaptive input delay from measured
+  RTT, and a golden-replay regression. Docs: 03, 04, contracts/ws-messages, contracts/input-packet.
+  Depends: T28.
 
 ## Phase 3 · Spectating and leaderboard
 - [x] **T30 Relay input log** – define `docs/contracts/input-log.md` (core/rom hash, DIPs, start state, per-frame
@@ -73,3 +79,10 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [ ] **T43 Load test** – 1 000 simulated viewers on one relay (k6 or a Node script). Docs: 04. Depends: T30.
 - [ ] **T44 Relay scale-out** – Redis pub/sub between relay nodes so inputs/spectator fan-out spans processes.
   Docs: 04, 06. Depends: T30, T43.
+
+## Phase 5 · Strong-sync (SLO C): server-authoritative emulation
+- [ ] **T45 Server-authoritative live emulation (SLO C)** – one authoritative native MAME per match on
+  the server: input aggregation with a fixed input delay + jitter buffer, frame capture + hardware
+  encode, and LiveKit WebRTC publish; clients send inputs and watch video, so synchronization is
+  absolute regardless of client tab/CPU/network. Reuses the native build and LiveKit (T41). Cost: one
+  server sim + video bandwidth per match. Depends: T01, T41, T28.
