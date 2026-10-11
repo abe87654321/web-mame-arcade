@@ -38,6 +38,7 @@ function viewerState(snapshot: unknown = null) {
       { slot: 1, name: "p1" },
     ],
     snapshot,
+    video: false,
   };
 }
 
@@ -173,5 +174,40 @@ describe("createViewer", () => {
     await flush();
     socket.close();
     expect(viewer.status()).toBe("disconnected");
+  });
+
+  it("subscribes on livekit.access and stops on video.set{false} (T41)", async () => {
+    const start = vi.fn(async () => {});
+    const stop = vi.fn();
+    const subscriber = { start, stop } as unknown as import("./video").VideoSubscriber;
+    const onVideo = vi.fn();
+    const { socket, viewer } = harness({ video: subscriber, onVideo });
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "livekit.access",
+        url: "wss://lk",
+        room: "r",
+        token: "lk-jwt",
+      }),
+    );
+    await flush();
+    expect(start).toHaveBeenCalledWith("wss://lk", "lk-jwt", expect.any(Function));
+    socket.emitMessage(JSON.stringify({ t: "video.set", enabled: false }));
+    await flush();
+    expect(stop).toHaveBeenCalled();
+    expect(onVideo).toHaveBeenCalledWith(null);
+    viewer.close();
+  });
+
+  it("stops the subscriber on close (T41)", async () => {
+    const stop = vi.fn();
+    const subscriber = {
+      start: vi.fn(async () => {}),
+      stop,
+    } as unknown as import("./video").VideoSubscriber;
+    const { viewer } = harness({ video: subscriber });
+    viewer.close();
+    expect(stop).toHaveBeenCalled();
   });
 });

@@ -14,6 +14,19 @@ export { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
 export type { BuildPacketOptions, FrameTable } from "./inputs";
 export { createPlayback } from "./playback";
 export type { Playback, PlaybackDeps } from "./playback";
+export { createVideoPublisher, createVideoSubscriber } from "./video";
+export type {
+  VideoPublisher,
+  VideoPublisherDeps,
+  VideoSubscriber,
+  VideoSubscriberDeps,
+} from "./video";
+export {
+  browserLiveKitFactory,
+  liveKitFactoryFromEnv,
+  mockLiveKitFactory,
+} from "./livekit";
+export type { LiveKitFactory, VideoRoom } from "./livekit";
 export { createMetrics } from "./metrics";
 export type {
   Metrics,

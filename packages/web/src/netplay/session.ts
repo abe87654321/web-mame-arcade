@@ -7,11 +7,13 @@ import type {
   ClientMessage,
   Desync,
   GameStart,
+  LivekitAccess,
   PlayerReady,
   RoomState,
   RtcSignal,
   ServerMessage,
   StateSnapshot,
+  VideoSet,
 } from "@wma/protocol";
 import { createMesh, type Mesh } from "./mesh";
 import type { PacketSource } from "./metrics";
@@ -37,6 +39,10 @@ export interface SessionOptions {
   onDesync?: (message: Desync) => void;
   /** A host snapshot to fetch, load and resume from (T25). */
   onStateSnapshot?: (message: StateSnapshot) => void;
+  /** The relay fanned out the host's A/V toggle (T41). */
+  onVideoSet?: (message: VideoSet) => void;
+  /** This connection's LiveKit join credentials (T41). */
+  onLivekitAccess?: (message: LivekitAccess) => void;
   /** A peer's data channel opened or closed (lobby connected/ready badges). */
   onPeersChanged?: () => void;
   /** A peer's data channel opened (may let a match start). */
@@ -175,6 +181,14 @@ export function createSession(options: SessionOptions): NetplaySession {
       }
       case "state.snapshot": {
         options.onStateSnapshot?.(message);
+        return;
+      }
+      case "video.set": {
+        options.onVideoSet?.(message);
+        return;
+      }
+      case "livekit.access": {
+        options.onLivekitAccess?.(message);
         return;
       }
       case "rtc.signal": {

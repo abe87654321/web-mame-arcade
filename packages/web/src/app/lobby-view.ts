@@ -15,6 +15,8 @@ export interface LobbyViewOptions {
   onLeave: () => void;
   /** Copy/share the live viewer link (T31); omitted in tests without one. */
   onWatch?: () => void;
+  /** Host toggles the LiveKit A/V fallback (T41); omitted in tests without it. */
+  onToggleVideo?: (enabled: boolean) => void;
 }
 
 function statusText(status: LobbyState["roomStatus"]): string {
@@ -97,6 +99,16 @@ export function buildLobby(state: LobbyState, options: LobbyViewOptions): ViewNo
       className: "ready-toggle",
       text: self.ready ? "Not ready" : "Ready",
       onClick: () => options.onSetReady(!self.ready),
+    });
+  }
+
+  // The host can share its screen (canvas + MAME audio) via LiveKit (T41).
+  if (state.isHost && options.onToggleVideo) {
+    controls.push({
+      tag: "button",
+      className: "video-toggle",
+      text: state.video ? "Stop video" : "Share video",
+      onClick: () => options.onToggleVideo?.(!state.video),
     });
   }
 

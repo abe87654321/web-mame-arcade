@@ -19,6 +19,7 @@ import { createLockstep, type Lockstep } from "./lockstep";
 import { createMetrics, type Metrics, type MetricsSnapshot } from "./metrics";
 import { createSession, type NetplaySession } from "./session";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
+import type { VideoPublisher } from "./video";
 export type MatchStatus =
   | "connecting"
   | "waiting-for-peers"
@@ -47,6 +48,8 @@ export interface LobbyState {
   isHost: boolean;
   /** `start()` would succeed now: host, booted, peers connected, others ready. */
   canStart: boolean;
+  /** The host is sharing A/V via LiveKit (T41). */
+  video: boolean;
 }
 
 /** Match identity the host announces with `game.set` (T30). */
@@ -108,6 +111,11 @@ export interface MatchDeps {
    * Inert in production: only the e2e hook sets it.
    */
   inputScript?: (slot: number, frame: number) => number;
+  /**
+   * Host-side A/V publisher (T41): started when this client is the host and the
+   * relay hands it LiveKit credentials, stopped on `video.set{enabled:false}`.
+   */
+  video?: VideoPublisher;
 }
 
 export interface NetplayMatch {
@@ -124,6 +132,8 @@ export interface NetplayMatch {
   start(): boolean;
   /** Toggle our own lobby ready flag; false when we are not a seated player. */
   setReady(ready: boolean): boolean;
+  /** Host toggles the LiveKit A/V fallback; false for a non-host (T41). */
+  setVideo(enabled: boolean): boolean;
   /** The current lobby snapshot. */
   lobby(): LobbyState;
   /** The current connection metrics, or null before the match starts (T28). */
@@ -195,6 +205,8 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let pendingStart: { startFrame: number; inputDelay: number } | null = null;
   let startSent = false;
   let gameSetSent = false;
+  /** Whether the host is sharing A/V (T41); mirrors the relay's `video.set`. */
+  let videoEnabled = false;
   /** Last wall-clock live-join snapshot; null until the cadence is armed (T31). */
   let lastViewerSnapshotAt: number | null = null;
   let viewerSnapshotInFlight = false;
@@ -285,6 +297,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       roomStatus: disconnected ? "disconnected" : roomStatus,
       isHost: isHost(),
       canStart: canStart(),
+      video: videoEnabled,
       players: roster.map((p) => ({
         slot: p.slot,
         name: p.name,
@@ -494,6 +507,19 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         })
         .catch((error) => log?.("resync-error", { frame: message.frame, error: String(error) }));
     },
+    onVideoSet: (message) => {
+      // The relay fanned out the host's A/V toggle (T41). Reflect it in the
+      // lobby; if it was turned off, stop our publisher if we were the host.
+      videoEnabled = message.enabled;
+      if (!message.enabled) deps.video?.stop();
+      emitLobby();
+    },
+    onLivekitAccess: (message) => {
+      // Credentials are per member; only the host publishes canvas + audio.
+      if (isHost() && deps.video) {
+        void deps.video.start(message.url, message.token);
+      }
+    },
     // A start may have arrived while the core/channel was still coming up.
     onChannelOpen: () => {
       maybeSetGame();
@@ -551,6 +577,10 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       if (closed || disconnected || self === null) return false;
       return session.send({ t: "player.ready", ready });
     },
+    setVideo: (enabled) => {
+      if (closed || disconnected || self === null || !isHost()) return false;
+      return session.send({ t: "video.set", enabled });
+    },
     lobby,
     metrics: () => (metrics ? metrics.snapshot(lockstep ? lockstep.frame() : 0) : null),
     session: () => session,
@@ -564,6 +594,8 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       closed = true;
       lockstep = null;
       metrics = null;
+      videoEnabled = false;
+      deps.video?.stop();
       session.close();
     },
   };

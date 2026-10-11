@@ -9,9 +9,13 @@ import {
   browserWebSocketFactory,
   createMatch,
   createViewer,
+  createVideoPublisher,
+  createVideoSubscriber,
   defaultIceServers,
+  liveKitFactoryFromEnv,
   relayConfigFromEnv,
   type IceServer,
+  type LiveKitFactory,
   type LobbyState,
   type MatchStatus,
   type NetplayMatch,
@@ -19,6 +23,7 @@ import {
   type Viewer,
   type WebSocketFactory,
 } from "../netplay";
+import { installAudioCapture, type AudioCaptureEnv } from "../audio/capture";
 import {
   browserUiDocument,
   renderTree,
@@ -81,6 +86,15 @@ export interface AppEnv {
   inputScript?: (slot: number, frame: number) => number;
   /** The shared canvas MAME renders into; set by `startApp`, absent in tests. */
   screen?: HTMLCanvasElement;
+  /** LiveKit room factory for the A/V fallback (T41); set by `startApp`. */
+  liveKit?: LiveKitFactory;
+  /** Tapped MAME audio for the host publisher (T41); set by `startApp`. */
+  getAudioStream?: () => MediaStream | null;
+  /**
+   * Attach/detach the viewer's remote A/V stream (T41); set by `startApp` with
+   * a real `<video>` element, absent in tests.
+   */
+  attachVideo?: (stream: MediaStream | null) => void;
 }
 
 /** Room id for a new online game. UI-only; never part of the emulation path. */
@@ -168,7 +182,7 @@ export function createApp(deps: AppDeps): AppController {
   ): void => {
     const host = deps.env.doc.createElement("div");
     host.className = "viewer-host";
-    let state: ViewerViewState = { status: "connecting", players: [] };
+    let state: ViewerViewState = { status: "connecting", players: [], video: false };
     const renderViewer = (): void => {
       host.textContent = "";
       host.append(
@@ -178,6 +192,14 @@ export function createApp(deps: AppDeps): AppController {
         ),
       );
     };
+    // The A/V subscriber (T41) is created only when a LiveKit factory is wired;
+    // the viewer controller drives it from the relay's `livekit.access`.
+    const video = deps.env.liveKit
+      ? createVideoSubscriber({
+          factory: deps.env.liveKit,
+          log: (event, fields) => console.warn("[viewer]", event, fields),
+        })
+      : undefined;
     viewer = createViewer({
       core,
       config: { relayUrl: netplay.relayUrl, token: netplay.token, room },
@@ -189,6 +211,12 @@ export function createApp(deps: AppDeps): AppController {
       },
       onPlayers: (players) => {
         state = { ...state, players };
+        renderViewer();
+      },
+      ...(video ? { video } : {}),
+      onVideo: (stream) => {
+        deps.env.attachVideo?.(stream);
+        state = { ...state, video: stream !== null };
         renderViewer();
       },
       log: (event, fields) => console.warn("[viewer]", event, fields),
@@ -302,11 +330,25 @@ export function createApp(deps: AppDeps): AppController {
                   onSetReady: (ready) => {
                     match?.setReady(ready);
                   },
+                  onToggleVideo: (enabled) => {
+                    match?.setVideo(enabled);
+                  },
                   onLeave: () => deps.env.navigate("#/"),
                 }),
               ),
             );
           };
+          // Host-side A/V publisher (T41): publishes the shared canvas + tapped
+          // MAME audio when the relay hands this host LiveKit credentials.
+          const publisher =
+            deps.env.screen && deps.env.liveKit
+              ? createVideoPublisher({
+                  factory: deps.env.liveKit,
+                  canvas: deps.env.screen,
+                  getAudioStream: deps.env.getAudioStream ?? (() => null),
+                  log: (event, fields) => console.warn("[netplay]", event, fields),
+                })
+              : undefined;
           match = createMatch({
             core,
             config: {
@@ -331,6 +373,7 @@ export function createApp(deps: AppDeps): AppController {
             onStatus: (status) => setStatus(matchStatusText(status)),
             onLobby: renderLobby,
             log: (event, fields) => console.warn("[netplay]", event, fields),
+            ...(publisher ? { video: publisher } : {}),
             ...(deps.env.inputScript ? { inputScript: deps.env.inputScript } : {}),
             ...(overlayHost
               ? {
@@ -425,6 +468,31 @@ function exposeCoreForSpike(win: Window, loadCore: CoreLoader): CoreLoader {
   };
 }
 
+/**
+ * Attach the viewer's remote A/V stream to a lazily-created `<video>` overlay
+ * (T41); detaches/hides on null. Set only by `startApp`.
+ */
+function createVideoAttacher(container: HTMLElement, doc: Document) {
+  let el: HTMLVideoElement | null = null;
+  return (stream: MediaStream | null): void => {
+    if (stream) {
+      if (!el) {
+        el = doc.createElement("video");
+        el.className = "viewer-video-el";
+        el.autoplay = true;
+        el.muted = true;
+        el.playsInline = true;
+        container.append(el);
+      }
+      el.srcObject = stream;
+      el.style.display = "block";
+    } else if (el) {
+      el.srcObject = null;
+      el.style.display = "none";
+    }
+  };
+}
+
 /** Default core loader: fixed args, ROM mounted under `-rompath`. */
 function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<Core> {
   const romPath = "/roms";
@@ -492,6 +560,9 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   const doc = options.doc ?? document;
   const win = options.win ?? window;
   installAudioUnlock(win);
+  // Tap MAME's audio into a MediaStream the host can publish (T41); a no-op
+  // when the Web Audio APIs are missing.
+  const capture = installAudioCapture(win as unknown as AudioCaptureEnv);
   const loadGames = options.loadGames ?? loadCatalogue;
   // e2e hooks (T26/T28) are dev-only: a production bundle must not be armable
   // from a page (a scripted input macro the verifier would replay cleanly, or a
@@ -520,6 +591,8 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   const screenEl = doc.createElement("canvas");
   screenEl.id = "canvas";
 
+  const liveKit = liveKitFactoryFromEnv();
+
   return createApp({
     games,
     loadCore,
@@ -536,6 +609,9 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       keyboard: win,
       gamepads: win.navigator,
       screen: screenEl,
+      liveKit,
+      getAudioStream: () => capture.getAudioStream(),
+      attachVideo: createVideoAttacher(appEl, doc),
       ...(netplay ? { netplay } : {}),
       ...(inputScript ? { inputScript } : {}),
       ...(devEnv?.DEV === true ? { devOverlay: true } : {}),

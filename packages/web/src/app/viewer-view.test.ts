@@ -21,6 +21,7 @@ function findAll(node: ViewNode, className: string): ViewNode[] {
 function state(overrides: Partial<ViewerViewState> = {}): ViewerViewState {
   return {
     status: "playing",
+    video: false,
     players: [
       { slot: 0, name: "You" },
       { slot: 1, name: "Ryu" },
@@ -60,5 +61,12 @@ describe("buildViewer", () => {
     const leave = find(buildViewer(state(), { onLeave }), "leave");
     leave?.onClick?.();
     expect(onLeave).toHaveBeenCalledOnce();
+  });
+
+  it("flags a live video stream (T41)", () => {
+    expect(find(buildViewer(state({ video: false }), { onLeave: vi.fn() }), "viewer-video")).toBeUndefined();
+    expect(
+      find(buildViewer(state({ video: true }), { onLeave: vi.fn() }), "viewer-video")?.text,
+    ).toBe("video");
   });
 });

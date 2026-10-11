@@ -20,6 +20,8 @@ export interface ViewerViewState {
     | "ended"
     | "disconnected";
   players: readonly ViewerPlayer[];
+  /** The host is sharing A/V and we have a live video stream (T41). */
+  video: boolean;
 }
 
 export interface ViewerViewOptions {
@@ -59,6 +61,17 @@ export function buildViewer(
   state: ViewerViewState,
   options: ViewerViewOptions,
 ): ViewNode {
+  const headChildren: ViewNode[] = [
+    { tag: "h2", className: "viewer-title", text: "Live" },
+    {
+      tag: "span",
+      className: `viewer-status ${state.status}`,
+      text: statusText(state.status),
+    },
+  ];
+  if (state.video) {
+    headChildren.push({ tag: "span", className: "viewer-video", text: "video" });
+  }
   return {
     tag: "aside",
     className: "viewer",
@@ -66,14 +79,7 @@ export function buildViewer(
       {
         tag: "div",
         className: "viewer-head",
-        children: [
-          { tag: "h2", className: "viewer-title", text: "Live" },
-          {
-            tag: "span",
-            className: `viewer-status ${state.status}`,
-            text: statusText(state.status),
-          },
-        ],
+        children: headChildren,
       },
       {
         tag: "div",

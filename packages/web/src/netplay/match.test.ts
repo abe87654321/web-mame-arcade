@@ -520,4 +520,52 @@ describe("createMatch", () => {
     const ends = jsonSent(socket).filter((m) => m.t === "game.end");
     expect(ends).toEqual([{ t: "game.end", frame: 0 }]);
   });
+
+  it("host toggles A/V and publishes on livekit.access (T41)", async () => {
+    const start = vi.fn(async () => {});
+    const stop = vi.fn();
+    const publisher = {
+      start,
+      stop,
+      isPublishing: () => false,
+    } as unknown as import("./video").VideoPublisher;
+    const { socket, match } = harness(0, { video: publisher });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    expect(match.setVideo(true)).toBe(true);
+    expect(jsonSent(socket)).toContainEqual({ t: "video.set", enabled: true });
+
+    socket.emitMessage(
+      JSON.stringify({
+        t: "livekit.access",
+        url: "wss://lk",
+        room: "r",
+        token: "lk-jwt",
+      }),
+    );
+    await flush();
+    expect(start).toHaveBeenCalledWith("wss://lk", "lk-jwt");
+
+    // The relay fans the toggle back; disabling stops our publisher.
+    socket.emitMessage(JSON.stringify({ t: "video.set", enabled: false }));
+    await flush();
+    expect(stop).toHaveBeenCalled();
+    expect(match.lobby().video).toBe(false);
+    match.close();
+  });
+
+  it("refuses setVideo for a non-host (T41)", async () => {
+    const { socket, match } = harness();
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+    expect(match.isHost()).toBe(false);
+    expect(match.setVideo(true)).toBe(false);
+    expect(jsonSent(socket).some((m) => m.t === "video.set")).toBe(false);
+    match.close();
+  });
 });

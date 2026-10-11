@@ -14,6 +14,7 @@ import type { Core } from "../core/types";
 import { createPlayback, type Playback } from "./playback";
 import { createRelayClient, type RelayClient } from "./relay-client";
 import type { WebSocketFactory } from "./types";
+import type { VideoSubscriber } from "./video";
 
 export type ViewerStatus =
   | "connecting"
@@ -42,6 +43,13 @@ export interface ViewerDeps {
   fetchSnapshot?: (blobUrl: string) => Promise<Uint8Array>;
   onStatus?: (status: ViewerStatus) => void;
   onPlayers?: (players: ViewerPlayer[]) => void;
+  /**
+   * A/V subscriber (T41): when the host shares video the relay hands this
+   * viewer LiveKit credentials and `onVideo` receives the remote stream (or
+   * null when it ends/the host stops). Display-only.
+   */
+  video?: VideoSubscriber;
+  onVideo?: (stream: MediaStream | null) => void;
   log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
@@ -151,6 +159,18 @@ export function createViewer(deps: ViewerDeps): Viewer {
         case "room.state":
           applyRoomState(message);
           return;
+        case "livekit.access":
+          // The relay handed us LiveKit credentials for the host's A/V (T41).
+          void deps.video?.start(message.url, message.token, (stream) =>
+            deps.onVideo?.(stream),
+          );
+          return;
+        case "video.set":
+          if (!message.enabled) {
+            deps.video?.stop();
+            deps.onVideo?.(null);
+          }
+          return;
         default:
           return;
       }
@@ -181,6 +201,7 @@ export function createViewer(deps: ViewerDeps): Viewer {
     close: () => {
       closed = true;
       client.close();
+      deps.video?.stop();
       // The viewer owns the core on the watch route (like the play controller
       // does on play routes), so stop MAME/Emscripten with it.
       deps.core.destroy();

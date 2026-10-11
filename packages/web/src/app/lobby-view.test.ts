@@ -24,6 +24,7 @@ function state(overrides: Partial<LobbyState> = {}): LobbyState {
     roomStatus: "waiting",
     isHost: true,
     canStart: false,
+    video: false,
     players: [
       { slot: 0, name: "You", host: true, self: true, connected: true, ready: false },
       { slot: 1, name: "Ryu", host: false, self: false, connected: true, ready: false },
@@ -112,5 +113,25 @@ describe("buildLobby", () => {
     expect(find(tree, "lobby-status")?.text).toBe("playing");
     const gone = buildLobby(state({ roomStatus: "disconnected" }), options());
     expect(find(gone, "lobby-status")?.text).toBe("disconnected");
+  });
+
+  it("offers the host a video toggle reflecting the current state (T41)", () => {
+    const opts = { ...options(), onToggleVideo: vi.fn() };
+    const off = find(buildLobby(state({ video: false }), opts), "video-toggle");
+    expect(off?.text).toBe("Share video");
+    off?.onClick?.();
+    expect(opts.onToggleVideo).toHaveBeenCalledWith(true);
+
+    const on = find(buildLobby(state({ video: true }), opts), "video-toggle");
+    expect(on?.text).toBe("Stop video");
+    on?.onClick?.();
+    expect(opts.onToggleVideo).toHaveBeenLastCalledWith(false);
+  });
+
+  it("hides the video toggle from guests and without a handler", () => {
+    expect(
+      find(buildLobby(state({ isHost: false }), { ...options(), onToggleVideo: vi.fn() }), "video-toggle"),
+    ).toBeUndefined();
+    expect(find(buildLobby(state(), options()), "video-toggle")).toBeUndefined();
   });
 });
