@@ -46,7 +46,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Depends: T22, T24.
 
 ## Phase 3 · Spectating and leaderboard
-- [ ] **T30 Relay input log** – define `docs/contracts/input-log.md` (core/rom hash, DIPs, start state, per-frame
+- [x] **T30 Relay input log** – define `docs/contracts/input-log.md` (core/rom hash, DIPs, start state, per-frame
   inputs, end score), append-only log per match, close on `game.end`, upload to object storage (local disk or
   MinIO). Docs: 04, 05, contracts/input-log. Depends: T21, T24.
 - [ ] **T31 Viewer page** – load state + subscribe to inputs, 3 s buffer, catch-up after stalls. Docs: 04. Depends: T11, T30.

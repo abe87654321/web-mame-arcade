@@ -6,6 +6,7 @@ const entry = {
   title: "Gridlee",
   coreVersion: "a".repeat(64),
   mameCommit: "b".repeat(40),
+  romHash: "c".repeat(64),
   supportsSave: true,
   netplayMode: "lockstep",
   maxPlayers: 2,

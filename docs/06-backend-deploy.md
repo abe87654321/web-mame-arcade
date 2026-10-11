@@ -23,5 +23,11 @@ Relay implementation (T22): `packages/relay` runs on the pinned Node with native
 testability; the `uWebSockets.js` swap and Redis pub/sub between relay processes are the T44
 scale-out work. nginx/TLS fronting is T42.
 
+Input log (T30): on `game.start` the relay opens an append-only log and appends every binary
+`input` frame; on the host's `game.end` it closes the log and writes the gzip(JSON) artifact
+(`docs/contracts/input-log.md`) to **local disk** (`WMA_LOG_DIR`, default `data/input-logs`) and
+enqueues a verification job. The `LogStore`/`JobQueue` interfaces keep a MinIO/S3 backend and the
+Redis `verify:jobs` list as drop-ins (T33/T42); the relay's in-memory job sink is the T30 default.
+
 Starting server: 8 vCPU, 16 GB RAM, 1 Gbit/s, Ubuntu 24.04, Docker Compose (`deploy/docker-compose.yml`).
 Move the SFU to its own machine first if video fallback is enabled.

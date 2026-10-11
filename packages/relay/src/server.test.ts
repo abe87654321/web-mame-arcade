@@ -1,6 +1,10 @@
 import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket, { type RawData } from "ws";
+import { encodeInput } from "@wma/protocol";
+import { gunzipInputLog } from "./input-log";
+import { createMemoryJobQueue } from "./job-queue";
+import { createMemoryLogStore } from "./log-store";
 import { createRelayServer, type RelayServer } from "./server";
 import { TokenError, type TokenClaims, type TokenVerifier } from "./token";
 
@@ -138,11 +142,11 @@ describe("createRelayServer", () => {
     expect(await c.next()).toMatchObject({ t: "error", code: "bad_message" });
   });
 
-  it("accepts a binary input frame without an error reply", async () => {
+  it("accepts a stray binary frame without an error reply", async () => {
     const c = await client();
     c.sendRaw(new Uint8Array([1, 2, 3]));
-    // The input log/fan-out land with T30; until then the frame is accepted
-    // silently, so the next reply to the client is its room.state.
+    // A binary frame from a non-seated connection is ignored (no JSON reply),
+    // so the next reply to the client is its room.state.
     c.send(join("alice"));
     expect(await c.next()).toMatchObject({ t: "room.state" });
   });
@@ -254,6 +258,80 @@ describe("createRelayServer", () => {
     it("400s an empty body", async () => {
       const response = await fetch(`${base()}/rooms/r/snapshot`, { method: "POST" });
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe("input log (T30)", () => {
+    it("records binary frames and persists + queues the log on game.end", async () => {
+      const logStore = createMemoryLogStore();
+      const jobQueue = createMemoryJobQueue();
+      const srv = await createRelayServer({
+        port: 0,
+        verifier: fakeVerifier,
+        logStore,
+        jobQueue,
+      });
+      const connect = async (token: string): Promise<TestClient> => {
+        const c = new TestClient(srv.port);
+        clients.push(c);
+        await c.open();
+        c.send(join(token));
+        await c.next();
+        return c;
+      };
+      try {
+        const a = await connect("alice");
+        const b = await connect("bob");
+        b.send({ t: "player.ready", ready: true });
+        await a.next();
+
+        a.send({
+          t: "game.set",
+          driver: "gridlee",
+          coreHash: "a".repeat(64),
+          mameCommit: "b".repeat(40),
+          romHash: "c".repeat(64),
+          dips: { Difficulty: "Medium" },
+        });
+        a.send({ t: "game.start", startFrame: 0, inputDelay: 2 });
+        // A JSON reply always follows on the same socket, so the binary frame
+        // below is processed after game.start (ordered on one connection).
+        a.sendRaw(
+          encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1, 4] }),
+        );
+        a.send({ t: "game.end", frame: 3 });
+        // Drain until the ended room.state proves game.end was processed,
+        // then wait for the async store/queue write.
+        let ended = false;
+        for (let i = 0; i < 20 && !ended; i++) {
+          const message = await a.next();
+          if (message.t === "room.state" && message.status === "ended") ended = true;
+        }
+        expect(ended).toBe(true);
+        await srv.idle();
+
+        const keys = logStore.keys();
+        expect(keys).toHaveLength(1);
+        const log = gunzipInputLog(logStore.get(keys[0]!)!);
+        expect(log.meta.driver).toBe("gridlee");
+        expect(log.frames).toEqual([
+          [0, 0],
+          [0, 0],
+          [1, 0],
+          [4, 0],
+        ]);
+        expect(jobQueue.jobs).toEqual([
+          {
+            room: "r",
+            replayKey: keys[0],
+            driver: "gridlee",
+            coreHash: "a".repeat(64),
+            mameCommit: "b".repeat(40),
+          },
+        ]);
+      } finally {
+        await srv.close();
+      }
     });
   });
 });

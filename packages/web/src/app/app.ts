@@ -236,6 +236,15 @@ export function createApp(deps: AppDeps): AppController {
               role: "player",
               iceServers: netplay.iceServers,
             },
+            // The host announces this so the relay can fill room.state and open
+            // an input log (T30); DIPs default until a DIP UI exists.
+            game: {
+              driver: entry.driver,
+              coreHash: entry.coreVersion,
+              mameCommit: entry.mameCommit,
+              romHash: entry.romHash,
+              dips: {},
+            },
             socketFactory: netplay.socketFactory,
             factory: netplay.factory,
             now: netplay.now ?? (() => Date.now()),

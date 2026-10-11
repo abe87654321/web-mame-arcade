@@ -10,7 +10,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { Socket } from "node:net";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import type { ServerMessage } from "@wma/protocol";
-import { createRelay, type Outbound } from "./relay.ts";
+import { type JobQueue, createMemoryJobQueue } from "./job-queue.ts";
+import { type LogStore, createLocalDiskLogStore } from "./log-store.ts";
+import { createRelay, type ClosedLog, type Outbound } from "./relay.ts";
 import type { TokenVerifier } from "./token.ts";
 
 export interface RelayServerOptions {
@@ -25,11 +27,19 @@ export interface RelayServerOptions {
   heartbeatMs?: number;
   /** Structured desync/resync log; defaults to JSON lines on stdout. */
   log?: (event: string, fields: Record<string, unknown>) => void;
+  /** Where closed input logs are written (T30); default local disk. */
+  logStore?: LogStore;
+  /** Local-disk fallback directory; default `WMA_LOG_DIR` or `data/input-logs`. */
+  logDir?: string;
+  /** Verification job sink (T30); default in-memory (Redis is T33/T42). */
+  jobQueue?: JobQueue;
 }
 
 export interface RelayServer {
   /** The bound port (useful when `port: 0`). */
   port: number;
+  /** Resolves when all pending input-log writes/queues have settled (tests). */
+  idle(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -43,11 +53,42 @@ const MAX_SNAPSHOTS_PER_ROOM = 4;
 export function createRelayServer(options: RelayServerOptions): Promise<RelayServer> {
   const path = options.path ?? DEFAULT_PATH;
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const logger =
+    options.log ??
+    ((event: string, fields: Record<string, unknown>) =>
+      console.log(JSON.stringify({ event, ...fields })));
+  const logStore =
+    options.logStore ??
+    createLocalDiskLogStore({ dir: options.logDir ?? process.env.WMA_LOG_DIR ?? "data/input-logs" });
+  const jobQueue = options.jobQueue ?? createMemoryJobQueue();
+  // Input-log writes/queues are fire-and-forget from the (synchronous) dispatch
+  // path; track them so tests and graceful shutdown can await (T30).
+  const pending = new Set<Promise<void>>();
+  function persistLog(closed: ClosedLog): void {
+    const task: Promise<void> = (async () => {
+      await logStore.put(closed.replayKey, closed.bytes);
+      await jobQueue.enqueue({
+        room: closed.room,
+        replayKey: closed.replayKey,
+        driver: closed.driver,
+        coreHash: closed.coreHash,
+        mameCommit: closed.mameCommit,
+      });
+    })()
+      .catch((error: unknown) => {
+        logger("input-log-error", {
+          room: closed.room,
+          replayKey: closed.replayKey,
+          error: String(error),
+        });
+      })
+      .finally(() => pending.delete(task));
+    pending.add(task);
+  }
   const relay = createRelay({
     verifier: options.verifier,
-    log:
-      options.log ??
-      ((event, fields) => console.log(JSON.stringify({ event, ...fields }))),
+    log: logger,
+    onLogClosed: persistLog,
   });
   // Recent desync-recovery snapshots per room (T25), newest first. Keeping a
   // short history means a url handed out just before another desync still
@@ -179,8 +220,13 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     socket.on("message", (data: RawData, isBinary: boolean) => {
       if (isBinary) {
         // Binary frames are `input` packets (docs/contracts/input-packet.md).
-        // T24 transports them to the relay; the append-only log and spectator
-        // fan-out are T30/T31, so accept and drop for now.
+        // T30 appends them to the match's input log; spectator fan-out is T31.
+        const frame = Array.isArray(data)
+          ? Buffer.concat(data)
+          : Buffer.isBuffer(data)
+            ? data
+            : Buffer.from(data);
+        dispatch(relay.input(connectionId, new Uint8Array(frame)));
         return;
       }
       let value: unknown;
@@ -232,6 +278,7 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
       const boundPort = typeof address === "object" && address !== null ? address.port : port;
       resolve({
         port: boundPort,
+        idle: () => Promise.all([...pending]).then(() => undefined),
         close: () =>
           new Promise<void>((done) => {
             clearInterval(heartbeat);

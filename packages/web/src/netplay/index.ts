@@ -23,6 +23,7 @@ export type {
   LobbyPlayer,
   LobbyState,
   MatchDeps,
+  MatchGame,
   MatchStatus,
   NetplayMatch,
 } from "./match";

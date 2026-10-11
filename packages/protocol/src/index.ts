@@ -18,6 +18,7 @@ export {
   desync,
   errorMessage,
   gameEnd,
+  gameSet,
   gameStart,
   hashMessage,
   parseMessage,
@@ -37,6 +38,7 @@ export type {
   Desync,
   ErrorMessage,
   GameEnd,
+  GameSet,
   GameStart,
   HashMessage,
   PlayerReady,
@@ -47,3 +49,15 @@ export type {
   ServerMessage,
   StateSnapshot,
 } from "./messages.ts";
+
+export {
+  INPUT_LOG_VERSION,
+  decodeInputLog,
+  encodeInputLog,
+  inputLog,
+  inputLogEnd,
+  inputLogMeta,
+  inputLogStart,
+  playerIndex,
+} from "./input-log.ts";
+export type { InputLog, InputLogEnd, InputLogGame, InputLogMeta, InputLogStart } from "./input-log.ts";
