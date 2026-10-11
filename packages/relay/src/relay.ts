@@ -3,10 +3,12 @@
  * protocol union and routes them to {@link RoomManager}. The socket binding
  * (server.ts) only parses frames and serialises the returned messages.
  */
+import { randomUUID } from "node:crypto";
 import {
   clientMessage,
   type ServerMessage,
 } from "@wma/protocol";
+import { gzipInputLog, inputLogKey } from "./input-log.ts";
 import { RelayError, RoomManager } from "./room.ts";
 import { TokenError, type TokenVerifier } from "./token.ts";
 
@@ -15,9 +17,22 @@ export interface Outbound {
   message: ServerMessage;
 }
 
+/** A closed match log handed to the caller for storage (T30). */
+export interface ClosedLog {
+  room: string;
+  /** Object-storage key of the gzip(JSON) artifact (docs/contracts/input-log.md). */
+  replayKey: string;
+  driver: string;
+  coreHash: string;
+  mameCommit: string;
+  bytes: Uint8Array;
+}
+
 export interface Relay {
   /** Handle one decoded JSON message; returns messages to send. */
   handle(connectionId: string, value: unknown): Outbound[];
+  /** Handle one binary input frame; returns messages to send (usually none). */
+  input(connectionId: string, bytes: Uint8Array): Outbound[];
   /** Handle a disconnect; returns the resulting room.state broadcasts. */
   leave(connectionId: string): Outbound[];
 }
@@ -29,10 +44,13 @@ function errorOut(connectionId: string, code: string, message: string): Outbound
 export function createRelay({
   verifier,
   log,
+  onLogClosed,
 }: {
   verifier: TokenVerifier;
   /** Optional structured logger for desync/resync events (T25). */
   log?: (event: string, fields: Record<string, unknown>) => void;
+  /** Called with a closed match log to persist (T30). */
+  onLogClosed?: (closed: ClosedLog) => void;
 }): Relay {
   const rooms = new RoomManager(verifier);
 
@@ -77,6 +95,16 @@ export function createRelay({
             const { target, from } = rooms.signal(connectionId, message);
             return [{ connectionId: target, message: { ...message, from } }];
           }
+          case "game.set": {
+            // The host's game + DIPs is stored on the room and fanned out so
+            // every member sees the match identity; room.state now carries the
+            // driver/core/rom hashes (T30, docs/contracts/ws-messages.md).
+            const { roomId } = rooms.setGame(connectionId, message);
+            const sets: Outbound[] = rooms
+              .broadcastTargets(roomId)
+              .map((target) => ({ connectionId: target, message }));
+            return [...sets, ...snapshotOut(roomId)];
+          }
           case "game.start": {
             // The host's start is fanned out to the whole room so every peer
             // agrees on startFrame/inputDelay, and the updated room.state flips
@@ -86,6 +114,31 @@ export function createRelay({
               .broadcastTargets(roomId)
               .map((target) => ({ connectionId: target, message }));
             return [...starts, ...snapshotOut(roomId)];
+          }
+          case "game.end": {
+            // The host closes the match: store the input log and queue
+            // verification, then fan the end out and flip room.state to
+            // "ended" (T30, docs/contracts/input-log.md).
+            const { roomId, log: closedLog } = rooms.end(connectionId, message);
+            if (closedLog) {
+              const replayKey = inputLogKey(roomId, randomUUID());
+              log?.("input-log", {
+                room: roomId,
+                replayKey,
+                frames: closedLog.frames.length,
+              });
+              onLogClosed?.({
+                room: roomId,
+                replayKey,
+                driver: closedLog.meta.driver,
+                coreHash: closedLog.meta.core_hash,
+                mameCommit: closedLog.meta.mame_commit,
+                bytes: gzipInputLog(closedLog),
+              });
+            }
+            // `game.end` is client→relay only (docs/contracts/ws-messages.md);
+            // the room learns it ended from the refreshed room.state.
+            return snapshotOut(roomId);
           }
           case "hash": {
             // Compare this player's frame hash against the others'; a genuine
@@ -109,7 +162,7 @@ export function createRelay({
               .map((target) => ({ connectionId: target, message }));
           }
           default:
-            // input/score.live/game.end/chat are owned by later tasks (T30/T32/T36).
+            // score.live/chat are owned by later tasks (T32/T36).
             return errorOut(
               connectionId,
               "unsupported",
@@ -125,6 +178,12 @@ export function createRelay({
         }
         throw error;
       }
+    },
+
+    input(connectionId: string, bytes: Uint8Array): Outbound[] {
+      // Best-effort recording; binary frames never elicit a JSON reply.
+      rooms.recordInput(connectionId, bytes);
+      return [];
     },
 
     leave(connectionId: string): Outbound[] {

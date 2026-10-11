@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createRelay, type Outbound } from "./relay";
+import { encodeInput } from "@wma/protocol";
+import { gunzipInputLog } from "./input-log";
+import { createRelay, type ClosedLog, type Outbound } from "./relay";
 import { TokenError, type TokenClaims, type TokenVerifier } from "./token";
 
 const fakeVerifier: TokenVerifier = {
@@ -279,5 +281,159 @@ describe("createRelay", () => {
 
   it("ignores leave for an unknown connection", () => {
     expect(relay().leave("ghost")).toEqual([]);
+  });
+});
+
+const gameSet = {
+  t: "game.set" as const,
+  driver: "gridlee",
+  coreHash: "a".repeat(64),
+  mameCommit: "b".repeat(40),
+  romHash: "c".repeat(64),
+  dips: { Difficulty: "Medium" },
+};
+
+describe("createRelay (input log, T30)", () => {
+  it("stores the host's game.set and reflects it in room.state", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+
+    const out = r.handle("c1", gameSet);
+    const sets = out.filter((o) => o.message.t === "game.set");
+    expect(sets.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    const states = out.filter((o) => o.message.t === "room.state");
+    expect(states.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    for (const state of states) {
+      expect(state.message).toMatchObject({
+        t: "room.state",
+        game: "gridlee",
+        coreHash: "a".repeat(64),
+        romHash: "c".repeat(64),
+        dips: { Difficulty: "Medium" },
+      });
+    }
+  });
+
+  it("rejects game.set from a non-host", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    const out = r.handle("c2", gameSet);
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "not_host" });
+  });
+
+  it("records input frames and closes the log on the host's game.end", () => {
+    const logs: ClosedLog[] = [];
+    const r = createRelay({ verifier: fakeVerifier, onLogClosed: (log) => logs.push(log) });
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+
+    // frame 2: P1 mask 1, P2 mask 0x10; frame 3: P1 mask 4.
+    r.input("c1", encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1, 4] }));
+    r.input("c2", encodeInput({ version: 1, player: 1, ackFrame: 0, firstFrame: 2, inputs: [0x10, 0] }));
+
+    const out = r.handle("c1", { t: "game.end", frame: 3 });
+    expect(logs).toHaveLength(1);
+    const log = logs[0]!;
+    expect(log.room).toBe("r");
+    expect(log.driver).toBe("gridlee");
+    expect(log.mameCommit).toBe("b".repeat(40));
+    expect(log.replayKey).toMatch(/^match\/r\/.+\.json\.gz$/);
+
+    const decoded = gunzipInputLog(log.bytes);
+    expect(decoded.frames).toEqual([
+      [0, 0],
+      [0, 0],
+      [1, 0x10],
+      [4, 0],
+    ]);
+    expect(decoded.end).toEqual({ frame: 3, scores: [] });
+
+    // The room flips to ended for everyone.
+    const states = out.filter((o) => o.message.t === "room.state");
+    expect(states.map((o) => o.connectionId).sort()).toEqual(["c1", "c2"]);
+    for (const state of states) {
+      expect(state.message).toMatchObject({ t: "room.state", status: "ended" });
+    }
+  });
+
+  it("rejects game.end from a non-host or a non-playing room", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    expect(r.handle("c1", { t: "game.end", frame: 0 })[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_playing",
+    });
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    expect(r.handle("c2", { t: "game.end", frame: 0 })[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_host",
+    });
+  });
+
+  it("ignores binary input before the log is open", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    const bytes = encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 0, inputs: [1] });
+    expect(r.input("c1", bytes)).toEqual([]);
+  });
+
+  it("records under the authenticated slot, not the packet's claimed player", () => {
+    const logs: ClosedLog[] = [];
+    const r = createRelay({ verifier: fakeVerifier, onLogClosed: (log) => logs.push(log) });
+    r.handle("c1", join("c1", "alice")); // slot 0
+    r.handle("c2", join("c2", "bob")); // slot 1
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+
+    // c1 (slot 0) forges a packet claiming to be player 1: dropped.
+    r.input("c1", encodeInput({ version: 1, player: 1, ackFrame: 0, firstFrame: 2, inputs: [0x10, 0] }));
+    // c2's genuine slot-1 packet is recorded.
+    r.input("c2", encodeInput({ version: 1, player: 1, ackFrame: 0, firstFrame: 2, inputs: [0x20, 0] }));
+
+    r.handle("c1", { t: "game.end", frame: 2 });
+    const decoded = gunzipInputLog(logs[0]!.bytes);
+    expect(decoded.frames).toEqual([
+      [0, 0],
+      [0, 0],
+      [0, 0x20],
+    ]);
+  });
+
+  it("opens no log when the host never sent game.set", () => {
+    const logs: ClosedLog[] = [];
+    const r = createRelay({ verifier: fakeVerifier, onLogClosed: (log) => logs.push(log) });
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    r.input("c1", encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 0, inputs: [1] }));
+    const out = r.handle("c1", { t: "game.end", frame: 0 });
+
+    expect(logs).toEqual([]);
+    expect(out[0]?.message).toMatchObject({ t: "room.state", status: "ended" });
+  });
+
+  it("rejects game.set once the match has started", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    const out = r.handle("c1", gameSet);
+    expect(out[0]?.message).toMatchObject({ t: "error", code: "already_started" });
+  });
+
+  it("does not fan game.end out to peers", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    const out = r.handle("c1", { t: "game.end", frame: 0 });
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((o) => o.message.t === "room.state")).toBe(true);
   });
 });

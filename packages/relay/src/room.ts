@@ -5,12 +5,18 @@
  */
 import {
   PLAYER_SLOTS,
+  decodeInput,
+  type GameEnd,
+  type GameSet,
   type GameStart,
   type HashMessage,
+  type InputLog,
+  type InputPacket,
   type PlayerReady,
   type RoomState,
   type RtcSignal,
 } from "@wma/protocol";
+import { InputLogRecorder } from "./input-log.ts";
 import type { TokenVerifier } from "./token.ts";
 
 export type Role = "player" | "viewer";
@@ -46,11 +52,24 @@ export class RelayError extends Error {
   }
 }
 
+/** The match identity a host sets with `game.set` (T30, docs/contracts). */
+export interface RoomGame {
+  driver: string;
+  coreHash: string;
+  mameCommit: string;
+  romHash: string;
+  dips: Record<string, string | number>;
+}
+
 interface Room {
   id: string;
   members: Map<string, RoomMember>;
   status: RoomStatus;
   start: { startFrame: number; inputDelay: number } | null;
+  /** Host-set game identity, or null until `game.set` (T30). */
+  game: RoomGame | null;
+  /** Open input log for the current match, or null (T30). */
+  log: InputLogRecorder | null;
   /** Frame the hash comparison is currently on (T25), or -1 before any hash. */
   hashFrame: number;
   /** This frame's crc32 per player slot; reset whenever a newer frame arrives. */
@@ -71,6 +90,14 @@ function lowestSlot(room: Room): number | null {
     .map((m) => m.slot)
     .filter((slot): slot is number => slot !== null);
   return slots.length > 0 ? Math.min(...slots) : null;
+}
+
+/** Seated players in slot order, for the input-log start roster (T30). */
+function seatedPlayers(room: Room): { slot: number; name: string }[] {
+  return [...room.members.values()]
+    .filter((m): m is RoomMember & { slot: number } => m.slot !== null)
+    .sort((a, b) => a.slot - b.slot)
+    .map((m) => ({ slot: m.slot, name: m.name }));
 }
 
 /**
@@ -195,6 +222,37 @@ export class RoomManager {
   }
 
   /**
+   * Record the host's `game.set` (T30): the game + DIPs identity that fills
+   * `room.state` and seeds the input log. Only the host (lowest occupied player
+   * slot) may set it, and only while the room is still `waiting`.
+   */
+  setGame(connectionId: string, message: GameSet): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "game.set");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can set a game");
+    }
+    const hostSlot = lowestSlot(room);
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot set the game; host is slot ${hostSlot}`,
+      );
+    }
+    if (room.status !== "waiting") {
+      throw new RelayError("already_started", `room ${room.id} has already started`);
+    }
+    room.game = {
+      driver: message.driver,
+      coreHash: message.coreHash,
+      mameCommit: message.mameCommit,
+      romHash: message.romHash,
+      dips: { ...message.dips },
+    };
+    return { roomId: room.id, from: sender.slot };
+  }
+
+  /**
    * Record the host's `game.start` on the room and flip it to `playing`.
    * The host is the lowest occupied player slot. Returns the room id and the
    * authoritative sender slot.
@@ -219,7 +277,80 @@ export class RoomManager {
     room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
     room.hashFrame = -1;
     room.hashes.clear();
+    // Open the input log when the host has set the game (T30); without a
+    // `game.set` there is no match identity to log, so no log is recorded.
+    room.log = room.game
+      ? new InputLogRecorder(room.id, room.game, {
+          frame: message.startFrame,
+          inputDelay: message.inputDelay,
+          players: seatedPlayers(room),
+        })
+      : null;
     return { roomId: room.id, from: sender.slot };
+  }
+
+  /**
+   * Append a seated player's binary input packet to the open log (T30). A
+   * non-seated sender, a room that is not `playing`, a closed log or a
+   * malformed packet is ignored. Returns whether anything was recorded.
+   */
+  recordInput(connectionId: string, bytes: Uint8Array): boolean {
+    // Binary input is best-effort: a frame from a connection that is not a
+    // seated player in a playing room is silently ignored rather than answered
+    // with a JSON error (there is no useful reply to a stray binary frame).
+    const roomId = this.byConnection.get(connectionId);
+    const room = roomId === undefined ? undefined : this.rooms.get(roomId);
+    if (!room) return false;
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) return false;
+    if (room.status !== "playing" || !room.log) return false;
+    let packet: InputPacket;
+    try {
+      packet = decodeInput(bytes);
+    } catch {
+      return false;
+    }
+    // The packet's `player` is untrusted (client-supplied). The authenticated
+    // connection owns exactly one slot, so a frame claiming another slot is
+    // dropped: without this a seated player could pre-seed a victim's slot
+    // (first-write-wins) and forge their inputs in the verifier's evidence.
+    // Mirrors `hash`, which stamps sender.slot rather than trusting the wire.
+    if (packet.player !== sender.slot) return false;
+    return room.log.append(packet);
+  }
+
+  /**
+   * Close the match on the host's `game.end` (T30). Only the host (lowest
+   * occupied player slot) in a `playing` room may end; the room becomes
+   * `ended` and the input log (if any) is returned for storage.
+   */
+  end(
+    connectionId: string,
+    message: GameEnd,
+  ): { roomId: string; from: number; log: InputLog | null } {
+    const room = this.roomOf(connectionId, "game.end");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can end a game");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} is not playing`);
+    }
+    const hostSlot = lowestSlot(room);
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot end; host is slot ${hostSlot}`,
+      );
+    }
+    room.status = "ended";
+    const recorder = room.log;
+    room.log = null;
+    return {
+      roomId: room.id,
+      from: sender.slot,
+      log: recorder ? recorder.close(message.frame, []) : null,
+    };
   }
 
   /**
@@ -325,10 +456,10 @@ export class RoomManager {
       room: room.id,
       self: room.members.get(connectionId)?.slot ?? null,
       players,
-      game: null,
-      coreHash: null,
-      romHash: null,
-      dips: {},
+      game: room.game?.driver ?? null,
+      coreHash: room.game?.coreHash ?? null,
+      romHash: room.game?.romHash ?? null,
+      dips: room.game ? { ...room.game.dips } : {},
       status: room.status,
     };
   }
@@ -352,6 +483,8 @@ export class RoomManager {
         members: new Map(),
         status: "waiting",
         start: null,
+        game: null,
+        log: null,
         hashFrame: -1,
         hashes: new Map(),
       };
