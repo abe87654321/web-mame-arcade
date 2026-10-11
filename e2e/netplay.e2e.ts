@@ -52,6 +52,33 @@ const coreDir = entry
   : "";
 const romZip = resolve(here, `../packages/web/public/roms/${DRIVER}.zip`);
 
+/**
+ * Wait until this tab has reported `min` per-60-frame hashes, or fail with what
+ * it did report (frame list + on-screen status) so a slow/crawling netem run is
+ * diagnosable rather than a bare timeout. Polling both tabs concurrently keeps
+ * the total bounded by one timeout.
+ */
+async function awaitHashes(
+  page: Page,
+  hashes: Map<number, number>,
+  min: number,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (hashes.size < min) {
+    if (Date.now() > deadline) {
+      const status = (await page.locator(".status").textContent().catch(() => null)) ?? "?";
+      const room = (await page.locator(".lobby-status").textContent().catch(() => null)) ?? "?";
+      const frames = [...hashes.keys()].sort((a, b) => a - b).join(",");
+      throw new Error(
+        `only ${hashes.size} hash point(s) in ${timeoutMs}ms ` +
+          `(status="${status}", room="${room}", frames=[${frames}])`,
+      );
+    }
+    await page.waitForTimeout(2000);
+  }
+}
+
 test.describe("netplay lockstep", () => {
   test.skip(
     entry === undefined || !existsSync(coreDir) || !existsSync(romZip),
@@ -67,6 +94,12 @@ test.describe("netplay lockstep", () => {
 
     const open = async (sub: string) => {
       const page = await context.newPage();
+      page.on("console", (message) => {
+        const text = message.text();
+        if (text.includes("[netplay]") || message.type() === "error") {
+          console.log(`[${sub}]`, text);
+        }
+      });
       await page.addInitScript(
         (players) => {
           (window as unknown as { __WMA_TEST_INPUT__?: unknown }).__WMA_TEST_INPUT__ = {
@@ -110,12 +143,10 @@ test.describe("netplay lockstep", () => {
     await expect(host.locator(".start-game")).toBeEnabled();
     await press(host, ".start-game");
 
-    await expect
-      .poll(() => h1.size, { timeout: 300_000 })
-      .toBeGreaterThanOrEqual(MIN_HASHES);
-    await expect
-      .poll(() => h2.size, { timeout: 300_000 })
-      .toBeGreaterThanOrEqual(MIN_HASHES);
+    await Promise.all([
+      awaitHashes(p1, h1, MIN_HASHES, 300_000),
+      awaitHashes(p2, h2, MIN_HASHES, 300_000),
+    ]);
 
     expect(d1, "p1 saw a desync").toEqual([]);
     expect(d2, "p2 saw a desync").toEqual([]);
