@@ -11,6 +11,8 @@ dist/
 coverage/
 *.log
 .DS_Store
+# Relay input logs written to local disk (T30; default data/input-logs).
+data/
 # GAN-style design harness output (T27 design exploration; see docs/tasks).
 gan-harness/
 # Playwright netplay e2e harness (T26).
