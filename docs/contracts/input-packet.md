@@ -25,6 +25,17 @@ Implementation: `packages/protocol/src/input.ts` — button bits plus `encodeInp
 `version`, a `player` outside 0-3, a `count` outside 1-8, and any length that disagrees with `count`.
 `packages/web/src/input/` turns devices into a mask. `InputPacket` is the decoded shape.
 
+## `ack_frame` (local diagnostics only)
+
+`ack_frame` is the highest frame the **sender** has received from the recipient. A peer records
+the local wall-clock time it scheduled each frame; when a later packet arrives whose `ack_frame`
+reaches that frame, the difference is a round-trip estimate for that peer. `ack_frame` is also
+used to count losses (a gap in a peer's `firstFrame` series before redundancy fills it) and jitter
+(inter-arrival variance). All of this is **local telemetry** (T28): it drives the dev overlay and
+the adaptive-delay input only, never `core.step`, so a clock reading can never make two peers
+diverge. The two-frame `ack` in a packet remains informational until rollback (T40) needs a real
+per-peer acknowledgement.
+
 ## Local input config vs host default
 Which physical key/button/axis feeds each bit is **per-browser local configuration**, never sent
 over the wire — only the resulting mask is. Each peer therefore keeps its own mapping and never
