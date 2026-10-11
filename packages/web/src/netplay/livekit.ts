@@ -20,10 +20,15 @@ export interface VideoRoom {
   disconnect(): Promise<void>;
   /** Publish every track of `stream` (the host's canvas + MAME audio). */
   publish(stream: MediaStream): Promise<void>;
-  /** Invoked with a remote A/V stream whenever a track is subscribed. */
-  onStream(callback: (stream: MediaStream) => void): void;
-  /** Invoked when the last remote track is gone. */
-  onStreamEnded(callback: () => void): void;
+  /**
+   * Invoked once per remote track the viewer subscribes. A room subscription
+   * arrives **per track** (video, then audio), so the caller must accumulate
+   * them; surfacing each as its own stream and replacing `srcObject` would drop
+   * all but the last track.
+   */
+  onTrack(callback: (track: MediaStreamTrack) => void): void;
+  /** Invoked once per remote track that is unsubscribed. */
+  onTrackEnded(callback: (track: MediaStreamTrack) => void): void;
 }
 
 export interface LiveKitFactory {
@@ -47,14 +52,16 @@ class BrowserVideoRoom implements VideoRoom {
     }
   }
 
-  onStream(callback: (stream: MediaStream) => void): void {
+  onTrack(callback: (track: MediaStreamTrack) => void): void {
     this.room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-      callback(new MediaStream([track.mediaStreamTrack]));
+      callback(track.mediaStreamTrack);
     });
   }
 
-  onStreamEnded(callback: () => void): void {
-    this.room.on(RoomEvent.TrackUnsubscribed, () => callback());
+  onTrackEnded(callback: (track: MediaStreamTrack) => void): void {
+    this.room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      callback(track.mediaStreamTrack);
+    });
   }
 }
 
@@ -70,44 +77,49 @@ export function browserLiveKitFactory(): LiveKitFactory {
  * (see `liveKitFactoryFromEnv`).
  */
 export function mockLiveKitFactory(): LiveKitFactory {
-  const syntheticStream = (): MediaStream => {
+  const syntheticTrack = (): MediaStreamTrack | null => {
     const doc = (globalThis as { document?: Document }).document;
     if (doc && typeof doc.createElement === "function") {
       const canvas = doc.createElement("canvas");
       canvas.width = 2;
       canvas.height = 2;
-      if (typeof canvas.captureStream === "function") return canvas.captureStream(1);
+      if (typeof canvas.captureStream === "function") {
+        return canvas.captureStream(1).getVideoTracks()[0] ?? null;
+      }
     }
-    return new MediaStream();
+    return null;
   };
   return {
     createRoom: () => {
-      let streamCallback: ((stream: MediaStream) => void) | null = null;
       return {
         async connect() {},
         async disconnect() {},
         async publish() {},
-        onStream(callback) {
-          streamCallback = callback;
+        onTrack(callback) {
           // Deliver a synthetic track on the next tick so the UI flow exercises
           // the same attach path as a real track subscription.
-          setTimeout(() => streamCallback?.(syntheticStream()), 0);
+          setTimeout(() => {
+            const track = syntheticTrack();
+            if (track) callback(track);
+          }, 0);
         },
-        onStreamEnded() {
-          streamCallback = null;
-        },
+        onTrackEnded() {},
       };
     },
   };
 }
 
-/** Choose the factory from Vite build env; defaults to the real one. */
+/**
+ * Choose the factory from Vite build env; the mock is dev-only (like the e2e
+ * input hook), so a leaked `VITE_LIVEKIT_MODE=mock` in a production build still
+ * gets the real adapter.
+ */
 export function liveKitFactoryFromEnv(
-  env: { VITE_LIVEKIT_MODE?: string } = (import.meta as unknown as {
-    env?: { VITE_LIVEKIT_MODE?: string };
+  env: { VITE_LIVEKIT_MODE?: string; DEV?: boolean } = (import.meta as unknown as {
+    env?: { VITE_LIVEKIT_MODE?: string; DEV?: boolean };
   }).env ?? {},
 ): LiveKitFactory {
-  return env.VITE_LIVEKIT_MODE === "mock"
+  return env.VITE_LIVEKIT_MODE === "mock" && env.DEV === true
     ? mockLiveKitFactory()
     : browserLiveKitFactory();
 }

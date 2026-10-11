@@ -115,23 +115,39 @@ describe("buildLobby", () => {
     expect(find(gone, "lobby-status")?.text).toBe("disconnected");
   });
 
-  it("offers the host a video toggle reflecting the current state (T41)", () => {
+  it("offers the host a video toggle only while playing (T41)", () => {
     const opts = { ...options(), onToggleVideo: vi.fn() };
-    const off = find(buildLobby(state({ video: false }), opts), "video-toggle");
+    const off = find(
+      buildLobby(state({ roomStatus: "playing", video: false }), opts),
+      "video-toggle",
+    );
     expect(off?.text).toBe("Share video");
     off?.onClick?.();
     expect(opts.onToggleVideo).toHaveBeenCalledWith(true);
 
-    const on = find(buildLobby(state({ video: true }), opts), "video-toggle");
+    const on = find(
+      buildLobby(state({ roomStatus: "playing", video: true }), opts),
+      "video-toggle",
+    );
     expect(on?.text).toBe("Stop video");
     on?.onClick?.();
     expect(opts.onToggleVideo).toHaveBeenLastCalledWith(false);
   });
 
-  it("hides the video toggle from guests and without a handler", () => {
+  it("hides the video toggle from guests, pre-game and without a handler", () => {
+    const opts = { ...options(), onToggleVideo: vi.fn() };
     expect(
-      find(buildLobby(state({ isHost: false }), { ...options(), onToggleVideo: vi.fn() }), "video-toggle"),
+      find(buildLobby(state({ isHost: false, roomStatus: "playing" }), opts), "video-toggle"),
     ).toBeUndefined();
-    expect(find(buildLobby(state(), options()), "video-toggle")).toBeUndefined();
+    // Waiting / ended rooms: the relay would reject the toggle.
+    expect(
+      find(buildLobby(state({ roomStatus: "waiting" }), opts), "video-toggle"),
+    ).toBeUndefined();
+    expect(
+      find(buildLobby(state({ roomStatus: "ended" }), opts), "video-toggle"),
+    ).toBeUndefined();
+    expect(
+      find(buildLobby(state({ roomStatus: "playing" }), options()), "video-toggle"),
+    ).toBeUndefined();
   });
 });

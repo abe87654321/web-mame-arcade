@@ -68,6 +68,8 @@ export function createVideoPublisher(deps: VideoPublisherDeps): VideoPublisher {
 
 export interface VideoSubscriberDeps {
   factory: LiveKitFactory;
+  /** MediaStream constructor; default the browser global (tests inject one). */
+  MediaStream?: typeof MediaStream;
   log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
@@ -83,7 +85,23 @@ export interface VideoSubscriber {
 }
 
 export function createVideoSubscriber(deps: VideoSubscriberDeps): VideoSubscriber {
+  const MediaStreamCtor =
+    deps.MediaStream ??
+    (globalThis as { MediaStream?: typeof MediaStream }).MediaStream;
   let room: VideoRoom | null = null;
+  // A LiveKit subscription arrives per track (video, then audio); accumulate
+  // them into one stream so the viewer sees A/V together, and only report the
+  // end once the last track is gone.
+  let stream: MediaStream | null = null;
+
+  function addTrack(track: MediaStreamTrack): MediaStream | null {
+    if (!stream) {
+      if (!MediaStreamCtor) return null;
+      stream = new MediaStreamCtor();
+    }
+    stream.addTrack(track);
+    return stream;
+  }
 
   return {
     async start(
@@ -95,8 +113,18 @@ export function createVideoSubscriber(deps: VideoSubscriberDeps): VideoSubscribe
       const next = deps.factory.createRoom();
       try {
         await next.connect(url, token);
-        next.onStream(onStream);
-        next.onStreamEnded(() => onStream(null));
+        next.onTrack((track) => {
+          const merged = addTrack(track);
+          if (merged) onStream(merged);
+        });
+        next.onTrackEnded((track) => {
+          if (!stream) return;
+          stream.removeTrack(track);
+          if (stream.getTracks().length === 0) {
+            stream = null;
+            onStream(null);
+          }
+        });
         room = next;
         deps.log?.("video-subscribe", { url });
       } catch (error: unknown) {
@@ -108,6 +136,7 @@ export function createVideoSubscriber(deps: VideoSubscriberDeps): VideoSubscribe
     stop(): void {
       const current = room;
       room = null;
+      stream = null;
       current?.disconnect().catch(() => {});
     },
   };

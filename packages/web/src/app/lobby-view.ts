@@ -102,8 +102,9 @@ export function buildLobby(state: LobbyState, options: LobbyViewOptions): ViewNo
     });
   }
 
-  // The host can share its screen (canvas + MAME audio) via LiveKit (T41).
-  if (state.isHost && options.onToggleVideo) {
+  // The host can share its screen (canvas + MAME audio) via LiveKit (T41), but
+  // only once the match is playing — the relay rejects `video.set` otherwise.
+  if (state.isHost && state.roomStatus === "playing" && options.onToggleVideo) {
     controls.push({
       tag: "button",
       className: "video-toggle",

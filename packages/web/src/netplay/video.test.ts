@@ -3,9 +3,9 @@ import type { LiveKitFactory, VideoRoom } from "./livekit";
 import { createVideoPublisher, createVideoSubscriber } from "./video";
 
 class FakeMediaStream {
-  private readonly tracks: MediaStreamTrack[] = [];
+  private tracks: MediaStreamTrack[] = [];
   constructor(tracks: MediaStreamTrack[] = []) {
-    this.tracks.push(...tracks);
+    this.tracks = [...tracks];
   }
   getTracks(): MediaStreamTrack[] {
     return [...this.tracks];
@@ -15,6 +15,9 @@ class FakeMediaStream {
   }
   addTrack(track: MediaStreamTrack): void {
     this.tracks.push(track);
+  }
+  removeTrack(track: MediaStreamTrack): void {
+    this.tracks = this.tracks.filter((t) => t !== track);
   }
 }
 
@@ -35,12 +38,12 @@ class FakeRoom implements VideoRoom {
   readonly publish = vi.fn(async (stream: MediaStream) => {
     void stream;
   });
-  streamCb: ((stream: MediaStream) => void) | null = null;
-  endCb: (() => void) | null = null;
-  onStream(callback: (stream: MediaStream) => void): void {
-    this.streamCb = callback;
+  trackCb: ((track: MediaStreamTrack) => void) | null = null;
+  endCb: ((track: MediaStreamTrack) => void) | null = null;
+  onTrack(callback: (track: MediaStreamTrack) => void): void {
+    this.trackCb = callback;
   }
-  onStreamEnded(callback: () => void): void {
+  onTrackEnded(callback: (track: MediaStreamTrack) => void): void {
     this.endCb = callback;
   }
 }
@@ -118,17 +121,37 @@ describe("createVideoPublisher", () => {
 });
 
 describe("createVideoSubscriber", () => {
-  it("connects and forwards the remote stream and its end", async () => {
+  const FakeStream = FakeMediaStream as unknown as typeof MediaStream;
+
+  it("accumulates per-track subscriptions into one stream", async () => {
     const { f, rooms } = factory();
-    const subscriber = createVideoSubscriber({ factory: f });
+    const subscriber = createVideoSubscriber({
+      factory: f,
+      MediaStream: FakeStream,
+    });
     const onStream = vi.fn();
     await subscriber.start("u", "t", onStream);
     expect(rooms[0]!.connect).toHaveBeenCalled();
-    const remote = asStream(new FakeMediaStream());
-    rooms[0]!.streamCb?.(remote);
-    expect(onStream).toHaveBeenCalledWith(remote);
-    rooms[0]!.endCb?.();
+
+    // LiveKit subscribes video then audio as separate tracks.
+    const video = fakeTrack("v1", "video");
+    const audio = fakeTrack("a1", "audio");
+    rooms[0]!.trackCb?.(video);
+    const afterVideo = onStream.mock.calls.at(-1)![0] as FakeMediaStream;
+    expect(afterVideo.getTracks()).toEqual([video]);
+
+    rooms[0]!.trackCb?.(audio);
+    const afterAudio = onStream.mock.calls.at(-1)![0] as FakeMediaStream;
+    expect(afterAudio).toBe(afterVideo);
+    expect(afterAudio.getTracks()).toEqual([video, audio]);
+
+    // Removing one track does not end the stream; removing the last does.
+    rooms[0]!.endCb?.(video);
+    expect(onStream).toHaveBeenLastCalledWith(afterAudio);
+    expect(afterAudio.getTracks()).toEqual([audio]);
+    rooms[0]!.endCb?.(audio);
     expect(onStream).toHaveBeenLastCalledWith(null);
+
     subscriber.stop();
     expect(rooms[0]!.disconnect).toHaveBeenCalled();
   });

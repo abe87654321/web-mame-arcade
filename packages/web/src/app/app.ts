@@ -480,6 +480,8 @@ function createVideoAttacher(container: HTMLElement, doc: Document) {
         el = doc.createElement("video");
         el.className = "viewer-video-el";
         el.autoplay = true;
+        // The viewer may be running the same core (input replay), which already
+        // plays MAME audio; mute the video track to avoid doubling it.
         el.muted = true;
         el.playsInline = true;
         container.append(el);

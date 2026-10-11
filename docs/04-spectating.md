@@ -12,8 +12,8 @@
 - Simulcast 3 layers. Costs host upload bandwidth.
 - **Implemented in T41 (direct only):** the relay issues per-member LiveKit tokens over the
   authenticated WS (`livekit.access`, identity = the join JWT `sub`; host canPublish, viewers
-  subscribe-only) and the web taps MAME's audio into the published stream. Egress → HLS is
-  **deferred** to a later task; only the direct LiveKit server runs today (`deploy/`).
+  subscribe-only) and the web taps MAME's audio into the published stream. Egress → HLS **and
+  simulcast** are **deferred** to a later task; only the direct LiveKit server runs today (`deploy/`).
 
 ## Viewer UI
 Player names, live score overlay, chat (same WS), viewer count, "watch from start".
