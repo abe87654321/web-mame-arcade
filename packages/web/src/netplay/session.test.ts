@@ -25,7 +25,7 @@ function roomState(self: number | null, slots: number[]): ServerMessage {
 
 interface HarnessExtras {
   onMessage?: (from: number, data: unknown) => void;
-  onInput?: (bytes: Uint8Array) => void;
+  onInput?: (bytes: Uint8Array, source: "p2p" | "relay") => void;
   onRoomState?: (message: ServerMessage) => void;
   onGameStart?: (message: { startFrame: number; inputDelay: number }) => void;
   onPlayerReady?: (message: { t: "player.ready"; ready: boolean; player?: number }) => void;
@@ -143,7 +143,7 @@ describe("createSession", () => {
 
     channel.emitMessage(new Uint8Array([1, 2, 3]).buffer);
 
-    expect(onInput).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]));
+    expect(onInput).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "p2p");
   });
 
   it("tracks self, players and channel readiness from room.state", async () => {

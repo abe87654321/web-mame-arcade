@@ -14,6 +14,15 @@ export { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
 export type { BuildPacketOptions, FrameTable } from "./inputs";
 export { createPlayback } from "./playback";
 export type { Playback, PlaybackDeps } from "./playback";
+export { createMetrics } from "./metrics";
+export type {
+  Metrics,
+  MetricsDeps,
+  MetricsSnapshot,
+  PacketSource,
+  PacketView,
+  PeerMetrics,
+} from "./metrics";
 export { createViewer } from "./viewer";
 export type {
   Viewer,
