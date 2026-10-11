@@ -415,6 +415,55 @@ describe("createMatch", () => {
     match.close();
   });
 
+  it("publishes a live-join snapshot periodically while hosting (T31)", async () => {
+    const createSnapshot = vi.fn(async () => "http://relay/rooms/r/snapshot/1");
+    let clock = 0;
+    const { socket, match } = harness(0, {
+      game: GAME,
+      createSnapshot,
+      now: () => clock,
+      snapshotIntervalMs: 5000,
+    });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    for (let i = 0; i < 5; i++) match.tick(0x01); // arms the interval, publishes nothing yet
+    await flush();
+    expect(createSnapshot).not.toHaveBeenCalled();
+
+    clock = 5000;
+    match.tick(0x01);
+    await flush();
+    expect(createSnapshot).toHaveBeenCalledOnce();
+    expect(jsonSent(socket).find((m) => m.t === "viewer.snapshot")).toMatchObject({
+      t: "viewer.snapshot",
+      blobUrl: "http://relay/rooms/r/snapshot/1",
+    });
+    match.close();
+  });
+
+  it("does not publish live-join snapshots from a non-host (T31)", async () => {
+    const createSnapshot = vi.fn(async () => "http://relay/x");
+    let clock = 0;
+    const { socket, match } = harness(0, {
+      game: GAME,
+      createSnapshot,
+      now: () => clock,
+    });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    clock = 100_000;
+    match.tick(0x01);
+    await flush();
+    expect(createSnapshot).not.toHaveBeenCalled();
+    match.close();
+  });
+
   it("sends game.end when the host closes a playing match (T30)", async () => {
     const { socket, match } = harness(0, { game: GAME });
     await flush();
