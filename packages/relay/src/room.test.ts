@@ -493,3 +493,81 @@ describe("RoomManager.snapshot", () => {
     expect(rooms.snapshot("c1").self).toBe(0);
   });
 });
+
+describe("RoomManager A/V (T41)", () => {
+  function playing() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice@Alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob@Bob" });
+    rooms.join("v1", { room: "r", role: "viewer", token: "watcher" });
+    rooms.setGame("c1", {
+      t: "game.set",
+      driver: "gridlee",
+      coreHash: "a".repeat(64),
+      mameCommit: "b".repeat(40),
+      romHash: "c".repeat(64),
+      dips: {},
+    });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return rooms;
+  }
+
+  it("lets only the host toggle A/V in a playing room", () => {
+    const rooms = playing();
+    expect(rooms.setVideo("c1", true)).toEqual({ roomId: "r", from: 0 });
+    expect(rooms.videoEnabled("r")).toBe(true);
+    expect(rooms.setVideo("c1", false)).toEqual({ roomId: "r", from: 0 });
+    expect(rooms.videoEnabled("r")).toBe(false);
+
+    try {
+      rooms.setVideo("c2", true);
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_host");
+    }
+    try {
+      rooms.setVideo("v1", true);
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+
+  it("rejects A/V before the match starts", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    try {
+      rooms.setVideo("c1", true);
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_playing");
+    }
+  });
+
+  it("flags video in the viewer handshake and clears it per match", () => {
+    const rooms = playing();
+    rooms.setVideo("c1", true);
+    expect(rooms.viewerState("v1")?.video).toBe(true);
+    // A new match starts with A/V off.
+    rooms.end("c1", { t: "game.end", frame: 10 });
+    rooms.begin("c1", { t: "game.start", startFrame: 20, inputDelay: 2 });
+    expect(rooms.videoEnabled("r")).toBe(false);
+    expect(rooms.viewerState("v1")?.video).toBe(false);
+  });
+
+  it("grants the host publish and every other member subscribe-only", () => {
+    const rooms = playing();
+    expect(rooms.livekitGrants("r")).toEqual([
+      { connectionId: "c1", identity: "alice", name: "Alice", canPublish: true },
+      { connectionId: "c2", identity: "bob", name: "Bob", canPublish: false },
+      { connectionId: "v1", identity: "watcher", name: "player", canPublish: false },
+    ]);
+    expect(rooms.livekitGrant("v1")).toEqual({
+      connectionId: "v1",
+      identity: "watcher",
+      name: "player",
+      canPublish: false,
+    });
+    expect(rooms.livekitGrant("ghost")).toBeNull();
+  });
+});

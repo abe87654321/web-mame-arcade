@@ -64,6 +64,16 @@ export interface RoomGame {
   dips: Record<string, string | number>;
 }
 
+/** A member's LiveKit publish/subscribe grant (T41); relay.ts mints the token. */
+export interface LivekitGrant {
+  connectionId: string;
+  /** The member's join-token `sub`; unique within the room. */
+  identity: string;
+  name: string;
+  /** True for the host (publishes A/V), false for a subscribe-only viewer. */
+  canPublish: boolean;
+}
+
 interface Room {
   id: string;
   members: Map<string, RoomMember>;
@@ -75,6 +85,8 @@ interface Room {
   log: InputLogRecorder | null;
   /** Latest host live-join snapshot: the viewer's start point (T31). */
   snapshot: { frame: number; blobUrl: string } | null;
+  /** Whether the host is sharing A/V via LiveKit (T41). */
+  video: boolean;
   /** Frame the hash comparison is currently on (T25), or -1 before any hash. */
   hashFrame: number;
   /** This frame's crc32 per player slot; reset whenever a newer frame arrives. */
@@ -282,6 +294,8 @@ export class RoomManager {
     room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
     // A new match invalidates any live-join snapshot from a previous one (T31).
     room.snapshot = null;
+    // A new match starts with A/V sharing off; the host re-opts in (T41).
+    room.video = false;
     room.hashFrame = -1;
     room.hashes.clear();
     // Open the input log when the host has set the game (T30); without a
@@ -361,6 +375,7 @@ export class RoomManager {
     }
     room.status = "ended";
     room.snapshot = null;
+    room.video = false;
     const recorder = room.log;
     room.log = null;
     return {
@@ -537,6 +552,7 @@ export class RoomManager {
       inputDelay: room.start.inputDelay,
       players: seatedPlayers(room),
       snapshot: room.snapshot ? { ...room.snapshot } : null,
+      video: room.video,
     };
   }
 
@@ -548,6 +564,72 @@ export class RoomManager {
       if (message) out.push({ connectionId, message });
     }
     return out;
+  }
+
+  /** Whether a room's host has enabled the LiveKit A/V fallback (T41). */
+  videoEnabled(roomId: string): boolean {
+    return this.rooms.get(roomId)?.video ?? false;
+  }
+
+  /**
+   * Record the host's A/V opt-in (`video.set`, T41). Only the host (lowest
+   * occupied player slot) in a `playing` room may toggle it. Returns the room id
+   * and the authoritative sender slot.
+   */
+  setVideo(
+    connectionId: string,
+    enabled: boolean,
+  ): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "video.set");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can toggle A/V");
+    }
+    const hostSlot = lowestSlot(room);
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot toggle A/V; host is slot ${hostSlot}`,
+      );
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    room.video = enabled;
+    return { roomId: room.id, from: sender.slot };
+  }
+
+  /**
+   * The LiveKit grants for every member of a room (T41): the host (lowest
+   * occupied player slot) may publish, everyone else subscribes only. The
+   * identity is the member's join-token `sub`, unique within the room.
+   */
+  livekitGrants(roomId: string): LivekitGrant[] {
+    const room = this.rooms.get(roomId);
+    if (!room) return [];
+    const hostSlot = lowestSlot(room);
+    return [...room.members.values()].map((m) => ({
+      connectionId: m.connectionId,
+      identity: m.sub,
+      name: m.name,
+      canPublish: m.slot !== null && m.slot === hostSlot,
+    }));
+  }
+
+  /** The LiveKit grant for one connection, or null if it is not a member (T41). */
+  livekitGrant(connectionId: string): LivekitGrant | null {
+    const roomId = this.byConnection.get(connectionId);
+    const room = roomId === undefined ? undefined : this.rooms.get(roomId);
+    if (!room) return null;
+    const member = room.members.get(connectionId);
+    if (!member) return null;
+    const hostSlot = lowestSlot(room);
+    return {
+      connectionId,
+      identity: member.sub,
+      name: member.name,
+      canPublish: member.slot !== null && member.slot === hostSlot,
+    };
   }
 
   /**
@@ -602,6 +684,7 @@ export class RoomManager {
         game: null,
         log: null,
         snapshot: null,
+        video: false,
         hashFrame: -1,
         hashes: new Map(),
       };

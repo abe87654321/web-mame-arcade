@@ -13,6 +13,7 @@ import type { ServerMessage } from "@wma/protocol";
 import { type JobQueue, createMemoryJobQueue } from "./job-queue.ts";
 import { type LogStore, createLocalDiskLogStore } from "./log-store.ts";
 import { createRelay, type ClosedLog, type RelayOut } from "./relay.ts";
+import type { LivekitConfig } from "./livekit.ts";
 import type { TokenVerifier } from "./token.ts";
 
 export interface RelayServerOptions {
@@ -33,6 +34,8 @@ export interface RelayServerOptions {
   logDir?: string;
   /** Verification job sink (T30); default in-memory (Redis is T33/T42). */
   jobQueue?: JobQueue;
+  /** LiveKit issuer config (T41); A/V is unavailable when omitted. */
+  livekit?: LivekitConfig;
 }
 
 export interface RelayServer {
@@ -108,6 +111,7 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     verifier: options.verifier,
     log: logger,
     onLogClosed: persistLog,
+    ...(options.livekit ? { livekit: options.livekit } : {}),
   });
   // Recent desync-recovery snapshots per room (T25), newest first. Keeping a
   // short history means a url handed out just before another desync still

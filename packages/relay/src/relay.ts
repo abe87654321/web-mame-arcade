@@ -9,7 +9,8 @@ import {
   type ServerMessage,
 } from "@wma/protocol";
 import { gzipInputLog, inputLogKey } from "./input-log.ts";
-import { RelayError, RoomManager } from "./room.ts";
+import { mintLivekitToken, type LivekitConfig } from "./livekit.ts";
+import { RelayError, RoomManager, type LivekitGrant } from "./room.ts";
 import { TokenError, type TokenVerifier } from "./token.ts";
 
 export interface Outbound {
@@ -59,12 +60,15 @@ export function createRelay({
   verifier,
   log,
   onLogClosed,
+  livekit,
 }: {
   verifier: TokenVerifier;
   /** Optional structured logger for desync/resync events (T25). */
   log?: (event: string, fields: Record<string, unknown>) => void;
   /** Called with a closed match log to persist (T30). */
   onLogClosed?: (closed: ClosedLog) => void;
+  /** LiveKit issuer config; A/V is unavailable when omitted (T41). */
+  livekit?: LivekitConfig;
 }): Relay {
   const rooms = new RoomManager(verifier);
 
@@ -77,6 +81,21 @@ export function createRelay({
   /** Every viewer's live-join handshake in a room (T31). */
   function viewerStateOut(roomId: string): Outbound[] {
     return rooms.viewerStates(roomId);
+  }
+
+  /** A member's LiveKit join credentials (T41); requires `livekit` config. */
+  function accessOut(grant: LivekitGrant, roomId: string): Outbound {
+    const config = livekit!;
+    const token = mintLivekitToken(config, {
+      identity: grant.identity,
+      name: grant.name,
+      room: roomId,
+      canPublish: grant.canPublish,
+    });
+    return {
+      connectionId: grant.connectionId,
+      message: { t: "livekit.access", url: config.url, room: roomId, token },
+    };
   }
 
   return {
@@ -113,6 +132,12 @@ export function createRelay({
                   frames: rooms.catchUpPackets(roomId, fromFrame),
                 });
               }
+            }
+            // A member joining while the host is sharing A/V gets its LiveKit
+            // credentials right after the handshake (T41).
+            if (livekit && rooms.videoEnabled(roomId)) {
+              const grant = rooms.livekitGrant(member.connectionId);
+              if (grant) out.push(accessOut(grant, roomId));
             }
             return out;
           }
@@ -152,6 +177,24 @@ export function createRelay({
               .map((target) => ({ connectionId: target, message }));
             // Viewers that joined before the start learn the roster/delay too (T31).
             return [...starts, ...snapshotOut(roomId), ...viewerStateOut(roomId)];
+          }
+          case "video.set": {
+            // The host toggles the LiveKit A/V fallback (T41). The relay records
+            // the flag and fans it out; when enabling it also sends every member
+            // its own LiveKit join credentials. A relay without LiveKit
+            // configured rejects the toggle rather than silently accepting it.
+            if (!livekit) {
+              return errorOut(connectionId, "unsupported", "LiveKit is not configured");
+            }
+            const { roomId } = rooms.setVideo(connectionId, message.enabled);
+            const toggles: Outbound[] = rooms
+              .broadcastTargets(roomId)
+              .map((target) => ({ connectionId: target, message }));
+            if (!message.enabled) return toggles;
+            const access = rooms
+              .livekitGrants(roomId)
+              .map((grant) => accessOut(grant, roomId));
+            return [...toggles, ...access];
           }
           case "game.end": {
             // The host closes the match: store the input log and queue

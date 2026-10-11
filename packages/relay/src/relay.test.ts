@@ -639,3 +639,108 @@ describe("createRelay (viewer fan-out, T31)", () => {
     expect(states).toHaveLength(1);
   });
 });
+
+describe("createRelay (LiveKit A/V, T41)", () => {
+  const livekit = {
+    url: "wss://livekit.example.test",
+    apiKey: "APIkey123",
+    apiSecret: "supersecret_at_least_32_chars_long",
+  };
+  function relayWithLivekit() {
+    return createRelay({ verifier: fakeVerifier, livekit });
+  }
+  const viewerJoin = (token: string) => ({
+    t: "room.join" as const,
+    room: "r",
+    role: "viewer" as const,
+    token,
+  });
+  function decode(token: string): Record<string, unknown> {
+    return JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"));
+  }
+  function playing() {
+    const r = relayWithLivekit();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("v1", viewerJoin("watcher"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return r;
+  }
+
+  it("fans video.set out and sends each member its own credentials", () => {
+    const r = playing();
+    const out = r.handle("c1", { t: "video.set", enabled: true });
+
+    const toggles = out.filter((o) => o.message.t === "video.set");
+    expect(toggles.map((o) => o.connectionId).sort()).toEqual(["c1", "c2", "v1"]);
+    for (const toggle of toggles) {
+      expect(toggle.message).toEqual({ t: "video.set", enabled: true });
+    }
+
+    const access = out.filter((o) => o.message.t === "livekit.access");
+    expect(access.map((o) => o.connectionId).sort()).toEqual(["c1", "c2", "v1"]);
+    const byId = byConnection(access);
+    // The host publishes; players and viewers subscribe only. Identity is the
+    // join-token sub, unique per room.
+    expect(decode((byId.c1!.message as { token: string }).token)).toMatchObject({
+      sub: "alice",
+      video: { room: "r", roomJoin: true, canPublish: true, canSubscribe: true },
+    });
+    expect(decode((byId.c2!.message as { token: string }).token).video).toMatchObject({
+      canPublish: false,
+    });
+    expect(decode((byId.v1!.message as { token: string }).token)).toMatchObject({
+      sub: "watcher",
+      video: { canPublish: false, canSubscribe: true },
+    });
+    expect((byId.v1!.message as { url: string }).url).toBe(livekit.url);
+  });
+
+  it("disabling flips the flag without sending credentials", () => {
+    const r = playing();
+    r.handle("c1", { t: "video.set", enabled: true });
+    const out = r.handle("c1", { t: "video.set", enabled: false });
+    expect(out.filter((o) => o.message.t === "video.set")).toHaveLength(3);
+    expect(out.filter((o) => o.message.t === "livekit.access")).toHaveLength(0);
+  });
+
+  it("rejects video.set from a non-host, a viewer, or before start", () => {
+    const r = playing();
+    expect(
+      r.handle("c2", { t: "video.set", enabled: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_host" });
+    expect(
+      r.handle("v1", { t: "video.set", enabled: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_joined" });
+
+    const fresh = relayWithLivekit();
+    fresh.handle("c1", join("c1", "alice"));
+    expect(
+      fresh.handle("c1", { t: "video.set", enabled: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_playing" });
+  });
+
+  it("rejects video.set when LiveKit is not configured", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    expect(
+      r.handle("c1", { t: "video.set", enabled: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "unsupported" });
+  });
+
+  it("gives a late viewer the video flag and its credentials", () => {
+    const r = playing();
+    r.handle("c1", { t: "video.set", enabled: true });
+    const out = r.handle("v2", { t: "room.join", room: "r", role: "viewer", token: "late" });
+    const state = out.find(
+      (o) => o.connectionId === "v2" && o.message.t === "viewer.state",
+    );
+    expect(state?.message).toMatchObject({ t: "viewer.state", video: true });
+    const access = out.find(
+      (o) => o.connectionId === "v2" && o.message.t === "livekit.access",
+    );
+    expect(decode((access!.message as { token: string }).token).sub).toBe("late");
+  });
+});
