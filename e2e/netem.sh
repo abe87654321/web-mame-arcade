@@ -2,6 +2,12 @@
 # Run the netplay e2e spec under Linux `tc netem` profiles (T26, docs/03).
 # Needs root (sudo) to shape loopback; local-only, never part of CI.
 #
+# Only UDP is shaped: netplay inputs ride WebRTC's SCTP-over-DTLS-over-UDP data
+# channel, while the relay control WS, the Vite dev server (page + WASM core
+# load) and the test driver are TCP. Shaping only UDP therefore degrades the
+# peer-to-peer transport under test without stalling the harness's own control
+# plane (which whole-device `netem` does, making high-delay runs flaky).
+#
 # Usage:
 #   pnpm --filter @wma/e2e test:e2e:netem            # all default profiles
 #   bash netem.sh "50ms 0%"                          # one profile (delay loss)
@@ -13,19 +19,29 @@ if [ "$#" -gt 0 ]; then
   profiles=("$*")
 fi
 
+cleanup() { sudo tc qdisc del dev lo root 2>/dev/null || true; }
+
 rc=0
 for profile in "${profiles[@]}"; do
   # Split "<delay> <loss>" into the two netem arguments.
   read -r delay loss <<<"$profile"
-  echo "== netem delay=$delay loss=$loss =="
-  sudo tc qdisc replace dev lo root netem delay "$delay" loss "$loss"
+  echo "== netem (udp only) delay=$delay loss=$loss =="
+  cleanup
+  # prio root: band 3 carries netem; a u32 filter sends only UDP there, so TCP
+  # stays on the default (clean) band.
+  sudo tc qdisc add dev lo root handle 1: prio
+  sudo tc qdisc add dev lo parent 1:3 handle 30: netem delay "$delay" loss "$loss"
+  sudo tc filter add dev lo protocol ip parent 1:0 prio 3 u32 match ip protocol 17 0xff flowid 1:3
+  # IPv6 candidates (if any) too; ignore if the kernel u32 ip6 selector differs.
+  sudo tc filter add dev lo protocol ipv6 parent 1:0 prio 3 u32 match ip6 protocol 17 0xff flowid 1:3 || true
+
   if pnpm exec playwright test; then
     echo "== PASS (delay=$delay loss=$loss) =="
   else
     rc=1
     echo "== FAIL (delay=$delay loss=$loss) =="
   fi
-  sudo tc qdisc del dev lo root || true
+  cleanup
 done
 
 exit "$rc"

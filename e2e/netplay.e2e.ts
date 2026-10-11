@@ -89,8 +89,9 @@ test.describe("netplay lockstep", () => {
     // Both peers are seated. The SDL canvas is `position: fixed` and wins the
     // headless hit-test over the lobby overlay, so invoke a button's click
     // handler directly instead of a coordinate click.
-    await expect(p1.locator(".lobby-slot")).toHaveCount(2);
-    await expect(p2.locator(".lobby-slot")).toHaveCount(2);
+    // Generous: a cold WASM boot under a shaped loop can be slow.
+    await expect(p1.locator(".lobby-slot")).toHaveCount(2, { timeout: 60_000 });
+    await expect(p2.locator(".lobby-slot")).toHaveCount(2, { timeout: 60_000 });
 
     const press = (page: Page, selector: string): Promise<void> =>
       page.locator(selector).evaluate((el) => (el as HTMLElement).click());

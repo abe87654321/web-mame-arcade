@@ -18,10 +18,21 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   // `channel: "chromium"` runs the full bundled Chromium (new headless) rather
   // than the separate `chromium-headless-shell` download.
+  //
+  // The netplay peer is a background tab, so disable background/renderer
+  // throttling: otherwise its requestAnimationFrame loop (which drives the
+  // lockstep) drops to ~1 fps and the match crawls, especially under netem.
   use: {
     baseURL: "http://localhost:5173",
     channel: "chromium",
     trace: "retain-on-failure",
+    launchOptions: {
+      args: [
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+      ],
+    },
   },
   webServer: [
     {
