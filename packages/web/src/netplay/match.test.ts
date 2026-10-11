@@ -115,6 +115,26 @@ describe("createMatch", () => {
     match.close();
   });
 
+  it("feeds each slot its own scripted stream at the scheduled frame", async () => {
+    const { socket, core, match } = harness(2, {
+      inputScript: (slot, f) =>
+        slot === 0 && f === 2 ? 0x08 : slot === 1 && f === 2 ? 0x04 : 0,
+    });
+    await flush();
+
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 2 }));
+    await flush();
+
+    // The wall-clock sampled mask is ignored when a script is present.
+    match.tick(0xffff);
+
+    expect(core.steps.map((s) => s.frame)).toEqual([0, 1, 2]);
+    expect(core.steps[2]?.inputs).toEqual([0x08, 0, 0, 0]);
+    match.close();
+  });
+
   it("does not let a non-host start", async () => {
     const { socket, match } = harness();
     await flush();

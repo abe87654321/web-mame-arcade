@@ -37,7 +37,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T23 WebRTC peer connection** – data channel (unordered, maxRetransmits 0), coturn in docker-compose. Docs: 03. Depends: T22.
 - [x] **T24 Lockstep loop** – input delay D, 8-frame redundancy, wait/pause behaviour. Docs: 03. Depends: T20, T23.
 - [x] **T25 Desync detection + resync** – `hash` every 60 frames, `state.snapshot` recovery, logging. Docs: 03. Depends: T24.
-- [ ] **T26 Netplay test harness** – Playwright opens two tabs, runs a scripted input file, asserts equal hashes;
+- [x] **T26 Netplay test harness** – Playwright opens two tabs, runs a scripted input file, asserts equal hashes;
   Linux `tc netem` profiles (50/100/150 ms, 1% loss). Depends: T24, T25.
 - [x] **T27 Lobby & room UI** – turn the minimal T24 start bar into a proper lobby: player slots with
   names/ready state, host-only "Start game" enabled only when all peers are connected, room status

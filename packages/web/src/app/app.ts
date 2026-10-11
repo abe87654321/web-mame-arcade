@@ -33,6 +33,7 @@ import {
   type PlayController,
 } from "./play-controller";
 import { gameHref, startRouter, type Route, type RouterTarget } from "./router";
+import { readInputScript } from "./test-input";
 
 /**
  * Composition root (T13): route between the catalogue and a play page, booting
@@ -67,6 +68,11 @@ export interface AppEnv {
   netplay?: NetplayEnv;
   /** Generates a fresh room id for "Play online"; defaults to `randomUUID`. */
   newRoomId?: () => string;
+  /**
+   * Deterministic per-slot input for the netplay e2e harness (T26); set from
+   * `window.__WMA_TEST_INPUT__` by `startApp`. Absent in normal play.
+   */
+  inputScript?: (slot: number, frame: number) => number;
   /** The shared canvas MAME renders into; set by `startApp`, absent in tests. */
   screen?: HTMLCanvasElement;
 }
@@ -236,6 +242,7 @@ export function createApp(deps: AppDeps): AppController {
             onStatus: (status) => setStatus(matchStatusText(status)),
             onLobby: renderLobby,
             log: (event, fields) => console.warn("[netplay]", event, fields),
+            ...(deps.env.inputScript ? { inputScript: deps.env.inputScript } : {}),
           });
           renderLobby(match.lobby());
           deps.env.root.append(host);
@@ -374,6 +381,11 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   appEl.append(rootEl, statusEl);
 
   const netplay = options.netplay ?? netplayFromEnv();
+  // e2e hook (T26): dev-only, so a production bundle cannot be armed by a page
+  // to replay a scripted macro input (which the verifier would replay cleanly).
+  // The harness runs against the Vite dev server, where DEV is true.
+  const devEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  const inputScript = devEnv?.DEV ? readInputScript(win) : undefined;
 
   // SDL3's emscripten video backend resolves its canvas by the CSS selector
   // `#canvas` (`document.querySelector`); MAME's WebGL context creation fails
@@ -398,6 +410,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       gamepads: win.navigator,
       screen: screenEl,
       ...(netplay ? { netplay } : {}),
+      ...(inputScript ? { inputScript } : {}),
     },
   });
 }

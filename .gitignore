@@ -13,3 +13,6 @@ coverage/
 .DS_Store
 # GAN-style design harness output (T27 design exploration; see docs/tasks).
 gan-harness/
+# Playwright netplay e2e harness (T26).
+e2e/playwright-report/
+e2e/test-results/

@@ -1,14 +1,24 @@
 ---
-description: Stub for netplay determinism checks (golden replay / two-tab). Not ready until T24–T26.
+description: Two-tab netplay determinism check (equal per-60-frame hashes) and netem profiles. T26.
 agent: plan
 ---
 
-Netplay determinism checks are not available yet — they require the netplay patch (T20), lockstep loop
-(T24), desync detection (T25) and the two-tab harness (T26). Until then, the closest check is the native
-record/playback determinism spike (T02): record a session, replay twice, compare the RAM hash.
+Run the netplay determinism harness and report PASS/FAIL. It opens two browser tabs in one relay
+room, feeds each a distinct frame-indexed input stream via the gated `window.__WMA_TEST_INPUT__`
+hook, starts the match, and asserts every per-60-frame `hash` both tabs report is identical (and
+that neither tab received a `desync`).
 
-When the prerequisites exist, this command will:
-1. Run the golden-replay suite: replay stored input logs against the WASM core and the native verifier,
-   asserting equal final RAM hash and score.
-2. Run two browser tabs under `tc netem` profiles (50/100/150 ms, 1% loss) and assert equal per-60-frame hashes.
-Report PASS/FAIL and attach the failing frame and hash.
+Prerequisites: the built WASM core and the ROM for the chosen driver
+(`packages/web/public/static/cores/<driver>/<coreVersion>/` and `packages/web/public/roms/<driver>.zip`).
+Build the core with `core/build-wasm.sh gridlee` if missing; install the browser once with
+`pnpm --filter @wma/e2e exec playwright install chromium`.
+
+1. Two-tab equal-hash check:
+   - `pnpm --filter @wma/e2e test:e2e`
+2. Under simulated bad networks (Linux `tc netem`; needs sudo):
+   - `pnpm --filter @wma/e2e test:e2e:netem` (profiles 50/100/150 ms, 1% loss)
+   - Only **UDP** is shaped (WebRTC's data channel = the netplay input path); the TCP control
+     plane (relay WS, Vite/WASM load, test driver) stays clean so the harness itself is not throttled.
+
+Report PASS/FAIL and, on failure, attach the failing frame and both hashes. For the broader
+golden-replay suite (WASM core vs native verifier), see the determinism spike (T02).
