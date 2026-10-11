@@ -58,6 +58,21 @@ const config = {
   iceServers: [],
 };
 
+const GAME = {
+  driver: "gridlee",
+  coreHash: "a".repeat(64),
+  mameCommit: "b".repeat(40),
+  romHash: "c".repeat(64),
+  dips: {},
+};
+
+/** Parsed JSON messages the fake socket sent (binary packets excluded). */
+function jsonSent(socket: FakeWebSocket): Record<string, unknown>[] {
+  return socket.sent
+    .filter((m): m is string => typeof m === "string")
+    .map((m) => JSON.parse(m) as Record<string, unknown>);
+}
+
 function harness(inputDelay = 2, overrides: Partial<MatchDeps> = {}) {
   const socket = new FakeWebSocket();
   const pc = new FakePeerConnection();
@@ -369,5 +384,49 @@ describe("createMatch", () => {
     expect(core.load).toHaveBeenCalledWith(bytes, 100);
     expect(match.frame()).toBe(101);
     match.close();
+  });
+
+  it("has the host announce the game once with game.set (T30)", async () => {
+    const { socket, match } = harness(0, { game: GAME });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+
+    const sets = jsonSent(socket).filter((m) => m.t === "game.set");
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toEqual({
+      t: "game.set",
+      driver: "gridlee",
+      coreHash: "a".repeat(64),
+      mameCommit: "b".repeat(40),
+      romHash: "c".repeat(64),
+      dips: {},
+    });
+    match.close();
+  });
+
+  it("does not announce the game from a non-host (T30)", async () => {
+    const { socket, match } = harness(0, { game: GAME });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+
+    expect(jsonSent(socket).some((m) => m.t === "game.set")).toBe(false);
+    match.close();
+  });
+
+  it("sends game.end when the host closes a playing match (T30)", async () => {
+    const { socket, match } = harness(0, { game: GAME });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    match.tick(0x01);
+
+    match.close();
+
+    const ends = jsonSent(socket).filter((m) => m.t === "game.end");
+    expect(ends).toEqual([{ t: "game.end", frame: 0 }]);
   });
 });

@@ -48,11 +48,25 @@ export interface LobbyState {
   canStart: boolean;
 }
 
+/** Match identity the host announces with `game.set` (T30). */
+export interface MatchGame {
+  driver: string;
+  coreHash: string;
+  mameCommit: string;
+  romHash: string;
+  dips: Record<string, string | number>;
+}
+
 export interface MatchDeps {
   core: Core;
   config: NetplayConfig;
   socketFactory: WebSocketFactory;
   factory: RtcFactory;
+  /**
+   * Game identity for `game.set`/input logging (T30); when absent the match
+   * runs without a relay input log (e.g. tests, or a room with no game).
+   */
+  game?: MatchGame;
   /** Milliseconds clock, passed through to the lockstep wait timer. */
   now: () => number;
   /** Local input delay D (docs/03: 2-3); default 2. */
@@ -157,6 +171,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let roomStatus: RoomState["status"] = "waiting";
   let pendingStart: { startFrame: number; inputDelay: number } | null = null;
   let startSent = false;
+  let gameSetSent = false;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -199,6 +214,38 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       isHost() &&
       othersReady()
     );
+  }
+
+  /**
+   * The host announces the game + DIPs once, before the match starts, so the
+   * relay can fill `room.state` and open an input log (T30). Non-hosts and
+   * rooms without a configured game skip it.
+   */
+  function maybeSetGame(): void {
+    if (
+      gameSetSent ||
+      !deps.game ||
+      closed ||
+      disconnected ||
+      self === null ||
+      !coreReady ||
+      roomStatus !== "waiting" ||
+      !isHost()
+    ) {
+      return;
+    }
+    if (
+      session.send({
+        t: "game.set",
+        driver: deps.game.driver,
+        coreHash: deps.game.coreHash,
+        mameCommit: deps.game.mameCommit,
+        romHash: deps.game.romHash,
+        dips: deps.game.dips,
+      })
+    ) {
+      gameSetSent = true;
+    }
   }
 
   function lobby(): LobbyState {
@@ -272,6 +319,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         ...message.players.map((p) => ({ slot: p.slot, name: p.name, ready: p.ready })),
       );
       if (!lockstep) setStatus("waiting-for-peers");
+      maybeSetGame();
       maybeStartPending();
       emitLobby();
     },
@@ -336,6 +384,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     },
     // A start may have arrived while the core/channel was still coming up.
     onChannelOpen: () => {
+      maybeSetGame();
       maybeStartPending();
       emitLobby();
     },
@@ -350,6 +399,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     .load()
     .then(() => {
       coreReady = true;
+      maybeSetGame();
       maybeStartPending();
       emitLobby();
     })
@@ -387,6 +437,12 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     lobby,
     session: () => session,
     close: () => {
+      // The host closes the relay input log on teardown of a playing match; the
+      // last stepped frame is one before the next to step (T30).
+      if (lockstep && gameSetSent && isHost()) {
+        const lastFrame = lockstep.frame() - 1;
+        if (lastFrame >= 0) session.send({ t: "game.end", frame: lastFrame });
+      }
       closed = true;
       lockstep = null;
       session.close();

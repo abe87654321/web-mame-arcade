@@ -30,6 +30,8 @@ function parseEntry(value: unknown): GameEntry {
   if (!HEX64.test(coreVersion)) fail("bad coreVersion");
   const mameCommit = asNonEmptyString(e.mameCommit, "mameCommit");
   if (!HEX40.test(mameCommit)) fail("bad mameCommit");
+  const romHash = asNonEmptyString(e.romHash, "romHash");
+  if (!HEX64.test(romHash)) fail("bad romHash");
   const supportsSave = asBoolean(e.supportsSave, "supportsSave");
   if (!NETPLAY_MODES.includes(e.netplayMode as NetplayMode)) {
     fail("bad netplayMode");
@@ -48,6 +50,7 @@ function parseEntry(value: unknown): GameEntry {
     title,
     coreVersion,
     mameCommit,
+    romHash,
     supportsSave,
     netplayMode,
     maxPlayers,

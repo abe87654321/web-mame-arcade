@@ -15,6 +15,8 @@ export interface GameEntry {
   coreVersion: string;
   /** mame/ commit the core was built from (40-hex). */
   mameCommit: string;
+  /** rom_hash: sha256 of the served ROM zip (contracts/core-version.md). */
+  romHash: string;
   supportsSave: boolean;
   netplayMode: NetplayMode;
   maxPlayers: number;

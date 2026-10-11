@@ -10,6 +10,7 @@ function valid(overrides: Record<string, unknown> = {}): Record<string, unknown>
     title: "Gridlee",
     coreVersion: HEX64,
     mameCommit: HEX40,
+    romHash: HEX64,
     supportsSave: true,
     netplayMode: "lockstep",
     maxPlayers: 2,
@@ -47,6 +48,10 @@ describe("parseCatalogue", () => {
     expect(() => parseCatalogue([valid({ mameCommit: "abc" })])).toThrow(
       /mameCommit/,
     );
+  });
+
+  it("rejects a bad rom hash", () => {
+    expect(() => parseCatalogue([valid({ romHash: "abc" })])).toThrow(/romHash/);
   });
 
   it("rejects an unknown netplay mode", () => {
