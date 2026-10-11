@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:spike": "playwright test -c playwright.spike.config.ts",
     "test:e2e:netem": "bash netem.sh"
   },
   "devDependencies": {

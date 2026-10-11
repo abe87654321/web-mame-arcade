@@ -383,6 +383,22 @@ export function coreDirUrl(entry: GameEntry): string {
   return `${entry.coreBaseUrl}/${entry.coreVersion}`;
 }
 
+type CoreLoader = (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
+
+/**
+ * DEV-only: expose the booted core on `window.__WMA_CORE__` for the T28 spike
+ * harness (e2e/spike.e2e.ts). Gated like the T26 input hook so a production
+ * bundle cannot be armed from a page; it hands out the same core the page would
+ * already run, and never changes the emulation path.
+ */
+function exposeCoreForSpike(win: Window, loadCore: CoreLoader): CoreLoader {
+  return async (entry, options) => {
+    const core = await loadCore(entry, options);
+    (win as unknown as { __WMA_CORE__?: Core }).__WMA_CORE__ = core;
+    return core;
+  };
+}
+
 /** Default core loader: fixed args, ROM mounted under `-rompath`. */
 function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<Core> {
   const romPath = "/roms";
@@ -451,7 +467,13 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   const win = options.win ?? window;
   installAudioUnlock(win);
   const loadGames = options.loadGames ?? loadCatalogue;
-  const loadCore = options.loadCore ?? browserCoreLoader;
+  // e2e hooks (T26/T28) are dev-only: a production bundle must not be armable
+  // from a page (a scripted input macro the verifier would replay cleanly, or a
+  // page reaching into the core).
+  const devEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  const baseLoadCore = options.loadCore ?? browserCoreLoader;
+  const loadCore =
+    devEnv?.DEV === true ? exposeCoreForSpike(win, baseLoadCore) : baseLoadCore;
 
   const games = await loadGames(options.catalogueUrl ?? "/games.json");
 
@@ -463,10 +485,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   appEl.append(rootEl, statusEl);
 
   const netplay = options.netplay ?? netplayFromEnv();
-  // e2e hook (T26): dev-only, so a production bundle cannot be armed by a page
-  // to replay a scripted macro input (which the verifier would replay cleanly).
-  // The harness runs against the Vite dev server, where DEV is true.
-  const devEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  // e2e input hook (T26): dev-only (see the hooks note above).
   const inputScript = devEnv?.DEV ? readInputScript(win) : undefined;
 
   // SDL3's emscripten video backend resolves its canvas by the CSS selector
