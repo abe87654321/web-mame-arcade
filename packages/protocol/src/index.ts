@@ -30,6 +30,8 @@ export {
   scoreLive,
   serverMessage,
   stateSnapshot,
+  viewerSnapshot,
+  viewerState,
 } from "./messages.ts";
 export type {
   AnyMessage,
@@ -48,6 +50,8 @@ export type {
   ScoreLive,
   ServerMessage,
   StateSnapshot,
+  ViewerSnapshot,
+  ViewerState,
 } from "./messages.ts";
 
 export {

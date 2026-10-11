@@ -95,6 +95,38 @@ export const stateSnapshot = z.strictObject({
   blobUrl: z.string().min(1),
 });
 
+/**
+ * The host's periodic live-join snapshot (T31): unlike `state.snapshot` it is
+ * not a resync, so the relay stores it and forwards it to viewers only. A
+ * joining viewer loads it and replays the recorded inputs since `frame`.
+ */
+export const viewerSnapshot = z.strictObject({
+  t: z.literal("viewer.snapshot"),
+  frame,
+  blobUrl: z.string().min(1),
+});
+
+/**
+ * The viewer's join handshake (T31): the match identity (incl. `mameCommit`,
+ * absent from `room.state`), the start frame/delay, the seated roster and the
+ * latest live-join snapshot (null until the host has produced one).
+ */
+export const viewerState = z.strictObject({
+  t: z.literal("viewer.state"),
+  room: z.string().min(1),
+  driver: z.string().min(1),
+  coreHash: hash,
+  mameCommit: z.string().regex(/^[0-9a-f]{40}$/, "lowercase 40-hex commit"),
+  romHash: hash,
+  dips: z.record(z.string(), z.union([z.string(), z.number()])),
+  startFrame: frame,
+  inputDelay: z.number().int().min(0),
+  players: z.array(z.strictObject({ slot, name: z.string() })),
+  snapshot: z
+    .strictObject({ frame, blobUrl: z.string().min(1) })
+    .nullable(),
+});
+
 export const hashMessage = z.strictObject({
   t: z.literal("hash"),
   frame,
@@ -137,6 +169,8 @@ const jsonSchemas = [
   gameSet,
   gameStart,
   stateSnapshot,
+  viewerSnapshot,
+  viewerState,
   hashMessage,
   desync,
   scoreLive,
@@ -156,6 +190,9 @@ export const clientMessage = z.discriminatedUnion("t", [
   gameSet,
   gameStart,
   stateSnapshot,
+  // A host publishes the live-join snapshot; the relay stores it and forwards
+  // it to viewers only (T31).
+  viewerSnapshot,
   hashMessage,
   scoreLive,
   gameEnd,
@@ -176,6 +213,10 @@ export const serverMessage = z.discriminatedUnion("t", [
   // startFrame/inputDelay before stepping (T24, docs/03).
   gameStart,
   stateSnapshot,
+  // The host's live-join snapshot is forwarded to viewers only (T31).
+  viewerSnapshot,
+  // The relay sends a joining viewer the match identity + latest snapshot (T31).
+  viewerState,
   desync,
   scoreLive,
   chat,
@@ -189,6 +230,8 @@ export type PlayerReady = z.infer<typeof playerReady>;
 export type GameSet = z.infer<typeof gameSet>;
 export type GameStart = z.infer<typeof gameStart>;
 export type StateSnapshot = z.infer<typeof stateSnapshot>;
+export type ViewerSnapshot = z.infer<typeof viewerSnapshot>;
+export type ViewerState = z.infer<typeof viewerState>;
 export type HashMessage = z.infer<typeof hashMessage>;
 export type Desync = z.infer<typeof desync>;
 export type ScoreLive = z.infer<typeof scoreLive>;

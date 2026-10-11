@@ -54,6 +54,33 @@ const validMessages: AnyMessage[] = [
   },
   { t: "game.start", startFrame: 0, inputDelay: 2 },
   { t: "state.snapshot", frame: 120, blobUrl: "https://example.test/snap" },
+  { t: "viewer.snapshot", frame: 120, blobUrl: "https://example.test/snap" },
+  {
+    t: "viewer.state",
+    room: "r1",
+    driver: "gridlee",
+    coreHash: hash64,
+    mameCommit: "b".repeat(40),
+    romHash: hash64,
+    dips: { difficulty: "normal" },
+    startFrame: 0,
+    inputDelay: 2,
+    players: [{ slot: 0, name: "alice" }],
+    snapshot: { frame: 120, blobUrl: "https://example.test/snap" },
+  },
+  {
+    t: "viewer.state",
+    room: "r1",
+    driver: "gridlee",
+    coreHash: hash64,
+    mameCommit: "b".repeat(40),
+    romHash: hash64,
+    dips: {},
+    startFrame: 0,
+    inputDelay: 2,
+    players: [{ slot: 0, name: "alice" }],
+    snapshot: null,
+  },
   { t: "hash", frame: 60, crc32: 0xdeadbeef },
   { t: "desync", frame: 60 },
   { t: "score.live", player: 0, score: 12345, frame: 90 },
@@ -186,13 +213,14 @@ describe("message schemas", () => {
   it("routes each message to the directions in the contract table", () => {
     const byType = Object.fromEntries(validMessages.map((m) => [m.t, m]));
     const clientOnly = ["room.join", "hash", "game.end"] as const;
-    const serverOnly = ["room.state", "desync", "error"] as const;
+    const serverOnly = ["room.state", "viewer.state", "desync", "error"] as const;
     const both = [
       "rtc.signal",
       "player.ready",
       "game.set",
       "game.start",
       "state.snapshot",
+      "viewer.snapshot",
       "score.live",
       "chat",
     ] as const;
@@ -209,6 +237,37 @@ describe("message schemas", () => {
       expect(clientMessage.safeParse(byType[t]).success, t).toBe(true);
       expect(serverMessage.safeParse(byType[t]).success, t).toBe(true);
     }
+  });
+
+  it("sends viewer.state only to viewers and viewer.snapshot both ways", () => {
+    const state = {
+      t: "viewer.state",
+      room: "r1",
+      driver: "gridlee",
+      coreHash: hash64,
+      mameCommit: "b".repeat(40),
+      romHash: hash64,
+      dips: {},
+      startFrame: 0,
+      inputDelay: 2,
+      players: [{ slot: 0, name: "alice" }],
+      snapshot: null,
+    };
+    expect(serverMessage.safeParse(state).success).toBe(true);
+    expect(clientMessage.safeParse(state).success).toBe(false);
+    // A viewer needs mameCommit (to pin the core) and a snapshot slot.
+    expect(
+      serverMessage.safeParse({ ...state, mameCommit: undefined }).success,
+    ).toBe(false);
+    expect(serverMessage.safeParse({ ...state, snapshot: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      serverMessage.safeParse({
+        ...state,
+        players: [{ slot: PLAYER_SLOTS, name: "alice" }],
+      }).success,
+    ).toBe(false);
   });
 });
 
