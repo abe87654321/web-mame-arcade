@@ -3,6 +3,7 @@ import {
   gameHref,
   parseRoute,
   startRouter,
+  watchHref,
   type RouterTarget,
 } from "./router";
 
@@ -29,6 +30,21 @@ describe("parseRoute", () => {
     });
   });
 
+  it("maps a watch hash to the viewer route", () => {
+    expect(parseRoute("#/game/gridlee/room/abc123/watch")).toEqual({
+      kind: "watch",
+      driver: "gridlee",
+      room: "abc123",
+    });
+  });
+
+  it("rejects a watch hash without a room", () => {
+    expect(parseRoute("#/game/gridlee/watch")).toEqual({
+      kind: "not-found",
+      path: "/game/gridlee/watch",
+    });
+  });
+
   it("rejects a missing driver", () => {
     expect(parseRoute("#/game/")).toEqual({
       kind: "not-found",
@@ -51,6 +67,14 @@ describe("gameHref", () => {
 
   it("builds the netplay play link with a room", () => {
     expect(gameHref("gridlee", "abc123")).toBe("#/game/gridlee/room/abc123");
+  });
+});
+
+describe("watchHref", () => {
+  it("builds the viewer link for a driver and room", () => {
+    expect(watchHref("gridlee", "abc123")).toBe(
+      "#/game/gridlee/room/abc123/watch",
+    );
   });
 });
 

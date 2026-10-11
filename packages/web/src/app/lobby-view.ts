@@ -13,6 +13,8 @@ export interface LobbyViewOptions {
   /** Toggle our own ready flag; the view passes the desired next value. */
   onSetReady: (ready: boolean) => void;
   onLeave: () => void;
+  /** Copy/share the live viewer link (T31); omitted in tests without one. */
+  onWatch?: () => void;
 }
 
 function statusText(status: LobbyState["roomStatus"]): string {
@@ -95,6 +97,15 @@ export function buildLobby(state: LobbyState, options: LobbyViewOptions): ViewNo
       className: "ready-toggle",
       text: self.ready ? "Not ready" : "Ready",
       onClick: () => options.onSetReady(!self.ready),
+    });
+  }
+
+  if (options.onWatch) {
+    controls.push({
+      tag: "button",
+      className: "watch",
+      text: "Watch",
+      onClick: options.onWatch,
     });
   }
 

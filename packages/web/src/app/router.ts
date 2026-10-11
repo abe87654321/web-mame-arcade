@@ -8,6 +8,7 @@
 export type Route =
   | { kind: "list" }
   | { kind: "play"; driver: string; room: string | null }
+  | { kind: "watch"; driver: string; room: string }
   | { kind: "not-found"; path: string };
 
 export interface RouterTarget {
@@ -19,10 +20,14 @@ export interface RouterTarget {
 export function parseRoute(hash: string): Route {
   const path = (hash.startsWith("#") ? hash.slice(1) : hash) || "/";
   if (path === "/") return { kind: "list" };
-  const match = /^\/game\/([^/]+)(?:\/room\/([^/]+))?$/.exec(path);
+  const match = /^\/game\/([^/]+)(?:\/room\/([^/]+)(\/watch)?)?$/.exec(path);
   if (match?.[1]) {
-    const room = match[2] ?? null;
-    return { kind: "play", driver: match[1], room };
+    if (match[2]) {
+      return match[3]
+        ? { kind: "watch", driver: match[1], room: match[2] }
+        : { kind: "play", driver: match[1], room: match[2] };
+    }
+    return { kind: "play", driver: match[1], room: null };
   }
   return { kind: "not-found", path };
 }
@@ -30,6 +35,11 @@ export function parseRoute(hash: string): Route {
 /** Play link; with a room it joins netplay, without it is solo (T24). */
 export function gameHref(driver: string, room?: string): string {
   return room ? `#/game/${driver}/room/${room}` : `#/game/${driver}`;
+}
+
+/** Viewer link for a room (T31): `#/game/<driver>/room/<room>/watch`. */
+export function watchHref(driver: string, room: string): string {
+  return `#/game/${driver}/room/${room}/watch`;
 }
 
 /**

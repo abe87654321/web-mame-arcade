@@ -255,6 +255,69 @@ describe("createApp", () => {
     expect(socket.closes).toBe(1);
   });
 
+  it("boots a frozen core and joins as a viewer on a watch route (T31)", async () => {
+    const socket = new FakeWebSocket();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc/watch";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+
+    expect(h.loadCore).toHaveBeenCalledWith(entry, { netplay: true });
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "room.join", room: "abc", role: "viewer", token: "jwt" }),
+    );
+    expect(findByClass(h.root, "viewer")).toBeDefined();
+    app.destroy();
+    expect(socket.closes).toBe(1);
+  });
+
+  it("navigates to the watch link from the lobby (T31)", async () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "room.state",
+        room: "abc",
+        self: 0,
+        players: [{ slot: 0, name: "You", ready: false }],
+        game: null,
+        coreHash: null,
+        romHash: null,
+        dips: {},
+        status: "waiting",
+      }),
+    );
+    await flush();
+
+    findByClass(h.root, "watch")?.click();
+    expect(h.hash.value).toBe("#/game/gridlee/room/abc/watch");
+    app.destroy();
+  });
+
   it("warns when an online route has no relay configuration", async () => {
     const h = harness();
     const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
