@@ -8,8 +8,9 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `room.state` | relay → client | room, self, players[], game, coreHash, romHash, dips, status | room snapshot (`self` = recipient's slot or null; game fields null pre-game) |
 | `rtc.signal` | both | to, sdp?, candidate? (client); from, to, sdp?, candidate? (relay) | WebRTC signalling relay |
 | `player.ready` | both | ready, player? (relay-stamped slot) | a player toggles its own lobby ready flag |
+| `game.set` | host → relay → all | driver, coreHash, mameCommit, romHash, dips | host picks the game + DIPs (fills `room.state`) |
 | `game.start` | host → relay → all | startFrame, inputDelay | begins input log; relay fans it out and sets status `playing` |
-| `input` | player → relay | binary input packet | recorded + fanned out |
+| `input` | player → relay | binary input packet | recorded (spectator fan-out is T31) |
 | `state.snapshot` | host → relay → client | frame, blobUrl | late join / desync recovery |
 | `hash` | player → relay | frame, crc32 | desync detection |
 | `desync` | relay → players | frame | trigger resync |
@@ -79,6 +80,28 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 - New error codes: `not_host` (a non-host sent `state.snapshot`), `not_playing`
   (`state.snapshot` before `game.start`; reused for `hash` before the game starts).
 - Every desync and resync is logged with room, frame and (once available) game/`coreHash`.
+
+## Pinned in T30
+- `game.set` is sent host → relay by the **lowest occupied player slot** (same host rule
+  as `game.start`; `not_host` otherwise) and only while the room is `waiting`
+  (`already_started` once `playing`). It carries `driver`, `coreHash`, `mameCommit`,
+  `romHash` (all lowercase hex: 64 for the hashes, 40 for the commit) and `dips`
+  (string|number values). The relay records them on the room and fans the message out to
+  every member, then re-broadcasts `room.state` — so `room.state.game/coreHash/romHash/dips`
+  are **non-null/`{}`** after a `game.set`. `mameCommit` is kept for the input log
+  (docs/contracts/input-log.md) and is not part of `room.state`.
+- Binary `input` frames are accepted from seated players only, in a `playing` room, and
+  appended to the match's input log (docs/contracts/input-log.md). A frame outside the
+  log's open window (before `startFrame`, after `game.end`, or a repeated `(frame, slot)`)
+  is ignored. The relay does not fan inputs out to peers here (viewers are T31); peers
+  already exchange them P2P.
+- `game.end` is sent host → relay by the lowest occupied player slot (`not_host`
+  otherwise) and only in a `playing` room (`not_playing` otherwise). The relay closes the
+  input log at `frame`, writes the artifact (object storage), queues a verification job
+  and flips `room.state.status` to **`ended`**. `game.end` is client→relay only; the room
+  learns the match ended from the refreshed `room.state`.
+- `game.set`, `game.start`, `input` and `game.end` therefore require a seated player; a
+  viewer or unjoined connection is rejected with `not_joined`.
 
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional
