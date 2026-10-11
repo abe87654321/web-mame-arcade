@@ -72,6 +72,17 @@ export const playerReady = z.strictObject({
   player: slot.optional(),
 });
 
+export const gameSet = z.strictObject({
+  t: z.literal("game.set"),
+  driver: z.string().min(1),
+  // core_hash / rom_hash: lowercase sha256 hex (contracts/core-version.md).
+  coreHash: hash,
+  // mame/ commit the core was built from; the verifier rebuilds from it.
+  mameCommit: z.string().regex(/^[0-9a-f]{40}$/, "lowercase 40-hex commit"),
+  romHash: hash,
+  dips: z.record(z.string(), z.union([z.string(), z.number()])),
+});
+
 export const gameStart = z.strictObject({
   t: z.literal("game.start"),
   startFrame: frame,
@@ -123,6 +134,7 @@ const jsonSchemas = [
   roomState,
   rtcSignal,
   playerReady,
+  gameSet,
   gameStart,
   stateSnapshot,
   hashMessage,
@@ -141,6 +153,7 @@ export const clientMessage = z.discriminatedUnion("t", [
   roomJoin,
   rtcSignal,
   playerReady,
+  gameSet,
   gameStart,
   stateSnapshot,
   hashMessage,
@@ -156,6 +169,9 @@ export const serverMessage = z.discriminatedUnion("t", [
   // The relay stamps the sender's slot and fans a toggled ready flag out to the
   // room, then re-broadcasts room.state (T27).
   playerReady,
+  // The relay fans the host's game.set out to every member and reflects it in
+  // room.state (T30, docs/contracts/ws-messages.md).
+  gameSet,
   // The relay fans the host's start out to every member so each peer agrees on
   // startFrame/inputDelay before stepping (T24, docs/03).
   gameStart,
@@ -170,6 +186,7 @@ export type RoomJoin = z.infer<typeof roomJoin>;
 export type RoomState = z.infer<typeof roomState>;
 export type RtcSignal = z.infer<typeof rtcSignal>;
 export type PlayerReady = z.infer<typeof playerReady>;
+export type GameSet = z.infer<typeof gameSet>;
 export type GameStart = z.infer<typeof gameStart>;
 export type StateSnapshot = z.infer<typeof stateSnapshot>;
 export type HashMessage = z.infer<typeof hashMessage>;

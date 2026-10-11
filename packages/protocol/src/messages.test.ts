@@ -44,6 +44,14 @@ const validMessages: AnyMessage[] = [
   { t: "rtc.signal", to: 0, candidate: { candidate: "candidate:1", sdpMid: "0" } },
   { t: "player.ready", ready: true },
   { t: "player.ready", ready: false, player: 2 },
+  {
+    t: "game.set",
+    driver: "gridlee",
+    coreHash: hash64,
+    mameCommit: "b".repeat(40),
+    romHash: hash64,
+    dips: { difficulty: "normal" },
+  },
   { t: "game.start", startFrame: 0, inputDelay: 2 },
   { t: "state.snapshot", frame: 120, blobUrl: "https://example.test/snap" },
   { t: "hash", frame: 60, crc32: 0xdeadbeef },
@@ -94,6 +102,16 @@ describe("message schemas", () => {
     expect(
       safeParseMessage({ t: "score.live", player: PLAYER_SLOTS, score: 1, frame: 0 })
         .success,
+    ).toBe(false);
+    expect(
+      safeParseMessage({
+        t: "game.set",
+        driver: "gridlee",
+        coreHash: "not-a-hash",
+        mameCommit: "b".repeat(40),
+        romHash: hash64,
+        dips: {},
+      }).success,
     ).toBe(false);
     expect(
       safeParseMessage({
@@ -172,6 +190,7 @@ describe("message schemas", () => {
     const both = [
       "rtc.signal",
       "player.ready",
+      "game.set",
       "game.start",
       "state.snapshot",
       "score.live",
