@@ -28,6 +28,7 @@ import {
 } from "../ui/view";
 import { buildList } from "./list-view";
 import { buildLobby } from "./lobby-view";
+import { buildNetplayOverlay } from "./netplay-overlay";
 import {
   browserScheduler,
   createPlayController,
@@ -69,6 +70,8 @@ export interface AppEnv {
   gamepads: GamepadsProvider;
   /** Set by `startApp`; absent in solo-only tests. */
   netplay?: NetplayEnv;
+  /** Render the dev netplay metrics overlay (T28); set by `startApp` in Dev. */
+  devOverlay?: boolean;
   /** Generates a fresh room id for "Play online"; defaults to `randomUUID`. */
   newRoomId?: () => string;
   /**
@@ -276,6 +279,10 @@ export function createApp(deps: AppDeps): AppController {
         if (route.room && netplay && lobbyHost) {
           const host = lobbyHost;
           const room = route.room;
+          // Dev-only metrics overlay (T28), over the canvas next to the lobby.
+          const overlayHost =
+            deps.env.devOverlay === true ? deps.env.doc.createElement("div") : null;
+          if (overlayHost) overlayHost.className = "netplay-overlay-host";
           const renderLobby = (state: LobbyState): void => {
             host.textContent = "";
             host.append(
@@ -325,9 +332,28 @@ export function createApp(deps: AppDeps): AppController {
             onLobby: renderLobby,
             log: (event, fields) => console.warn("[netplay]", event, fields),
             ...(deps.env.inputScript ? { inputScript: deps.env.inputScript } : {}),
+            ...(overlayHost
+              ? {
+                  onMetrics: (snapshot) => {
+                    overlayHost.textContent = "";
+                    overlayHost.append(
+                      renderTree(
+                        deps.env.doc,
+                        buildNetplayOverlay({
+                          frame: snapshot.frame,
+                          framesSent: snapshot.framesSent,
+                          status: matchStatusText(match?.status() ?? "running"),
+                          peers: snapshot.peers,
+                        }),
+                      ),
+                    );
+                  },
+                }
+              : {}),
           });
           renderLobby(match.lobby());
           deps.env.root.append(host);
+          if (overlayHost) deps.env.root.append(overlayHost);
         }
         play = createPlayController({
           core,
@@ -512,6 +538,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       screen: screenEl,
       ...(netplay ? { netplay } : {}),
       ...(inputScript ? { inputScript } : {}),
+      ...(devEnv?.DEV === true ? { devOverlay: true } : {}),
     },
   });
 }
