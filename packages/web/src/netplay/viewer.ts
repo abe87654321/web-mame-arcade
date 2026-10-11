@@ -72,6 +72,10 @@ export function createViewer(deps: ViewerDeps): Viewer {
   let players: ViewerPlayer[] = [];
   let playback: Playback | null = null;
   let closed = false;
+  // Binary frames that arrived before the playback existed: the relay sends the
+  // viewer.state handshake and the catch-up frames back-to-back, but a snapshot
+  // load is async, so without this buffer the whole catch-up would be dropped.
+  const pending: Uint8Array[] = [];
 
   function setStatus(next: ViewerStatus): void {
     if (status === next) return;
@@ -86,6 +90,8 @@ export function createViewer(deps: ViewerDeps): Viewer {
       bufferMs,
       frameMs,
     });
+    for (const bytes of pending) playback.onBytes(bytes);
+    pending.length = 0;
     setStatus("buffering");
   }
 
@@ -149,7 +155,11 @@ export function createViewer(deps: ViewerDeps): Viewer {
           return;
       }
     },
-    onBinary: (data) => playback?.onBytes(new Uint8Array(data)),
+    onBinary: (data) => {
+      const bytes = new Uint8Array(data);
+      if (playback) playback.onBytes(bytes);
+      else pending.push(bytes);
+    },
     onClose: () => {
       if (!closed) setStatus("disconnected");
     },
@@ -171,6 +181,9 @@ export function createViewer(deps: ViewerDeps): Viewer {
     close: () => {
       closed = true;
       client.close();
+      // The viewer owns the core on the watch route (like the play controller
+      // does on play routes), so stop MAME/Emscripten with it.
+      deps.core.destroy();
     },
   };
 }

@@ -116,6 +116,36 @@ describe("createViewer", () => {
     expect(core.steps[0]?.frame).toBeGreaterThanOrEqual(121);
   });
 
+  it("buffers catch-up frames that arrive before the snapshot load resolves", async () => {
+    const snapshotBytes = new Uint8Array([7, 7]);
+    let resolveFetch: (bytes: Uint8Array) => void = () => {};
+    const fetchSnapshot = vi.fn(
+      () => new Promise<Uint8Array>((resolve) => (resolveFetch = resolve)),
+    );
+    const { socket, core, viewer } = harness({ fetchSnapshot });
+    await flush();
+    socket.emitMessage(
+      JSON.stringify(viewerState({ frame: 120, blobUrl: "http://relay/s" })),
+    );
+    await flush();
+    // The relay sends catch-up right after viewer.state, before the fetch ends.
+    socket.emitMessage(bytes(0, 121, [0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+    socket.emitMessage(bytes(1, 121, [0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+    resolveFetch(snapshotBytes);
+    await flush();
+
+    viewer.tick(0);
+    viewer.tick(1000);
+    expect(core.steps.length).toBeGreaterThan(0);
+    expect(core.steps[0]?.frame).toBeGreaterThanOrEqual(121);
+  });
+
+  it("destroys the core on close", () => {
+    const { core, viewer } = harness();
+    viewer.close();
+    expect(core.destroy).toHaveBeenCalledOnce();
+  });
+
   it("reports connecting, then ended when the room ends", async () => {
     const { socket, viewer, statuses } = harness();
     expect(viewer.status()).toBe("connecting");

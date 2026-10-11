@@ -484,6 +484,20 @@ describe("createRelay (viewer fan-out, T31)", () => {
     expect(r.input("v1", bytes)).toEqual([]);
   });
 
+  it("does not fan out a packet claiming another slot", () => {
+    const r = playing();
+    r.handle("v1", viewerJoin("w1"));
+    // c1 is slot 0; a packet claiming slot 1 must reach neither peers nor viewers.
+    const forged = encodeInput({
+      version: 1,
+      player: 1,
+      ackFrame: 0,
+      firstFrame: 2,
+      inputs: [0x10, 0x20],
+    });
+    expect(r.input("c1", forged)).toEqual([]);
+  });
+
   it("does not fan input out before the match starts", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));

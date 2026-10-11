@@ -227,13 +227,11 @@ export function createRelay({
     },
 
     input(connectionId: string, bytes: Uint8Array): BinaryOutbound[] {
-      // Best-effort recording; binary frames never elicit a JSON reply.
-      rooms.recordInput(connectionId, bytes);
-      // Fan the frame to every other member (T31: spectator stream + player
-      // redundancy). A non-seated sender or a non-playing room yields none.
-      return rooms
-        .inputFanoutTargets(connectionId)
-        .map((target) => ({ connectionId: target, binary: bytes }));
+      // Best-effort recording; binary frames never elicit a JSON reply. Only an
+      // authenticated packet (seated sender, playing room, `player` == its
+      // slot) is fanned out, so a forged slot cannot reach peers or viewers.
+      const { fanout } = rooms.recordInput(connectionId, bytes);
+      return fanout.map((target) => ({ connectionId: target, binary: bytes }));
     },
 
     leave(connectionId: string): Outbound[] {

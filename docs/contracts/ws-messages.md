@@ -13,7 +13,7 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `input` | player → relay → all members | binary input packet | recorded; fanned to viewers + peers as redundancy (T31) |
 | `state.snapshot` | host → relay → client | frame, blobUrl | desync recovery |
 | `viewer.snapshot` | host → relay → viewers | frame, blobUrl | live-join snapshot (T31) |
-| `viewer.state` | relay → viewer | room, driver, coreHash, mameCommit, romHash, dips, startFrame, inputDelay, players[], snapshot? | viewer join handshake (T31) |
+| `viewer.state` | relay → viewer | room, driver, coreHash, mameCommit, romHash, dips, startFrame, inputDelay, players[], snapshot (nullable) | viewer join handshake (T31) |
 | `hash` | player → relay | frame, crc32 | desync detection |
 | `desync` | relay → players | frame | trigger resync |
 | `score.live` | player → relay → all | player, score, frame | live scoreboard (display only) |

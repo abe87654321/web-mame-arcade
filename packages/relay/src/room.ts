@@ -297,33 +297,42 @@ export class RoomManager {
   }
 
   /**
-   * Append a seated player's binary input packet to the open log (T30). A
-   * non-seated sender, a room that is not `playing`, a closed log or a
-   * malformed packet is ignored. Returns whether anything was recorded.
+   * Append a seated player's binary input packet to the open log (T30) and
+   * report where a valid packet should be fanned out (T31). A non-seated
+   * sender, a room that is not `playing`, a malformed packet or a packet
+   * claiming another slot is rejected with an empty fan-out. `fanout` lists
+   * every other member (the packet is authenticated, so it is safe to relay).
    */
-  recordInput(connectionId: string, bytes: Uint8Array): boolean {
+  recordInput(
+    connectionId: string,
+    bytes: Uint8Array,
+  ): { recorded: boolean; fanout: string[] } {
+    const deny = { recorded: false, fanout: [] };
     // Binary input is best-effort: a frame from a connection that is not a
     // seated player in a playing room is silently ignored rather than answered
     // with a JSON error (there is no useful reply to a stray binary frame).
     const roomId = this.byConnection.get(connectionId);
     const room = roomId === undefined ? undefined : this.rooms.get(roomId);
-    if (!room) return false;
+    if (!room) return deny;
     const sender = room.members.get(connectionId);
-    if (!sender || sender.slot === null) return false;
-    if (room.status !== "playing" || !room.log) return false;
+    if (!sender || sender.slot === null) return deny;
+    if (room.status !== "playing" || !room.log) return deny;
     let packet: InputPacket;
     try {
       packet = decodeInput(bytes);
     } catch {
-      return false;
+      return deny;
     }
     // The packet's `player` is untrusted (client-supplied). The authenticated
     // connection owns exactly one slot, so a frame claiming another slot is
-    // dropped: without this a seated player could pre-seed a victim's slot
-    // (first-write-wins) and forge their inputs in the verifier's evidence.
-    // Mirrors `hash`, which stamps sender.slot rather than trusting the wire.
-    if (packet.player !== sender.slot) return false;
-    return room.log.append(packet);
+    // dropped and **never fanned out**: without this a seated player could
+    // pre-seed a victim's slot for peers/viewers (first-write-wins) and forge
+    // their inputs. Mirrors `hash`, which stamps sender.slot rather than
+    // trusting the wire.
+    if (packet.player !== sender.slot) return deny;
+    const recorded = room.log.append(packet);
+    const fanout = [...room.members.keys()].filter((id) => id !== connectionId);
+    return { recorded, fanout };
   }
 
   /**
@@ -507,20 +516,6 @@ export class RoomManager {
     return [...room.members.values()]
       .filter((m) => m.role === "viewer" && m.connectionId !== exceptConnectionId)
       .map((m) => m.connectionId);
-  }
-
-  /**
-   * Members to fan a seated player's binary input to: every room member except
-   * the sender, and only while the room is `playing` (T31). Peers get it as
-   * redundancy; viewers as the live stream. A non-player sender yields none.
-   */
-  inputFanoutTargets(connectionId: string): string[] {
-    const roomId = this.byConnection.get(connectionId);
-    const room = roomId === undefined ? undefined : this.rooms.get(roomId);
-    if (!room || room.status !== "playing") return [];
-    const sender = room.members.get(connectionId);
-    if (!sender || sender.slot === null) return [];
-    return [...room.members.keys()].filter((id) => id !== connectionId);
   }
 
   /** The live-join handshake for a viewer, or null (not a viewer / not playing). */
