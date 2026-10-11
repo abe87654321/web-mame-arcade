@@ -1,0 +1,15 @@
+# LiveKit server config (T41). The API key/secret are injected by the compose
+# `--keys` flag from LIVEKIT_API_KEY/LIVEKIT_API_SECRET, so they never live in
+# this file. One host directly serves the host's published A/V; Egress → HLS is
+# deferred (docs/04), so no rtmp/egress block here.
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  # Advertise the host's public IP on the ICE candidates so remote browsers can
+  # connect directly; set the node IP explicitly when behind NAT.
+  use_external_ip: true
+logging:
+  level: info
+  json: true

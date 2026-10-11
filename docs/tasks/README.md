@@ -74,7 +74,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 
 ## Phase 4 · Scale and polish
 - [ ] **T40 Rollback** (per game flag) – Docs: 03. Depends: T25.
-- [ ] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
+- [x] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
 - [ ] **T42 Production deploy** – docker-compose for Ubuntu 24.04, TLS, backups, monitoring (Prometheus + Grafana). Docs: 06. Depends: T23, T34.
 - [ ] **T43 Load test** – 1 000 simulated viewers on one relay (k6 or a Node script). Docs: 04. Depends: T30.
 - [ ] **T44 Relay scale-out** – Redis pub/sub between relay nodes so inputs/spectator fan-out spans processes.

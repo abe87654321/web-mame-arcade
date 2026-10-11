@@ -1,5 +1,6 @@
-# Arcade service compose. T23 adds coturn for WebRTC NAT traversal; the relay,
-# API, nginx and verifier services land with later tasks (T42).
+# Arcade service compose. T23 adds coturn for WebRTC NAT traversal; T41 adds
+# LiveKit for the host's opt-in A/V fallback. The relay, API, nginx and verifier
+# services land with later tasks (T42).
 #
 # Usage:
 #   cp deploy/.env.example deploy/.env   # then edit TURN_SECRET / TURN_EXTERNAL_IP
@@ -7,7 +8,8 @@
 #   docker compose -f deploy/docker-compose.yml up -d
 #
 # Host networking is used so coturn's UDP relay range (see turnserver.conf) is
-# reachable without enumerating every port.
+# reachable without enumerating every port. LiveKit uses explicit port mappings
+# (WS 7880, RTC/UDP 50000-50100) instead.
 services:
   coturn:
     image: coturn/coturn:4.6.2
@@ -20,3 +22,18 @@ services:
       - "--static-auth-secret=${TURN_SECRET:?set TURN_SECRET in deploy/.env}"
       - "--realm=${TURN_REALM:-web-mame-arcade}"
       - "--external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP in deploy/.env}"
+
+  # LiveKit SFU for the host's opt-in A/V fallback (T41). The relay mints
+  # access tokens with the same API key/secret. Egress → HLS is deferred.
+  livekit:
+    image: livekit/livekit-server:v1.8.4
+    restart: unless-stopped
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    command:
+      - "--config=/etc/livekit.yaml"
+      - "--keys=${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in deploy/.env}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in deploy/.env}"
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
