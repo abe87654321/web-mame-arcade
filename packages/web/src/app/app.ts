@@ -28,6 +28,7 @@ import {
 } from "../ui/view";
 import { buildList } from "./list-view";
 import { buildLobby } from "./lobby-view";
+import { buildNetplayOverlay } from "./netplay-overlay";
 import {
   browserScheduler,
   createPlayController,
@@ -69,6 +70,8 @@ export interface AppEnv {
   gamepads: GamepadsProvider;
   /** Set by `startApp`; absent in solo-only tests. */
   netplay?: NetplayEnv;
+  /** Render the dev netplay metrics overlay (T28); set by `startApp` in Dev. */
+  devOverlay?: boolean;
   /** Generates a fresh room id for "Play online"; defaults to `randomUUID`. */
   newRoomId?: () => string;
   /**
@@ -276,6 +279,10 @@ export function createApp(deps: AppDeps): AppController {
         if (route.room && netplay && lobbyHost) {
           const host = lobbyHost;
           const room = route.room;
+          // Dev-only metrics overlay (T28), over the canvas next to the lobby.
+          const overlayHost =
+            deps.env.devOverlay === true ? deps.env.doc.createElement("div") : null;
+          if (overlayHost) overlayHost.className = "netplay-overlay-host";
           const renderLobby = (state: LobbyState): void => {
             host.textContent = "";
             host.append(
@@ -325,9 +332,28 @@ export function createApp(deps: AppDeps): AppController {
             onLobby: renderLobby,
             log: (event, fields) => console.warn("[netplay]", event, fields),
             ...(deps.env.inputScript ? { inputScript: deps.env.inputScript } : {}),
+            ...(overlayHost
+              ? {
+                  onMetrics: (snapshot) => {
+                    overlayHost.textContent = "";
+                    overlayHost.append(
+                      renderTree(
+                        deps.env.doc,
+                        buildNetplayOverlay({
+                          frame: snapshot.frame,
+                          framesSent: snapshot.framesSent,
+                          status: matchStatusText(match?.status() ?? "running"),
+                          peers: snapshot.peers,
+                        }),
+                      ),
+                    );
+                  },
+                }
+              : {}),
           });
           renderLobby(match.lobby());
           deps.env.root.append(host);
+          if (overlayHost) deps.env.root.append(overlayHost);
         }
         play = createPlayController({
           core,
@@ -381,6 +407,22 @@ export interface StartOptions {
  */
 export function coreDirUrl(entry: GameEntry): string {
   return `${entry.coreBaseUrl}/${entry.coreVersion}`;
+}
+
+type CoreLoader = (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
+
+/**
+ * DEV-only: expose the booted core on `window.__WMA_CORE__` for the T28 spike
+ * harness (e2e/spike.e2e.ts). Gated like the T26 input hook so a production
+ * bundle cannot be armed from a page; it hands out the same core the page would
+ * already run, and never changes the emulation path.
+ */
+function exposeCoreForSpike(win: Window, loadCore: CoreLoader): CoreLoader {
+  return async (entry, options) => {
+    const core = await loadCore(entry, options);
+    (win as unknown as { __WMA_CORE__?: Core }).__WMA_CORE__ = core;
+    return core;
+  };
 }
 
 /** Default core loader: fixed args, ROM mounted under `-rompath`. */
@@ -451,7 +493,13 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   const win = options.win ?? window;
   installAudioUnlock(win);
   const loadGames = options.loadGames ?? loadCatalogue;
-  const loadCore = options.loadCore ?? browserCoreLoader;
+  // e2e hooks (T26/T28) are dev-only: a production bundle must not be armable
+  // from a page (a scripted input macro the verifier would replay cleanly, or a
+  // page reaching into the core).
+  const devEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  const baseLoadCore = options.loadCore ?? browserCoreLoader;
+  const loadCore =
+    devEnv?.DEV === true ? exposeCoreForSpike(win, baseLoadCore) : baseLoadCore;
 
   const games = await loadGames(options.catalogueUrl ?? "/games.json");
 
@@ -463,10 +511,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   appEl.append(rootEl, statusEl);
 
   const netplay = options.netplay ?? netplayFromEnv();
-  // e2e hook (T26): dev-only, so a production bundle cannot be armed by a page
-  // to replay a scripted macro input (which the verifier would replay cleanly).
-  // The harness runs against the Vite dev server, where DEV is true.
-  const devEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  // e2e input hook (T26): dev-only (see the hooks note above).
   const inputScript = devEnv?.DEV ? readInputScript(win) : undefined;
 
   // SDL3's emscripten video backend resolves its canvas by the CSS selector
@@ -493,6 +538,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       screen: screenEl,
       ...(netplay ? { netplay } : {}),
       ...(inputScript ? { inputScript } : {}),
+      ...(devEnv?.DEV === true ? { devOverlay: true } : {}),
     },
   });
 }

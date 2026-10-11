@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PROTOCOL_VERSION, encodeInput } from "@wma/protocol";
 import type { Core, FrameInputs } from "../core/types";
 import { createMatch, type LobbyState, type MatchDeps, type MatchStatus } from "./match";
+import type { MetricsSnapshot } from "./metrics";
 import {
   FakePeerConnection,
   FakeWebSocket,
@@ -214,6 +215,28 @@ describe("createMatch", () => {
     resolveLoad();
     await flush();
     expect(match.status()).toBe("running");
+    match.close();
+  });
+
+  it("reports connection metrics for the dev overlay", async () => {
+    const snapshots: MetricsSnapshot[] = [];
+    const { socket, match } = harness(0, {
+      onMetrics: (snapshot) => snapshots.push(snapshot),
+    });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    // Peer 1's frame 0 arrives over the relay; the next tick emits a snapshot.
+    socket.emitMessage(peerPacket(1, 0, [0x02]));
+    match.tick(0x01);
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.peers.map((p) => p.slot)).toEqual([1]);
+    expect(snapshots[0]?.peers[0]).toMatchObject({ relay: 1, received: 1 });
+    expect(match.metrics()?.peers[0]?.relay).toBe(1);
     match.close();
   });
 

@@ -13,9 +13,10 @@
  * - lockstep packets go out over the data channels (`broadcast`) and the relay
  *   (`sendBinary`); inbound packets from either path feed `onBytes`.
  */
-import type { RoomState } from "@wma/protocol";
+import { decodeInput, type RoomState } from "@wma/protocol";
 import type { Core } from "../core/types";
 import { createLockstep, type Lockstep } from "./lockstep";
+import { createMetrics, type Metrics, type MetricsSnapshot } from "./metrics";
 import { createSession, type NetplaySession } from "./session";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
 export type MatchStatus =
@@ -84,6 +85,14 @@ export interface MatchDeps {
    */
   snapshotIntervalMs?: number;
   /**
+   * Periodic connection metrics for the dev overlay (T28): per-peer
+   * RTT/jitter/loss and the P2P-vs-relay tally. Telemetry only — the clock
+   * never reaches `core.step`; emitted at most every `metricsIntervalMs`.
+   */
+  onMetrics?: (snapshot: MetricsSnapshot) => void;
+  /** Minimum gap between metrics emissions, ms; default 250 (T28). */
+  metricsIntervalMs?: number;
+  /**
    * Upload a save state and return a fetchable URL (T25). Defaults to POSTing
    * to the relay's in-memory snapshot endpoint derived from `relayUrl`.
    */
@@ -117,6 +126,8 @@ export interface NetplayMatch {
   setReady(ready: boolean): boolean;
   /** The current lobby snapshot. */
   lobby(): LobbyState;
+  /** The current connection metrics, or null before the match starts (T28). */
+  metrics(): MetricsSnapshot | null;
   /** The underlying session (exposed for the play page / status UI). */
   session(): NetplaySession;
   close(): void;
@@ -132,6 +143,8 @@ const DEFAULT_INPUT_DELAY = 2;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 5000;
 /** Minimum gap between `input.request` resends while stalled (T31). */
 const RESYNC_INTERVAL_MS = 1000;
+/** Minimum gap between dev-overlay metrics emissions (T28). */
+const DEFAULT_METRICS_INTERVAL_MS = 250;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
@@ -151,6 +164,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   const inputDelay = deps.inputDelay ?? DEFAULT_INPUT_DELAY;
   const startFrame = deps.startFrame ?? 0;
   const snapshotIntervalMs = deps.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
+  const metricsIntervalMs = deps.metricsIntervalMs ?? DEFAULT_METRICS_INTERVAL_MS;
   const log = deps.log;
   const inputScript = deps.inputScript;
   const createSnapshot =
@@ -186,6 +200,9 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let viewerSnapshotInFlight = false;
   /** Last time we asked the relay to resend inputs after a stall (T31). */
   let lastResyncAt = 0;
+  /** Connection telemetry, armed with the lockstep (T28). */
+  let metrics: Metrics | null = null;
+  let lastMetricsAt: number | null = null;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -318,7 +335,22 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         log?.("resync-request", { frame });
       },
     });
+    metrics = createMetrics({ mySlot: self, players, now: deps.now });
+    lastMetricsAt = null;
     setStatus("running");
+  }
+
+  /** Emit a throttled metrics snapshot for the dev overlay (T28). */
+  function emitMetrics(now: number): void {
+    if (!metrics || !deps.onMetrics) return;
+    if (lastMetricsAt !== null && now - lastMetricsAt < metricsIntervalMs) return;
+    lastMetricsAt = now;
+    try {
+      deps.onMetrics(metrics.snapshot(lockstep ? lockstep.frame() : 0));
+    } catch {
+      // Telemetry must never break the animation loop: a dev-overlay render
+      // error is swallowed here rather than unwinding through `tick`.
+    }
   }
 
   function maybeStartPending(): void {
@@ -411,7 +443,17 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       }
       startLockstep(message.startFrame, message.inputDelay);
     },
-    onInput: (bytes) => lockstep?.onBytes(bytes),
+    onInput: (bytes, source) => {
+      if (metrics) {
+        try {
+          const packet = decodeInput(bytes);
+          metrics.onPeerPacket(packet.player, packet, source, deps.now());
+        } catch {
+          // Malformed/foreign packets are dropped by the lockstep too.
+        }
+      }
+      lockstep?.onBytes(bytes);
+    },
     onDesync: (message) => {
       // Only the host can answer; peers wait for its snapshot (docs/03).
       if (!isHost() || !lockstep) return;
@@ -480,16 +522,19 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   return {
     tick: (localMask) => {
       if (!lockstep) return;
+      const now = deps.now();
+      // Record when our own frame is scheduled so a later peer ack yields RTT.
+      metrics?.noteLocalFrame(lockstep.scheduledFrame(), now);
       // The e2e harness (T26) supplies a deterministic per-slot mask keyed on
       // the frame being scheduled, so the input a frame receives is independent
       // of when this animation tick fired.
       if (inputScript && self !== null) {
         lockstep.tick(inputScript(self, lockstep.scheduledFrame()));
-        maybeViewerSnapshot(deps.now());
-        return;
+      } else {
+        lockstep.tick(localMask);
       }
-      lockstep.tick(localMask);
-      maybeViewerSnapshot(deps.now());
+      maybeViewerSnapshot(now);
+      emitMetrics(now);
     },
     frame: () => (lockstep ? lockstep.frame() : startFrame),
     status: () => status,
@@ -507,6 +552,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       return session.send({ t: "player.ready", ready });
     },
     lobby,
+    metrics: () => (metrics ? metrics.snapshot(lockstep ? lockstep.frame() : 0) : null),
     session: () => session,
     close: () => {
       // The host closes the relay input log on teardown of a playing match; the
@@ -517,6 +563,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       }
       closed = true;
       lockstep = null;
+      metrics = null;
       session.close();
     },
   };

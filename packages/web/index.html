@@ -589,6 +589,64 @@
         color: var(--accent);
         background: rgba(210, 75, 31, 0.06);
       }
+      /* Dev netplay metrics overlay (T28): a small fixed panel, bottom-left. */
+      .netplay-overlay-host {
+        position: fixed;
+        left: 10px;
+        bottom: 30px;
+        z-index: 10;
+        pointer-events: none;
+      }
+      .netplay-overlay {
+        box-sizing: border-box;
+        background: rgba(42, 24, 16, 0.82);
+        color: var(--on-canvas);
+        font: 11px/1.4 var(--font-mono);
+        border: 1px solid rgba(255, 244, 207, 0.25);
+        border-radius: var(--radius-sm);
+        padding: 6px 9px;
+        min-width: 180px;
+      }
+      .netplay-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .netplay-status {
+        color: var(--warn);
+      }
+      .netplay-frame {
+        margin-top: 2px;
+        color: rgba(238, 238, 238, 0.75);
+      }
+      .netplay-peers {
+        list-style: none;
+        margin: 4px 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .netplay-peer {
+        display: flex;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      .netplay-peer__id {
+        font-weight: 700;
+        min-width: 22px;
+      }
+      .netplay-peer__src {
+        color: rgba(238, 238, 238, 0.6);
+        margin-left: auto;
+      }
+      .netplay-empty {
+        color: rgba(238, 238, 238, 0.6);
+        font-style: italic;
+      }
       @media (max-width: 420px) {
         .lobby-host {
           top: 8px;

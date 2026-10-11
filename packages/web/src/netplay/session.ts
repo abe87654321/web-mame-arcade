@@ -14,6 +14,7 @@ import type {
   StateSnapshot,
 } from "@wma/protocol";
 import { createMesh, type Mesh } from "./mesh";
+import type { PacketSource } from "./metrics";
 import type { PeerSignalling } from "./peer";
 import { createRelayClient } from "./relay-client";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
@@ -25,7 +26,7 @@ export interface SessionOptions {
   /** Inbound data-channel message, tagged with the sender slot. */
   onMessage?: (from: number, data: unknown) => void;
   /** Inbound binary input packet from a peer (data channel) or the relay. */
-  onInput?: (bytes: Uint8Array) => void;
+  onInput?: (bytes: Uint8Array, source: PacketSource) => void;
   /** The latest personal `room.state` (self slot, players, status). */
   onRoomState?: (message: RoomState) => void;
   /** The host's `game.start`, fanned out by the relay. */
@@ -97,7 +98,7 @@ export function createSession(options: SessionOptions): NetplaySession {
     onMessage: (message) => {
       handleMessage(message).catch((error) => onError?.(error));
     },
-    onBinary: (data) => onInput?.(new Uint8Array(data)),
+    onBinary: (data) => onInput?.(new Uint8Array(data), "relay"),
     ...(options.onClose ? { onClose: options.onClose } : {}),
   });
 
@@ -116,7 +117,7 @@ export function createSession(options: SessionOptions): NetplaySession {
         onMessage: (from: number, data: unknown) => {
           onMessage?.(from, data);
           const bytes = toBytes(data);
-          if (bytes) onInput?.(bytes);
+          if (bytes) onInput?.(bytes, "p2p");
         },
         ...(options.onChannelOpen || options.onPeersChanged
           ? {

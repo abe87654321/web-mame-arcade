@@ -7,6 +7,7 @@
 | 2. Two-player lockstep | Netplay patch, signalling, TURN, lockstep, desync hash | 30-min remote match, zero desyncs |
 | 3. Spectating + leaderboard | Relay input log, viewers, live score, verifier, boards, replays | Verifier reproduces 200/200 test matches |
 | 4. Scale + polish | Rollback for chosen games, LiveKit fallback, more drivers, monitoring | Load test: 1 000 viewers on one relay |
+| 5. Strong-sync (SLO C) | Server-authoritative native emulation + video (T45) | Absolute sync at fixed latency; cost is one sim + video per match |
 
 | Risk | Mitigation |
 | --- | --- |
