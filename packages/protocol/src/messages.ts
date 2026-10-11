@@ -107,9 +107,11 @@ export const viewerSnapshot = z.strictObject({
 });
 
 /**
- * The viewer's join handshake (T31): the match identity (incl. `mameCommit`,
- * absent from `room.state`), the start frame/delay, the seated roster and the
- * latest live-join snapshot (null until the host has produced one).
+ * The viewer's join handshake (T31/T41): the match identity (incl.
+ * `mameCommit`, absent from `room.state`), the start frame/delay, the seated
+ * roster, the latest live-join snapshot (null until the host has produced one)
+ * and whether the host is sharing LiveKit A/V (T41; the join credentials
+ * follow as a separate per-recipient `livekit.access`).
  */
 export const viewerState = z.strictObject({
   t: z.literal("viewer.state"),
@@ -125,6 +127,31 @@ export const viewerState = z.strictObject({
   snapshot: z
     .strictObject({ frame, blobUrl: z.string().min(1) })
     .nullable(),
+  // Whether the host is currently sharing A/V via LiveKit (T41).
+  video: z.boolean(),
+});
+
+/**
+ * Host opt-in for the LiveKit A/V fallback (T41). Sent host → relay; the relay
+ * records it on the room, fans it out to every member and, when enabled,
+ * follows up with a per-recipient `livekit.access`. Sent relay → all so the
+ * lobby/viewer can reflect the host's choice.
+ */
+export const videoSet = z.strictObject({
+  t: z.literal("video.set"),
+  enabled: z.boolean(),
+});
+
+/**
+ * A recipient's LiveKit join credentials (T41), relay → client only. Issued
+ * per member (`identity` = the join token's `sub`); the host grants publish,
+ * viewers subscribe only. `room` is the LiveKit room name (= arcade room id).
+ */
+export const livekitAccess = z.strictObject({
+  t: z.literal("livekit.access"),
+  url: z.string().min(1),
+  room: z.string().min(1),
+  token: z.string().min(1),
 });
 
 export const hashMessage = z.strictObject({
@@ -188,6 +215,8 @@ const jsonSchemas = [
   stateSnapshot,
   viewerSnapshot,
   viewerState,
+  videoSet,
+  livekitAccess,
   hashMessage,
   desync,
   scoreLive,
@@ -212,6 +241,8 @@ export const clientMessage = z.discriminatedUnion("t", [
   // A host publishes the live-join snapshot; the relay stores it and forwards
   // it to viewers only (T31).
   viewerSnapshot,
+  // The host toggles the LiveKit A/V fallback on/off (T41).
+  videoSet,
   hashMessage,
   scoreLive,
   gameEnd,
@@ -237,6 +268,10 @@ export const serverMessage = z.discriminatedUnion("t", [
   viewerSnapshot,
   // The relay sends a joining viewer the match identity + latest snapshot (T31).
   viewerState,
+  // The relay fans the host's A/V toggle out to every member and, when enabled,
+  // sends each recipient its own LiveKit join credentials (T41).
+  videoSet,
+  livekitAccess,
   desync,
   scoreLive,
   inputResync,
@@ -253,6 +288,8 @@ export type GameStart = z.infer<typeof gameStart>;
 export type StateSnapshot = z.infer<typeof stateSnapshot>;
 export type ViewerSnapshot = z.infer<typeof viewerSnapshot>;
 export type ViewerState = z.infer<typeof viewerState>;
+export type VideoSet = z.infer<typeof videoSet>;
+export type LivekitAccess = z.infer<typeof livekitAccess>;
 export type HashMessage = z.infer<typeof hashMessage>;
 export type Desync = z.infer<typeof desync>;
 export type ScoreLive = z.infer<typeof scoreLive>;

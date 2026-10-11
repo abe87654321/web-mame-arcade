@@ -13,7 +13,9 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `input` | player → relay → all members | binary input packet | recorded; fanned to viewers + peers as redundancy (T31) |
 | `state.snapshot` | host → relay → client | frame, blobUrl | desync recovery |
 | `viewer.snapshot` | host → relay → viewers | frame, blobUrl | live-join snapshot (T31) |
-| `viewer.state` | relay → viewer | room, driver, coreHash, mameCommit, romHash, dips, startFrame, inputDelay, players[], snapshot (nullable) | viewer join handshake (T31) |
+| `viewer.state` | relay → viewer | room, driver, coreHash, mameCommit, romHash, dips, startFrame, inputDelay, players[], snapshot (nullable), video | viewer join handshake (T31); `video` = host A/V opt-in (T41) |
+| `video.set` | host → relay → all | enabled | host opt-in for the LiveKit A/V fallback (T41) |
+| `livekit.access` | relay → client | url, room, token | per-recipient LiveKit join credentials (T41) |
 | `hash` | player → relay | frame, crc32 | desync detection |
 | `input.request` | player → relay | fromFrame | ask to resend recorded inputs after a stall (T31) |
 | `input.resync` | relay → player | fromFrame | reply to `input.request`; catch-up frames follow as binary |
@@ -135,6 +137,22 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
   plus the log's recorded frames from `fromFrame` as binary `input` packets — the same
   encoding as viewer catch-up — so a peer that fell behind catches up instead of waiting
   forever. Frames already stepped are refused by the receiver's frame floor.
+
+## Pinned in T41
+- `video.set` is sent host → relay by the **lowest occupied player slot** (same host rule
+  as `game.start`; `not_host` otherwise) and only while the room is `playing`
+  (`not_playing` otherwise). It carries `enabled: boolean`. The relay records it as the
+  room's A/V flag, fans the message out to every member and, when `enabled`, sends each
+  member its own `livekit.access`. Disabling only flips the flag and re-broadcasts.
+- `livekit.access` is relay → client only, per recipient: `url` (LiveKit WS endpoint),
+  `room` (the LiveKit room name = arcade room id) and `token` (a LiveKit JWT). The
+  LiveKit `identity` is the member's join-JWT `sub`, so it is naturally unique per room
+  (the relay already collapses same-`sub` members). The host's token grants publish +
+  subscribe; a viewer's grants subscribe only. A viewer that joins while the flag is set
+  receives `livekit.access` right after `viewer.state`; `viewer.state.video` mirrors the flag.
+- A/V is display-only and **never enters the emulation path**: the host publishes
+  `canvas.captureStream(60)` + MAME's Web Audio output to LiveKit; a viewer watches the
+  video/audio tracks instead of (or alongside) replaying inputs. Determinism is untouched.
 
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional

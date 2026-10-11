@@ -23,6 +23,7 @@ export {
   hashMessage,
   inputRequest,
   inputResync,
+  livekitAccess,
   parseMessage,
   playerReady,
   roomJoin,
@@ -32,6 +33,7 @@ export {
   scoreLive,
   serverMessage,
   stateSnapshot,
+  videoSet,
   viewerSnapshot,
   viewerState,
 } from "./messages.ts";
@@ -47,6 +49,7 @@ export type {
   HashMessage,
   InputRequest,
   InputResync,
+  LivekitAccess,
   PlayerReady,
   RoomJoin,
   RoomState,
@@ -54,6 +57,7 @@ export type {
   ScoreLive,
   ServerMessage,
   StateSnapshot,
+  VideoSet,
   ViewerSnapshot,
   ViewerState,
 } from "./messages.ts";

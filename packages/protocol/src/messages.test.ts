@@ -67,6 +67,7 @@ const validMessages: AnyMessage[] = [
     inputDelay: 2,
     players: [{ slot: 0, name: "alice" }],
     snapshot: { frame: 120, blobUrl: "https://example.test/snap" },
+    video: false,
   },
   {
     t: "viewer.state",
@@ -80,6 +81,15 @@ const validMessages: AnyMessage[] = [
     inputDelay: 2,
     players: [{ slot: 0, name: "alice" }],
     snapshot: null,
+    video: false,
+  },
+  { t: "video.set", enabled: true },
+  { t: "video.set", enabled: false },
+  {
+    t: "livekit.access",
+    url: "wss://livekit.example.test",
+    room: "r1",
+    token: "lk-jwt",
   },
   { t: "hash", frame: 60, crc32: 0xdeadbeef },
   { t: "desync", frame: 60 },
@@ -221,6 +231,7 @@ describe("message schemas", () => {
       "desync",
       "input.resync",
       "error",
+      "livekit.access",
     ] as const;
     const both = [
       "rtc.signal",
@@ -229,6 +240,7 @@ describe("message schemas", () => {
       "game.start",
       "state.snapshot",
       "viewer.snapshot",
+      "video.set",
       "score.live",
       "chat",
     ] as const;
@@ -260,6 +272,7 @@ describe("message schemas", () => {
       inputDelay: 2,
       players: [{ slot: 0, name: "alice" }],
       snapshot: null,
+      video: false,
     };
     expect(serverMessage.safeParse(state).success).toBe(true);
     expect(clientMessage.safeParse(state).success).toBe(false);
@@ -275,6 +288,60 @@ describe("message schemas", () => {
         ...state,
         players: [{ slot: PLAYER_SLOTS, name: "alice" }],
       }).success,
+    ).toBe(false);
+  });
+
+  it("carries the host's A/V opt-in and per-recipient LiveKit credentials", () => {
+    // video.set is host → relay → all; livekit.access is relay → client only.
+    expect(clientMessage.safeParse({ t: "video.set", enabled: true }).success).toBe(
+      true,
+    );
+    expect(serverMessage.safeParse({ t: "video.set", enabled: false }).success).toBe(
+      true,
+    );
+    const access = {
+      t: "livekit.access",
+      url: "wss://livekit.example.test",
+      room: "r1",
+      token: "lk-jwt",
+    };
+    expect(serverMessage.safeParse(access).success).toBe(true);
+    expect(clientMessage.safeParse(access).success).toBe(false);
+    // viewer.state flags whether the host is sharing A/V.
+    expect(
+      serverMessage.safeParse({
+        t: "viewer.state",
+        room: "r1",
+        driver: "gridlee",
+        coreHash: hash64,
+        mameCommit: "b".repeat(40),
+        romHash: hash64,
+        dips: {},
+        startFrame: 0,
+        inputDelay: 2,
+        players: [],
+        snapshot: null,
+        video: true,
+      }).success,
+    ).toBe(true);
+    // strict: video is required and boolean, credentials need a token.
+    expect(
+      serverMessage.safeParse({
+        t: "viewer.state",
+        room: "r1",
+        driver: "gridlee",
+        coreHash: hash64,
+        mameCommit: "b".repeat(40),
+        romHash: hash64,
+        dips: {},
+        startFrame: 0,
+        inputDelay: 2,
+        players: [],
+        snapshot: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      serverMessage.safeParse({ ...access, token: undefined }).success,
     ).toBe(false);
   });
 });
