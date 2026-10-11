@@ -6,7 +6,7 @@
  * would spend per frame; the report lives in core/spike/README.md.
  *
  * Needs the built WASM core and ROM (gitignored): `core/build-wasm.sh gridlee`.
- * Run with `pnpm --filter @wma/e2e test:e2e -- spike`; it is not part of CI.
+ * Run with `pnpm --filter @wma/e2e test:spike`; it is not part of CI.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

@@ -13,6 +13,7 @@
 #   --span <n>      frames between save and load check (default 30)
 #   --rompath <dir> ROM directory (default <repo>/roms)
 #   --binary <path> MAME binary (default <repo>/mame/<driver>)
+#   --timeout <secs> wall-clock limit (default 120)
 #   --keep          keep the temporary working directory
 #   --dry-run       print the command that would run, then exit
 #   --help          show this help

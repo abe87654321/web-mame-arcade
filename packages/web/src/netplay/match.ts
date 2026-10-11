@@ -345,7 +345,12 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     if (!metrics || !deps.onMetrics) return;
     if (lastMetricsAt !== null && now - lastMetricsAt < metricsIntervalMs) return;
     lastMetricsAt = now;
-    deps.onMetrics(metrics.snapshot(lockstep ? lockstep.frame() : 0));
+    try {
+      deps.onMetrics(metrics.snapshot(lockstep ? lockstep.frame() : 0));
+    } catch {
+      // Telemetry must never break the animation loop: a dev-overlay render
+      // error is swallowed here rather than unwinding through `tick`.
+    }
   }
 
   function maybeStartPending(): void {

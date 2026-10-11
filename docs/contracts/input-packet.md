@@ -33,7 +33,7 @@ reaches that frame, the difference is a round-trip estimate for that peer. `ack_
 used to count losses (a gap in a peer's `firstFrame` series before redundancy fills it) and jitter
 (inter-arrival variance). All of this is **local telemetry** (T28): it drives the dev overlay and
 the adaptive-delay input only, never `core.step`, so a clock reading can never make two peers
-diverge. The two-frame `ack` in a packet remains informational until rollback (T40) needs a real
+diverge. The one-frame-lagged `ack_frame` remains informational until rollback (T40) needs a real
 per-peer acknowledgement.
 
 ## Local input config vs host default
