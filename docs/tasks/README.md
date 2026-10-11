@@ -44,6 +44,14 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   (waiting/playing), leave/disconnect handling, and a place for chat (T30/T36 server side). Reuses
   `room.state`/`game.start` (T22/T24); feeds the viewer (T31) and replays (T35). Docs: 03, contracts/ws-messages.
   Depends: T22, T24.
+- [ ] **T28 Netplay communication hardening** – make the lockstep resilient to real networks and
+  browser behaviour, a follow-up to what T31 started: a visibility-aware collaborative pause (a
+  hidden/occluded tab throttles `requestAnimationFrame`, so that peer stops feeding inputs and
+  stalls everyone), extend the T31 stall recovery (`input.request`/`input.resync` from the relay
+  log) to mutual stalls and a host-snapshot fallback, keep the per-socket outbound backpressure
+  cap, prefer P2P with relay fallback and expose loss/jitter, and tune/adapt input delay from
+  measured RTT. Add a dev frame/lag/ack overlay and a golden-replay regression. Docs: 03, 04,
+  contracts/ws-messages, contracts/input-packet. Depends: T24, T25, T31.
 
 ## Phase 3 · Spectating and leaderboard
 - [x] **T30 Relay input log** – define `docs/contracts/input-log.md` (core/rom hash, DIPs, start state, per-frame
