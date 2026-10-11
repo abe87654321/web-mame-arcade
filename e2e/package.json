@@ -7,6 +7,8 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:spike": "playwright test -c playwright.spike.config.ts",
+    "test:e2e:livekit": "playwright test -c playwright.livekit.config.ts",
+    "test:e2e:livekit:real": "WMA_LIVEKIT_E2E=1 playwright test -c playwright.livekit.config.ts",
     "test:e2e:netem": "bash netem.sh"
   },
   "devDependencies": {
