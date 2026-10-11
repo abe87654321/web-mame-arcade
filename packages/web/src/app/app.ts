@@ -110,14 +110,17 @@ function notFound(message: string): { tag: string; className: string; text: stri
   return { tag: "p", className: "not-found", text: message };
 }
 
-function matchStatusText(status: MatchStatus): string {
+export function matchStatusText(status: MatchStatus): string {
   switch (status) {
     case "connecting":
       return "connecting to room...";
     case "waiting-for-peers":
       return "waiting for players...";
+    // A lockstep stall mid-match: the next frame's input is late. This is not
+    // the lobby wait and must read differently, or a brief network hiccup looks
+    // like a broken game (T31 field note).
     case "waiting":
-      return "waiting for player...";
+      return "syncing...";
     case "running":
       return "playing online";
   }

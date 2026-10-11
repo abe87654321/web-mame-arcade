@@ -9,6 +9,7 @@ import {
   createApp,
   coreDirUrl,
   installAudioUnlock,
+  matchStatusText,
   netplayFromEnv,
   type AppEnv,
   type NetplayEnv,
@@ -422,6 +423,14 @@ describe("createApp", () => {
     expect(h.listenerCount()).toBe(1);
     app.destroy();
     expect(h.listenerCount()).toBe(0);
+  });
+});
+
+describe("matchStatusText", () => {
+  it("distinguishes a mid-match lockstep stall from the lobby wait", () => {
+    expect(matchStatusText("waiting")).toBe("syncing...");
+    expect(matchStatusText("waiting-for-peers")).toBe("waiting for players...");
+    expect(matchStatusText("running")).toBe("playing online");
   });
 });
 
