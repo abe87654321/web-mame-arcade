@@ -17,6 +17,8 @@ Build the core with `core/build-wasm.sh gridlee` if missing; install the browser
    - `pnpm --filter @wma/e2e test:e2e`
 2. Under simulated bad networks (Linux `tc netem`; needs sudo):
    - `pnpm --filter @wma/e2e test:e2e:netem` (profiles 50/100/150 ms, 1% loss)
+   - Only **UDP** is shaped (WebRTC's data channel = the netplay input path); the TCP control
+     plane (relay WS, Vite/WASM load, test driver) stays clean so the harness itself is not throttled.
 
 Report PASS/FAIL and, on failure, attach the failing frame and both hashes. For the broader
 golden-replay suite (WASM core vs native verifier), see the determinism spike (T02).
