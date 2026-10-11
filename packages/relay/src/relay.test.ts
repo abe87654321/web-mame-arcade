@@ -591,6 +591,42 @@ describe("createRelay (viewer fan-out, T31)", () => {
     });
   });
 
+  it("resends recorded inputs to a stalled player on input.request", () => {
+    const r = playing();
+    r.input(
+      "c1",
+      encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1, 4] }),
+    );
+    r.input(
+      "c2",
+      encodeInput({ version: 1, player: 1, ackFrame: 0, firstFrame: 2, inputs: [0x10, 0] }),
+    );
+
+    const out = r.handle("c2", { t: "input.request", fromFrame: 0 });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.message).toEqual({ t: "input.resync", fromFrame: 0 });
+    const packets = (out[0]?.frames ?? []).map((b) => decodeInput(b));
+    expect(packets).toEqual([
+      { version: 1, player: 0, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 1, 4] },
+      { version: 1, player: 1, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 0x10, 0] },
+    ]);
+  });
+
+  it("rejects input.request from a non-player or a non-playing room", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    expect(r.handle("c1", { t: "input.request", fromFrame: 0 })[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_playing",
+    });
+    r.handle("v1", viewerJoin("w1"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    expect(
+      r.handle("v1", { t: "input.request", fromFrame: 0 })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_joined" });
+  });
+
   it("re-sends viewer.state to viewers on game.start", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));

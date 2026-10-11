@@ -551,6 +551,26 @@ export class RoomManager {
   }
 
   /**
+   * Recorded inputs to resend to a stalled seated player (T31 stall recovery):
+   * frames from `fromFrame` to the highest recorded frame. A non-seated sender
+   * or a non-playing room is rejected, mirroring `hash`/`input`.
+   */
+  resyncFrom(
+    connectionId: string,
+    fromFrame: number,
+  ): { roomId: string; frames: Uint8Array[] } {
+    const room = this.roomOf(connectionId, "input.request");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can request a resync");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    return { roomId: room.id, frames: this.catchUpPackets(room.id, fromFrame) };
+  }
+
+  /**
    * Encoded catch-up packets for a joining viewer: the recorded inputs from
    * `fromFrame` to the highest recorded frame (T31). Empty without an open log.
    */

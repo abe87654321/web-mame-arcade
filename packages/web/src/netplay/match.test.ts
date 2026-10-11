@@ -322,6 +322,25 @@ describe("createMatch", () => {
     match.close();
   });
 
+  it("asks the relay to resend inputs when the lockstep stalls (T31)", async () => {
+    let clock = 0;
+    const { socket, match } = harness(0, { now: () => clock });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    // Peer slot 1 never sends; tick until the loop stalls past the wait timeout.
+    for (let i = 0; i < 3; i++) match.tick(0x01);
+    clock = 3000;
+    match.tick(0x01);
+    expect(jsonSent(socket).find((m) => m.t === "input.request")).toMatchObject({
+      t: "input.request",
+      fromFrame: 0,
+    });
+    match.close();
+  });
+
   it("has the host answer a desync with a state.snapshot at its own frame", async () => {
     const createSnapshot = vi.fn(async () => "http://relay/rooms/r/snapshot/1");
     const { socket, match } = harness(0, { createSnapshot });

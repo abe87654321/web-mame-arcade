@@ -130,6 +130,8 @@ interface RosterEntry {
 
 const DEFAULT_INPUT_DELAY = 2;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 5000;
+/** Minimum gap between `input.request` resends while stalled (T31). */
+const RESYNC_INTERVAL_MS = 1000;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
@@ -182,6 +184,8 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   /** Last wall-clock live-join snapshot; null until the cadence is armed (T31). */
   let lastViewerSnapshotAt: number | null = null;
   let viewerSnapshotInFlight = false;
+  /** Last time we asked the relay to resend inputs after a stall (T31). */
+  let lastResyncAt = 0;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -303,6 +307,15 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         // Relay-ward only: it compares per frame across players and broadcasts
         // `desync` on a genuine mismatch (T25, docs/03).
         session.send({ t: "hash", frame, crc32 });
+      },
+      onStall: (frame) => {
+        // A late input past the 8-frame redundancy window would stall forever;
+        // ask the relay to resend the recorded inputs from here (T31 recovery).
+        const at = deps.now();
+        if (at - lastResyncAt < RESYNC_INTERVAL_MS) return;
+        lastResyncAt = at;
+        session.send({ t: "input.request", fromFrame: frame });
+        log?.("resync-request", { frame });
       },
     });
     setStatus("running");

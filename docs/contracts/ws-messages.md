@@ -15,6 +15,8 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `viewer.snapshot` | host → relay → viewers | frame, blobUrl | live-join snapshot (T31) |
 | `viewer.state` | relay → viewer | room, driver, coreHash, mameCommit, romHash, dips, startFrame, inputDelay, players[], snapshot (nullable) | viewer join handshake (T31) |
 | `hash` | player → relay | frame, crc32 | desync detection |
+| `input.request` | player → relay | fromFrame | ask to resend recorded inputs after a stall (T31) |
+| `input.resync` | relay → player | fromFrame | reply to `input.request`; catch-up frames follow as binary |
 | `desync` | relay → players | frame | trigger resync |
 | `score.live` | player → relay → all | player, score, frame | live scoreboard (display only) |
 | `game.end` | host → relay | frame | closes log, queues verification |
@@ -126,6 +128,13 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
   `snapshot.frame + 1` (or `startFrame` when there is no snapshot) up to the highest
   recorded frame as binary `input` packets, so a late viewer can fast-forward to live.
   `game.start` re-sends `viewer.state` to viewers so a pre-join viewer learns the roster.
+- **Stall recovery.** When a seated player's lockstep stalls (the next frame's input is
+  later than the 8-frame redundancy window), it sends `input.request { fromFrame }` (at
+  most once per second). The relay validates it like `hash` (seated player, `playing`
+  room; `not_joined`/`not_playing` otherwise) and replies with `input.resync { fromFrame }`
+  plus the log's recorded frames from `fromFrame` as binary `input` packets — the same
+  encoding as viewer catch-up — so a peer that fell behind catches up instead of waiting
+  forever. Frames already stepped are refused by the receiver's frame floor.
 
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional

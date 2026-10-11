@@ -85,6 +85,8 @@ const validMessages: AnyMessage[] = [
   { t: "desync", frame: 60 },
   { t: "score.live", player: 0, score: 12345, frame: 90 },
   { t: "game.end", frame: 300 },
+  { t: "input.request", fromFrame: 120 },
+  { t: "input.resync", fromFrame: 120 },
   { t: "chat", text: "gg" },
   { t: "error", code: "room_not_found", message: "no such room" },
 ];
@@ -212,8 +214,14 @@ describe("message schemas", () => {
 
   it("routes each message to the directions in the contract table", () => {
     const byType = Object.fromEntries(validMessages.map((m) => [m.t, m]));
-    const clientOnly = ["room.join", "hash", "game.end"] as const;
-    const serverOnly = ["room.state", "viewer.state", "desync", "error"] as const;
+    const clientOnly = ["room.join", "hash", "game.end", "input.request"] as const;
+    const serverOnly = [
+      "room.state",
+      "viewer.state",
+      "desync",
+      "input.resync",
+      "error",
+    ] as const;
     const both = [
       "rtc.signal",
       "player.ready",

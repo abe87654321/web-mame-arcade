@@ -189,6 +189,18 @@ export function createRelay({
               message: { t: "desync" as const, frame: result.frame },
             }));
           }
+          case "input.request": {
+            // A stalled player asks for the recorded inputs from `fromFrame`;
+            // the relay resends them from the log so it can catch up (T31).
+            const { frames } = rooms.resyncFrom(connectionId, message.fromFrame);
+            return [
+              {
+                connectionId,
+                message: { t: "input.resync", fromFrame: message.fromFrame },
+                frames,
+              },
+            ];
+          }
           case "viewer.snapshot": {
             // The host's live-join snapshot (T31): stored on the room and
             // forwarded to viewers only (never a resync for players).

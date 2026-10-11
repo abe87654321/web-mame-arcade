@@ -150,6 +150,23 @@ export const gameEnd = z.strictObject({
   frame,
 });
 
+/**
+ * A stalled player asks the relay to resend the recorded inputs from
+ * `fromFrame` (T31 stall recovery): the relay replies with `input.resync`
+ * plus the log's frames as binary, so a peer that fell behind the 8-frame
+ * redundancy window can catch up instead of waiting forever.
+ */
+export const inputRequest = z.strictObject({
+  t: z.literal("input.request"),
+  fromFrame: frame,
+});
+
+/** Reply to `input.request`; the catch-up frames follow as binary messages. */
+export const inputResync = z.strictObject({
+  t: z.literal("input.resync"),
+  fromFrame: frame,
+});
+
 export const chat = z.strictObject({
   t: z.literal("chat"),
   text: z.string(),
@@ -175,6 +192,8 @@ const jsonSchemas = [
   desync,
   scoreLive,
   gameEnd,
+  inputRequest,
+  inputResync,
   chat,
   errorMessage,
 ] as const;
@@ -196,6 +215,7 @@ export const clientMessage = z.discriminatedUnion("t", [
   hashMessage,
   scoreLive,
   gameEnd,
+  inputRequest,
   chat,
 ]);
 
@@ -219,6 +239,7 @@ export const serverMessage = z.discriminatedUnion("t", [
   viewerState,
   desync,
   scoreLive,
+  inputResync,
   chat,
   errorMessage,
 ]);
@@ -236,6 +257,8 @@ export type HashMessage = z.infer<typeof hashMessage>;
 export type Desync = z.infer<typeof desync>;
 export type ScoreLive = z.infer<typeof scoreLive>;
 export type GameEnd = z.infer<typeof gameEnd>;
+export type InputRequest = z.infer<typeof inputRequest>;
+export type InputResync = z.infer<typeof inputResync>;
 export type Chat = z.infer<typeof chat>;
 export type ErrorMessage = z.infer<typeof errorMessage>;
 
