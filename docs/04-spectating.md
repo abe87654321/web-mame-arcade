@@ -13,3 +13,16 @@
 
 ## Viewer UI
 Player names, live score overlay, chat (same WS), viewer count, "watch from start".
+
+## Implemented in T31
+- Entry point: `#/game/<driver>/room/<room>/watch` (a "Watch" control in the lobby).
+- The viewer joins the relay as role `viewer` and receives `viewer.state`: the match
+  identity (`driver`/`coreHash`/`mameCommit`/`romHash`/`dips`), the start
+  (`startFrame`/`inputDelay`), the roster and the latest live-join snapshot.
+- The host publishes `viewer.snapshot {frame, blobUrl}` every ~5 s (host-only, wall-clock);
+  the relay stores it and forwards it to viewers only. A joining viewer fetches the blob,
+  `core.load(bytes, frame)`, then replays the relayed inputs since that frame.
+- The relay fans every binary `input` frame to all members except the sender, so viewers
+  get the stream (and players get it as redundancy). The viewer's pure playback buffer
+  (docs/contracts/ws-messages.md, `netplay/playback.ts`) holds 3 s behind live and catches
+  up in bounded bursts after a stall. Live score overlay/chat/viewer count are later (T32/T36).
