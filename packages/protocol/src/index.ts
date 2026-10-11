@@ -21,6 +21,8 @@ export {
   gameSet,
   gameStart,
   hashMessage,
+  inputRequest,
+  inputResync,
   parseMessage,
   playerReady,
   roomJoin,
@@ -30,6 +32,8 @@ export {
   scoreLive,
   serverMessage,
   stateSnapshot,
+  viewerSnapshot,
+  viewerState,
 } from "./messages.ts";
 export type {
   AnyMessage,
@@ -41,6 +45,8 @@ export type {
   GameSet,
   GameStart,
   HashMessage,
+  InputRequest,
+  InputResync,
   PlayerReady,
   RoomJoin,
   RoomState,
@@ -48,6 +54,8 @@ export type {
   ScoreLive,
   ServerMessage,
   StateSnapshot,
+  ViewerSnapshot,
+  ViewerState,
 } from "./messages.ts";
 
 export {

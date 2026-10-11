@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { encodeInput } from "@wma/protocol";
+import { decodeInput, encodeInput } from "@wma/protocol";
 import { gunzipInputLog } from "./input-log";
-import { createRelay, type ClosedLog, type Outbound } from "./relay";
+import { createRelay, type ClosedLog, type Outbound, type RelayOut } from "./relay";
 import { TokenError, type TokenClaims, type TokenVerifier } from "./token";
 
 const fakeVerifier: TokenVerifier = {
@@ -435,5 +435,207 @@ describe("createRelay (input log, T30)", () => {
     const out = r.handle("c1", { t: "game.end", frame: 0 });
     expect(out.length).toBeGreaterThan(0);
     expect(out.every((o) => o.message.t === "room.state")).toBe(true);
+  });
+});
+
+describe("createRelay (viewer fan-out, T31)", () => {
+  const isBinary = (
+    out: RelayOut,
+  ): out is { connectionId: string; binary: Uint8Array } => "binary" in out;
+  const viewerJoin = (token: string) =>
+    ({ t: "room.join", room: "r", role: "viewer", token }) as const;
+
+  function playing(players = 2) {
+    const r = relay();
+    for (let i = 1; i <= players; i++) r.handle(`c${i}`, join(`c${i}`, `p${i}`));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return r;
+  }
+
+  it("fans a player's input to the other members, not the sender", () => {
+    const r = playing();
+    const bytes = encodeInput({
+      version: 1,
+      player: 0,
+      ackFrame: 0,
+      firstFrame: 2,
+      inputs: [1, 4],
+    });
+    const out = r.input("c1", bytes);
+    expect(out).toEqual([{ connectionId: "c2", binary: bytes }]);
+  });
+
+  it("fans a player's input to viewers and never echoes a viewer's own packet", () => {
+    const r = playing();
+    r.handle("v1", viewerJoin("w1"));
+    const bytes = encodeInput({
+      version: 1,
+      player: 0,
+      ackFrame: 0,
+      firstFrame: 2,
+      inputs: [1],
+    });
+    const out = r.input("c1", bytes);
+    expect(out.map((o) => o.connectionId).sort()).toEqual(["c2", "v1"]);
+    expect(out.every(isBinary)).toBe(true);
+
+    // A viewer is not a seated player: its binary frame is dropped, not fanned.
+    expect(r.input("v1", bytes)).toEqual([]);
+  });
+
+  it("does not fan out a packet claiming another slot", () => {
+    const r = playing();
+    r.handle("v1", viewerJoin("w1"));
+    // c1 is slot 0; a packet claiming slot 1 must reach neither peers nor viewers.
+    const forged = encodeInput({
+      version: 1,
+      player: 1,
+      ackFrame: 0,
+      firstFrame: 2,
+      inputs: [0x10, 0x20],
+    });
+    expect(r.input("c1", forged)).toEqual([]);
+  });
+
+  it("does not fan input out before the match starts", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    const bytes = encodeInput({
+      version: 1,
+      player: 0,
+      ackFrame: 0,
+      firstFrame: 0,
+      inputs: [1],
+    });
+    expect(r.input("c1", bytes)).toEqual([]);
+  });
+
+  it("hands a mid-match viewer state plus catch-up from the start", () => {
+    const r = playing();
+    r.input(
+      "c1",
+      encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1, 4] }),
+    );
+    r.input(
+      "c2",
+      encodeInput({ version: 1, player: 1, ackFrame: 0, firstFrame: 2, inputs: [0x10, 0] }),
+    );
+
+    const out = r.handle("v1", viewerJoin("w1"));
+    const byId = out.filter((o) => o.connectionId === "v1");
+    const state = byId.find((o) => o.message.t === "viewer.state");
+    expect(state?.message).toMatchObject({
+      t: "viewer.state",
+      room: "r",
+      driver: "gridlee",
+      coreHash: "a".repeat(64),
+      mameCommit: "b".repeat(40),
+      romHash: "c".repeat(64),
+      startFrame: 0,
+      inputDelay: 2,
+      players: [
+        { slot: 0, name: "player" },
+        { slot: 1, name: "player" },
+      ],
+      snapshot: null,
+    });
+
+    const packets = (state?.frames ?? []).map((bytes) => decodeInput(bytes));
+    expect(packets).toEqual([
+      { version: 1, player: 0, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 1, 4] },
+      { version: 1, player: 1, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 0x10, 0] },
+    ]);
+  });
+
+  it("forwards viewer.snapshot to viewers only and includes it in viewer.state", () => {
+    const r = playing();
+    r.handle("v1", viewerJoin("w1"));
+    r.handle("v2", viewerJoin("w2"));
+
+    const snapshot = {
+      t: "viewer.snapshot" as const,
+      frame: 120,
+      blobUrl: "http://relay/rooms/r/snapshot/1",
+    };
+    const out = r.handle("c1", snapshot);
+    expect(out.map((o) => o.connectionId).sort()).toEqual(["v1", "v2"]);
+    expect(out.every((o) => o.message.t === "viewer.snapshot")).toBe(true);
+
+    const late = r.handle("v3", viewerJoin("w3")).find((o) => o.message.t === "viewer.state");
+    expect(late?.message).toMatchObject({
+      t: "viewer.state",
+      snapshot: { frame: 120, blobUrl: "http://relay/rooms/r/snapshot/1" },
+    });
+  });
+
+  it("gates viewer.snapshot on host and a playing room", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    const snapshot = {
+      t: "viewer.snapshot" as const,
+      frame: 1,
+      blobUrl: "http://relay/snap",
+    };
+    expect(r.handle("c1", snapshot)[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_playing",
+    });
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    expect(r.handle("c2", snapshot)[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_host",
+    });
+  });
+
+  it("resends recorded inputs to a stalled player on input.request", () => {
+    const r = playing();
+    r.input(
+      "c1",
+      encodeInput({ version: 1, player: 0, ackFrame: 0, firstFrame: 2, inputs: [1, 4] }),
+    );
+    r.input(
+      "c2",
+      encodeInput({ version: 1, player: 1, ackFrame: 0, firstFrame: 2, inputs: [0x10, 0] }),
+    );
+
+    const out = r.handle("c2", { t: "input.request", fromFrame: 0 });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.message).toEqual({ t: "input.resync", fromFrame: 0 });
+    const packets = (out[0]?.frames ?? []).map((b) => decodeInput(b));
+    expect(packets).toEqual([
+      { version: 1, player: 0, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 1, 4] },
+      { version: 1, player: 1, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 0x10, 0] },
+    ]);
+  });
+
+  it("rejects input.request from a non-player or a non-playing room", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    expect(r.handle("c1", { t: "input.request", fromFrame: 0 })[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_playing",
+    });
+    r.handle("v1", viewerJoin("w1"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    expect(
+      r.handle("v1", { t: "input.request", fromFrame: 0 })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_joined" });
+  });
+
+  it("re-sends viewer.state to viewers on game.start", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("v1", viewerJoin("w1"));
+    r.handle("c1", gameSet);
+    const out = r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    const states = out.filter(
+      (o) => o.connectionId === "v1" && o.message.t === "viewer.state",
+    );
+    expect(states).toHaveLength(1);
   });
 });

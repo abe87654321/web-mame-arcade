@@ -12,6 +12,15 @@ export { createSession } from "./session";
 export type { NetplaySession, SessionOptions } from "./session";
 export { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
 export type { BuildPacketOptions, FrameTable } from "./inputs";
+export { createPlayback } from "./playback";
+export type { Playback, PlaybackDeps } from "./playback";
+export { createViewer } from "./viewer";
+export type {
+  Viewer,
+  ViewerDeps,
+  ViewerPlayer,
+  ViewerStatus,
+} from "./viewer";
 export { createLockstep } from "./lockstep";
 export type {
   Lockstep,

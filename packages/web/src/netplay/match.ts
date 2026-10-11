@@ -79,6 +79,11 @@ export interface MatchDeps {
   /** Hash every this many frames; default 60 (T25, docs/03). */
   hashInterval?: number;
   /**
+   * Publish a live-join snapshot for viewers every this many ms (T31);
+   * default 5000. Host-only, wall-clock paced (never part of the emulation).
+   */
+  snapshotIntervalMs?: number;
+  /**
    * Upload a save state and return a fetchable URL (T25). Defaults to POSTing
    * to the relay's in-memory snapshot endpoint derived from `relayUrl`.
    */
@@ -124,6 +129,9 @@ interface RosterEntry {
 }
 
 const DEFAULT_INPUT_DELAY = 2;
+const DEFAULT_SNAPSHOT_INTERVAL_MS = 5000;
+/** Minimum gap between `input.request` resends while stalled (T31). */
+const RESYNC_INTERVAL_MS = 1000;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
@@ -142,6 +150,7 @@ function httpBase(relayUrl: string): string {
 export function createMatch(deps: MatchDeps): NetplayMatch {
   const inputDelay = deps.inputDelay ?? DEFAULT_INPUT_DELAY;
   const startFrame = deps.startFrame ?? 0;
+  const snapshotIntervalMs = deps.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const log = deps.log;
   const inputScript = deps.inputScript;
   const createSnapshot =
@@ -172,6 +181,11 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let pendingStart: { startFrame: number; inputDelay: number } | null = null;
   let startSent = false;
   let gameSetSent = false;
+  /** Last wall-clock live-join snapshot; null until the cadence is armed (T31). */
+  let lastViewerSnapshotAt: number | null = null;
+  let viewerSnapshotInFlight = false;
+  /** Last time we asked the relay to resend inputs after a stall (T31). */
+  let lastResyncAt = 0;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -294,6 +308,15 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         // `desync` on a genuine mismatch (T25, docs/03).
         session.send({ t: "hash", frame, crc32 });
       },
+      onStall: (frame) => {
+        // A late input past the 8-frame redundancy window would stall forever;
+        // ask the relay to resend the recorded inputs from here (T31 recovery).
+        const at = deps.now();
+        if (at - lastResyncAt < RESYNC_INTERVAL_MS) return;
+        lastResyncAt = at;
+        session.send({ t: "input.request", fromFrame: frame });
+        log?.("resync-request", { frame });
+      },
     });
     setStatus("running");
   }
@@ -304,6 +327,53 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       pendingStart = null;
       startLockstep(frame, delay);
     }
+  }
+
+  /**
+   * Publish the host's live-join snapshot for viewers (T31). Host-only, once
+   * per `snapshotIntervalMs`, while a logged match is running. Wall-clock paced
+   * (it never touches the emulation), one in flight at a time. Non-hosts and
+   * rooms without `game.set` skip it (the relay has no live-join log to match).
+   */
+  function maybeViewerSnapshot(now: number): void {
+    if (
+      viewerSnapshotInFlight ||
+      !lockstep ||
+      closed ||
+      disconnected ||
+      self === null ||
+      !gameSetSent ||
+      !isHost()
+    ) {
+      return;
+    }
+    const frame = lockstep.frame() - 1;
+    if (frame < 0) return;
+    if (lastViewerSnapshotAt === null) {
+      lastViewerSnapshotAt = now; // arm the cadence; publish after one interval
+      return;
+    }
+    if (now - lastViewerSnapshotAt < snapshotIntervalMs) return;
+    lastViewerSnapshotAt = now;
+    let state: Uint8Array;
+    try {
+      state = deps.core.save();
+    } catch (error) {
+      log?.("viewer-snapshot-error", { frame, error: String(error) });
+      return;
+    }
+    viewerSnapshotInFlight = true;
+    void createSnapshot(state)
+      .then((blobUrl) => {
+        session.send({ t: "viewer.snapshot", frame, blobUrl });
+        log?.("viewer-snapshot", { frame });
+      })
+      .catch((error: unknown) =>
+        log?.("viewer-snapshot-error", { frame, error: String(error) }),
+      )
+      .finally(() => {
+        viewerSnapshotInFlight = false;
+      });
   }
 
   const session = createSession({
@@ -415,9 +485,11 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       // of when this animation tick fired.
       if (inputScript && self !== null) {
         lockstep.tick(inputScript(self, lockstep.scheduledFrame()));
+        maybeViewerSnapshot(deps.now());
         return;
       }
       lockstep.tick(localMask);
+      maybeViewerSnapshot(deps.now());
     },
     frame: () => (lockstep ? lockstep.frame() : startFrame),
     status: () => status,

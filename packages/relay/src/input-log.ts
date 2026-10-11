@@ -7,6 +7,8 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 import {
   INPUT_LOG_VERSION,
+  MAX_FRAMES,
+  PROTOCOL_VERSION,
   decodeInputLog,
   encodeInputLog,
   type InputLog,
@@ -66,6 +68,52 @@ export class InputLogRecorder {
       recorded = true;
     });
     return recorded;
+  }
+
+  /**
+   * Highest frame recorded so far, or `start.frame - 1` when nothing has been
+   * appended (T31). A joining viewer replays recorded inputs from the frame
+   * after this snapshot.
+   */
+  lastFrame(): number {
+    let last = this.start.frame - 1;
+    for (const frame of this.masks.keys()) {
+      if (frame > last) last = frame;
+    }
+    return last;
+  }
+
+  /**
+   * Re-encode the recorded inputs for frames `[fromFrame, lastFrame]` as wire
+   * packets, one per player slot, chunked to `MAX_FRAMES` (T31 late-join
+   * catch-up). Gaps read as neutral 0 and the input-delay window is forced
+   * neutral, matching the closed log so a viewer steps the exact same frames.
+   */
+  since(fromFrame: number): InputPacket[] {
+    const first = Math.max(fromFrame, this.start.frame);
+    const last = this.lastFrame();
+    if (first > last) return [];
+    const delayEnd = this.start.frame + this.start.inputDelay;
+    const packets: InputPacket[] = [];
+    for (const player of this.start.players) {
+      for (let start = first; start <= last; start += MAX_FRAMES) {
+        const end = Math.min(start + MAX_FRAMES - 1, last);
+        const inputs: number[] = [];
+        for (let frame = start; frame <= end; frame++) {
+          const mask =
+            frame < delayEnd ? 0 : (this.masks.get(frame)?.get(player.slot) ?? 0);
+          inputs.push(mask & 0xffff);
+        }
+        packets.push({
+          version: PROTOCOL_VERSION,
+          player: player.slot,
+          ackFrame: 0,
+          firstFrame: start,
+          inputs,
+        });
+      }
+    }
+    return packets;
   }
 
   /** Close the log at `endFrame`; frames after it are dropped. */

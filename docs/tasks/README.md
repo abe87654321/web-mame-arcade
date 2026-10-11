@@ -44,12 +44,20 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   (waiting/playing), leave/disconnect handling, and a place for chat (T30/T36 server side). Reuses
   `room.state`/`game.start` (T22/T24); feeds the viewer (T31) and replays (T35). Docs: 03, contracts/ws-messages.
   Depends: T22, T24.
+- [ ] **T28 Netplay communication hardening** – make the lockstep resilient to real networks and
+  browser behaviour, a follow-up to what T31 started: a visibility-aware collaborative pause (a
+  hidden/occluded tab throttles `requestAnimationFrame`, so that peer stops feeding inputs and
+  stalls everyone), extend the T31 stall recovery (`input.request`/`input.resync` from the relay
+  log) to mutual stalls and a host-snapshot fallback, keep the per-socket outbound backpressure
+  cap, prefer P2P with relay fallback and expose loss/jitter, and tune/adapt input delay from
+  measured RTT. Add a dev frame/lag/ack overlay and a golden-replay regression. Docs: 03, 04,
+  contracts/ws-messages, contracts/input-packet. Depends: T24, T25, T31.
 
 ## Phase 3 · Spectating and leaderboard
 - [x] **T30 Relay input log** – define `docs/contracts/input-log.md` (core/rom hash, DIPs, start state, per-frame
   inputs, end score), append-only log per match, close on `game.end`, upload to object storage (local disk or
   MinIO). Docs: 04, 05, contracts/input-log. Depends: T21, T24.
-- [ ] **T31 Viewer page** – load state + subscribe to inputs, 3 s buffer, catch-up after stalls. Docs: 04. Depends: T11, T30.
+- [x] **T31 Viewer page** – load state + subscribe to inputs, 3 s buffer, catch-up after stalls. Docs: 04. Depends: T11, T30.
 - [ ] **T32 Live scoreboard** – `scoremap` discovery procedure (MAME debugger + `hiscore.dat`) written to
   `core/scoremap/<driver>.json`, loader, `score.live` messages, overlay UI. Docs: 05, contracts/ws-messages. Depends: T24.
 - [ ] **T33 Verifier worker** – Redis job → native MAME + `verify.lua` → compare → write scores / flag. Docs: 05. Depends: T01, T21, T30.

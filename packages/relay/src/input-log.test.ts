@@ -102,6 +102,61 @@ describe("InputLogRecorder", () => {
   });
 });
 
+describe("InputLogRecorder.since / lastFrame", () => {
+  it("reports start.frame - 1 before any input", () => {
+    const rec = new InputLogRecorder("r1", meta, start({ frame: 5 }));
+    expect(rec.lastFrame()).toBe(4);
+    expect(rec.since(0)).toEqual([]);
+  });
+
+  it("reports the highest recorded frame", () => {
+    const rec = new InputLogRecorder("r1", meta, start());
+    rec.append(packet(0, 0, [1, 2]));
+    rec.append(packet(1, 2, [0x10, 0x20, 0x40]));
+    expect(rec.lastFrame()).toBe(4);
+  });
+
+  it("re-encodes dense frames per slot from a floor, gaps and delay neutral", () => {
+    const rec = new InputLogRecorder("r1", meta, start());
+    rec.append(packet(0, 0, [0x1, 0x2, 0x3, 0x4]));
+    rec.append(packet(1, 2, [0x10, 0x20]));
+    const packets = rec.since(0);
+    expect(packets).toEqual([
+      { version: 1, player: 0, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 0x3, 0x4] },
+      { version: 1, player: 1, ackFrame: 0, firstFrame: 0, inputs: [0, 0, 0x10, 0x20] },
+    ]);
+  });
+
+  it("chunks long ranges into MAX_FRAMES packets", () => {
+    const rec = new InputLogRecorder(
+      "r1",
+      meta,
+      start({ inputDelay: 0, players: [{ slot: 0, name: "alice" }] }),
+    );
+    rec.append(packet(0, 0, Array.from({ length: 20 }, (_, i) => i + 1)));
+    const packets = rec.since(0);
+    expect(packets.map((p) => [p.firstFrame, p.inputs.length])).toEqual([
+      [0, 8],
+      [8, 8],
+      [16, 4],
+    ]);
+    expect(packets[2]?.inputs).toEqual([17, 18, 19, 20]);
+  });
+
+  it("starts at the requested floor", () => {
+    const rec = new InputLogRecorder(
+      "r1",
+      meta,
+      start({ inputDelay: 0, players: [{ slot: 0, name: "alice" }] }),
+    );
+    rec.append(packet(0, 0, [1, 2, 3, 4, 5]));
+    const packets = rec.since(3);
+    expect(packets).toEqual([
+      { version: 1, player: 0, ackFrame: 0, firstFrame: 3, inputs: [4, 5] },
+    ]);
+  });
+});
+
 describe("log artifact", () => {
   it("gzip round-trips through the stored encoding", () => {
     const rec = new InputLogRecorder("r1", meta, start());

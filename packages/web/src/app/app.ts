@@ -8,6 +8,7 @@ import {
   browserRtcFactory,
   browserWebSocketFactory,
   createMatch,
+  createViewer,
   defaultIceServers,
   relayConfigFromEnv,
   type IceServer,
@@ -15,6 +16,7 @@ import {
   type MatchStatus,
   type NetplayMatch,
   type RtcFactory,
+  type Viewer,
   type WebSocketFactory,
 } from "../netplay";
 import {
@@ -32,7 +34,8 @@ import {
   type FrameScheduler,
   type PlayController,
 } from "./play-controller";
-import { gameHref, startRouter, type Route, type RouterTarget } from "./router";
+import { gameHref, startRouter, watchHref, type Route, type RouterTarget } from "./router";
+import { buildViewer, type ViewerViewState } from "./viewer-view";
 import { readInputScript } from "./test-input";
 
 /**
@@ -107,14 +110,17 @@ function notFound(message: string): { tag: string; className: string; text: stri
   return { tag: "p", className: "not-found", text: message };
 }
 
-function matchStatusText(status: MatchStatus): string {
+export function matchStatusText(status: MatchStatus): string {
   switch (status) {
     case "connecting":
       return "connecting to room...";
     case "waiting-for-peers":
       return "waiting for players...";
+    // A lockstep stall mid-match: the next frame's input is late. This is not
+    // the lobby wait and must read differently, or a brief network hiccup looks
+    // like a broken game (T31 field note).
     case "waiting":
-      return "waiting for player...";
+      return "syncing...";
     case "running":
       return "playing online";
   }
@@ -123,6 +129,8 @@ function matchStatusText(status: MatchStatus): string {
 export function createApp(deps: AppDeps): AppController {
   let play: PlayController | null = null;
   let match: NetplayMatch | null = null;
+  let viewer: Viewer | null = null;
+  let viewerHandle: number | null = null;
   let token = 0;
 
   const setStatus = (text: string): void => {
@@ -132,8 +140,64 @@ export function createApp(deps: AppDeps): AppController {
   const teardown = (): void => {
     match?.close();
     match = null;
+    if (viewerHandle !== null) {
+      deps.env.scheduler.cancel(viewerHandle);
+      viewerHandle = null;
+    }
+    viewer?.close();
+    viewer = null;
     play?.destroy();
     play = null;
+  };
+
+  const now = (): number => (deps.env.netplay?.now ?? (() => Date.now()))();
+
+  /**
+   * Mount the live viewer (T31): join the room as a viewer, boot the frozen core
+   * (already loaded), render the viewer overlay and drive `viewer.tick` from the
+   * frame scheduler. `core` is owned by the viewer controller from here.
+   */
+  const startViewer = (
+    core: Core,
+    entry: GameEntry,
+    room: string,
+    netplay: NetplayEnv,
+  ): void => {
+    const host = deps.env.doc.createElement("div");
+    host.className = "viewer-host";
+    let state: ViewerViewState = { status: "connecting", players: [] };
+    const renderViewer = (): void => {
+      host.textContent = "";
+      host.append(
+        renderTree(
+          deps.env.doc,
+          buildViewer(state, { onLeave: () => deps.env.navigate("#/") }),
+        ),
+      );
+    };
+    viewer = createViewer({
+      core,
+      config: { relayUrl: netplay.relayUrl, token: netplay.token, room },
+      socketFactory: netplay.socketFactory,
+      now: netplay.now ?? (() => Date.now()),
+      onStatus: (status) => {
+        state = { ...state, status };
+        renderViewer();
+      },
+      onPlayers: (players) => {
+        state = { ...state, players };
+        renderViewer();
+      },
+      log: (event, fields) => console.warn("[viewer]", event, fields),
+    });
+    renderViewer();
+    deps.env.root.append(host);
+    setStatus(`watching ${entry.title}`);
+    const loop = (): void => {
+      viewer?.tick(now());
+      viewerHandle = deps.env.scheduler.request(loop);
+    };
+    viewerHandle = deps.env.scheduler.request(loop);
   };
 
   const render = (route: Route): void => {
@@ -192,7 +256,9 @@ export function createApp(deps: AppDeps): AppController {
     // its `onLobby` snapshots (T27); created before the core loads so it can be
     // appended on top of the canvas.
     const lobbyHost: UiElement | null =
-      route.room && netplay ? deps.env.doc.createElement("div") : null;
+      route.kind === "play" && route.room && netplay
+        ? deps.env.doc.createElement("div")
+        : null;
     if (lobbyHost) lobbyHost.className = "lobby-host";
 
     setStatus(`loading ${entry.title}...`);
@@ -203,14 +269,21 @@ export function createApp(deps: AppDeps): AppController {
           core.destroy();
           return;
         }
+        if (route.kind === "watch" && netplay) {
+          startViewer(core, entry, route.room, netplay);
+          return;
+        }
         if (route.room && netplay && lobbyHost) {
           const host = lobbyHost;
+          const room = route.room;
           const renderLobby = (state: LobbyState): void => {
             host.textContent = "";
             host.append(
               renderTree(
                 deps.env.doc,
                 buildLobby(state, {
+                  onWatch: () =>
+                    deps.env.navigate(watchHref(entry.driver, room)),
                   onStart: () => {
                     if (match?.start()) return;
                     setStatus(
@@ -232,7 +305,7 @@ export function createApp(deps: AppDeps): AppController {
             config: {
               relayUrl: netplay.relayUrl,
               token: netplay.token,
-              room: route.room,
+              room,
               role: "player",
               iceServers: netplay.iceServers,
             },

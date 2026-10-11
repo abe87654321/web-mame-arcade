@@ -33,7 +33,12 @@ function state(overrides: Partial<LobbyState> = {}): LobbyState {
 }
 
 function options() {
-  return { onStart: vi.fn(), onSetReady: vi.fn(), onLeave: vi.fn() };
+  return {
+    onStart: vi.fn(),
+    onSetReady: vi.fn(),
+    onLeave: vi.fn(),
+    onWatch: vi.fn(),
+  };
 }
 
 describe("buildLobby", () => {
@@ -86,6 +91,19 @@ describe("buildLobby", () => {
     find(tree, "leave")?.onClick?.();
     expect(opts.onStart).toHaveBeenCalledOnce();
     expect(opts.onLeave).toHaveBeenCalledOnce();
+  });
+
+  it("offers a watch link for the room", () => {
+    const opts = options();
+    find(buildLobby(state(), opts), "watch")?.onClick?.();
+    expect(opts.onWatch).toHaveBeenCalledOnce();
+    // No watch control when the host has not wired one.
+    const bare = buildLobby(state(), {
+      onStart: vi.fn(),
+      onSetReady: vi.fn(),
+      onLeave: vi.fn(),
+    });
+    expect(find(bare, "watch")).toBeUndefined();
   });
 
   it("shows a chat placeholder and the room status", () => {

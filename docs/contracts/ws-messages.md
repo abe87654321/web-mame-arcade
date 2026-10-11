@@ -10,9 +10,13 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `player.ready` | both | ready, player? (relay-stamped slot) | a player toggles its own lobby ready flag |
 | `game.set` | host → relay → all | driver, coreHash, mameCommit, romHash, dips | host picks the game + DIPs (fills `room.state`) |
 | `game.start` | host → relay → all | startFrame, inputDelay | begins input log; relay fans it out and sets status `playing` |
-| `input` | player → relay | binary input packet | recorded (spectator fan-out is T31) |
-| `state.snapshot` | host → relay → client | frame, blobUrl | late join / desync recovery |
+| `input` | player → relay → all members | binary input packet | recorded; fanned to viewers + peers as redundancy (T31) |
+| `state.snapshot` | host → relay → client | frame, blobUrl | desync recovery |
+| `viewer.snapshot` | host → relay → viewers | frame, blobUrl | live-join snapshot (T31) |
+| `viewer.state` | relay → viewer | room, driver, coreHash, mameCommit, romHash, dips, startFrame, inputDelay, players[], snapshot (nullable) | viewer join handshake (T31) |
 | `hash` | player → relay | frame, crc32 | desync detection |
+| `input.request` | player → relay | fromFrame | ask to resend recorded inputs after a stall (T31) |
+| `input.resync` | relay → player | fromFrame | reply to `input.request`; catch-up frames follow as binary |
 | `desync` | relay → players | frame | trigger resync |
 | `score.live` | player → relay → all | player, score, frame | live scoreboard (display only) |
 | `game.end` | host → relay | frame | closes log, queues verification |
@@ -102,6 +106,35 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
   learns the match ended from the refreshed `room.state`.
 - `game.set`, `game.start`, `input` and `game.end` therefore require a seated player; a
   viewer or unjoined connection is rejected with `not_joined`.
+
+## Pinned in T31
+- Binary `input` frames are now fanned out by the relay to **every member of the room
+  except the sender** (players + viewers). Peers already exchange inputs P2P, so the
+  relayed copy is redundancy for players and the live stream for viewers. A sender's own
+  inputs are never echoed back; each peer's `applyPacket` ignores packets for its own
+  slot in any case, and a repeated `(frame, slot)` is first-write-wins.
+- `viewer.snapshot` is sent host → relay (lowest occupied player slot, `not_host`
+  otherwise; `not_playing` before `game.start`) and carries `frame` (the host's last
+  stepped frame at save time) and `blobUrl`. Unlike `state.snapshot` it is **not** a
+  resync: the relay records it as the room's live-join point and forwards it to
+  **viewers only**. Players never receive it.
+- A viewer that joins a `playing` room receives `viewer.state`: the match identity
+  (`driver`, `coreHash`, `mameCommit`, `romHash`, `dips`), the start (`startFrame`,
+  `inputDelay`), the seated roster `players[]` (`{ slot, name }` in slot order) and the
+  latest `snapshot` (`{ frame, blobUrl }`, or `null` if the host has not produced one).
+  It is relay → client only. `mameCommit` is included here because `room.state` omits it
+  (docs/contracts/core-version.md) and the viewer needs it to pin the core.
+- Immediately after `viewer.state`, the relay replays the recorded inputs from
+  `snapshot.frame + 1` (or `startFrame` when there is no snapshot) up to the highest
+  recorded frame as binary `input` packets, so a late viewer can fast-forward to live.
+  `game.start` re-sends `viewer.state` to viewers so a pre-join viewer learns the roster.
+- **Stall recovery.** When a seated player's lockstep stalls (the next frame's input is
+  later than the 8-frame redundancy window), it sends `input.request { fromFrame }` (at
+  most once per second). The relay validates it like `hash` (seated player, `playing`
+  room; `not_joined`/`not_playing` otherwise) and replies with `input.resync { fromFrame }`
+  plus the log's recorded frames from `fromFrame` as binary `input` packets — the same
+  encoding as viewer catch-up — so a peer that fell behind catches up instead of waiting
+  forever. Frames already stepped are refused by the receiver's frame floor.
 
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional

@@ -6,6 +6,7 @@
 import {
   PLAYER_SLOTS,
   decodeInput,
+  encodeInput,
   type GameEnd,
   type GameSet,
   type GameStart,
@@ -15,6 +16,8 @@ import {
   type PlayerReady,
   type RoomState,
   type RtcSignal,
+  type ViewerSnapshot,
+  type ViewerState,
 } from "@wma/protocol";
 import { InputLogRecorder } from "./input-log.ts";
 import type { TokenVerifier } from "./token.ts";
@@ -70,6 +73,8 @@ interface Room {
   game: RoomGame | null;
   /** Open input log for the current match, or null (T30). */
   log: InputLogRecorder | null;
+  /** Latest host live-join snapshot: the viewer's start point (T31). */
+  snapshot: { frame: number; blobUrl: string } | null;
   /** Frame the hash comparison is currently on (T25), or -1 before any hash. */
   hashFrame: number;
   /** This frame's crc32 per player slot; reset whenever a newer frame arrives. */
@@ -275,6 +280,8 @@ export class RoomManager {
     }
     room.status = "playing";
     room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
+    // A new match invalidates any live-join snapshot from a previous one (T31).
+    room.snapshot = null;
     room.hashFrame = -1;
     room.hashes.clear();
     // Open the input log when the host has set the game (T30); without a
@@ -290,33 +297,42 @@ export class RoomManager {
   }
 
   /**
-   * Append a seated player's binary input packet to the open log (T30). A
-   * non-seated sender, a room that is not `playing`, a closed log or a
-   * malformed packet is ignored. Returns whether anything was recorded.
+   * Append a seated player's binary input packet to the open log (T30) and
+   * report where a valid packet should be fanned out (T31). A non-seated
+   * sender, a room that is not `playing`, a malformed packet or a packet
+   * claiming another slot is rejected with an empty fan-out. `fanout` lists
+   * every other member (the packet is authenticated, so it is safe to relay).
    */
-  recordInput(connectionId: string, bytes: Uint8Array): boolean {
+  recordInput(
+    connectionId: string,
+    bytes: Uint8Array,
+  ): { recorded: boolean; fanout: string[] } {
+    const deny = { recorded: false, fanout: [] };
     // Binary input is best-effort: a frame from a connection that is not a
     // seated player in a playing room is silently ignored rather than answered
     // with a JSON error (there is no useful reply to a stray binary frame).
     const roomId = this.byConnection.get(connectionId);
     const room = roomId === undefined ? undefined : this.rooms.get(roomId);
-    if (!room) return false;
+    if (!room) return deny;
     const sender = room.members.get(connectionId);
-    if (!sender || sender.slot === null) return false;
-    if (room.status !== "playing" || !room.log) return false;
+    if (!sender || sender.slot === null) return deny;
+    if (room.status !== "playing" || !room.log) return deny;
     let packet: InputPacket;
     try {
       packet = decodeInput(bytes);
     } catch {
-      return false;
+      return deny;
     }
     // The packet's `player` is untrusted (client-supplied). The authenticated
     // connection owns exactly one slot, so a frame claiming another slot is
-    // dropped: without this a seated player could pre-seed a victim's slot
-    // (first-write-wins) and forge their inputs in the verifier's evidence.
-    // Mirrors `hash`, which stamps sender.slot rather than trusting the wire.
-    if (packet.player !== sender.slot) return false;
-    return room.log.append(packet);
+    // dropped and **never fanned out**: without this a seated player could
+    // pre-seed a victim's slot for peers/viewers (first-write-wins) and forge
+    // their inputs. Mirrors `hash`, which stamps sender.slot rather than
+    // trusting the wire.
+    if (packet.player !== sender.slot) return deny;
+    const recorded = room.log.append(packet);
+    const fanout = [...room.members.keys()].filter((id) => id !== connectionId);
+    return { recorded, fanout };
   }
 
   /**
@@ -344,6 +360,7 @@ export class RoomManager {
       );
     }
     room.status = "ended";
+    room.snapshot = null;
     const recorder = room.log;
     room.log = null;
     return {
@@ -464,6 +481,105 @@ export class RoomManager {
     };
   }
 
+  /**
+   * Record the host's live-join snapshot (T31). Only the host (lowest occupied
+   * player slot) in a `playing` room may publish one; the relay stores it as the
+   * point a later viewer resumes from and forwards it to viewers only.
+   */
+  recordViewerSnapshot(
+    connectionId: string,
+    message: ViewerSnapshot,
+  ): { roomId: string; from: number } {
+    const room = this.roomOf(connectionId, "viewer.snapshot");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can publish a snapshot");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    const hostSlot = lowestSlot(room);
+    if (sender.slot !== hostSlot) {
+      throw new RelayError(
+        "not_host",
+        `slot ${sender.slot} cannot publish a snapshot; host is slot ${hostSlot}`,
+      );
+    }
+    room.snapshot = { frame: message.frame, blobUrl: message.blobUrl };
+    return { roomId: room.id, from: sender.slot };
+  }
+
+  /** Viewer connections in a room, optionally excluding one (T31). */
+  viewerTargets(roomId: string, exceptConnectionId?: string): string[] {
+    const room = this.rooms.get(roomId);
+    if (!room) return [];
+    return [...room.members.values()]
+      .filter((m) => m.role === "viewer" && m.connectionId !== exceptConnectionId)
+      .map((m) => m.connectionId);
+  }
+
+  /** The live-join handshake for a viewer, or null (not a viewer / not playing). */
+  viewerState(connectionId: string): ViewerState | null {
+    const roomId = this.byConnection.get(connectionId);
+    const room = roomId === undefined ? undefined : this.rooms.get(roomId);
+    if (!room || !room.game || !room.start || room.status !== "playing") return null;
+    const member = room.members.get(connectionId);
+    if (!member || member.role !== "viewer") return null;
+    return {
+      t: "viewer.state",
+      room: room.id,
+      driver: room.game.driver,
+      coreHash: room.game.coreHash,
+      mameCommit: room.game.mameCommit,
+      romHash: room.game.romHash,
+      dips: { ...room.game.dips },
+      startFrame: room.start.startFrame,
+      inputDelay: room.start.inputDelay,
+      players: seatedPlayers(room),
+      snapshot: room.snapshot ? { ...room.snapshot } : null,
+    };
+  }
+
+  /** Every viewer's live-join handshake in a room (T31). */
+  viewerStates(roomId: string): { connectionId: string; message: ViewerState }[] {
+    const out: { connectionId: string; message: ViewerState }[] = [];
+    for (const connectionId of this.viewerTargets(roomId)) {
+      const message = this.viewerState(connectionId);
+      if (message) out.push({ connectionId, message });
+    }
+    return out;
+  }
+
+  /**
+   * Recorded inputs to resend to a stalled seated player (T31 stall recovery):
+   * frames from `fromFrame` to the highest recorded frame. A non-seated sender
+   * or a non-playing room is rejected, mirroring `hash`/`input`.
+   */
+  resyncFrom(
+    connectionId: string,
+    fromFrame: number,
+  ): { roomId: string; frames: Uint8Array[] } {
+    const room = this.roomOf(connectionId, "input.request");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can request a resync");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    return { roomId: room.id, frames: this.catchUpPackets(room.id, fromFrame) };
+  }
+
+  /**
+   * Encoded catch-up packets for a joining viewer: the recorded inputs from
+   * `fromFrame` to the highest recorded frame (T31). Empty without an open log.
+   */
+  catchUpPackets(roomId: string, fromFrame: number): Uint8Array[] {
+    const room = this.rooms.get(roomId);
+    if (!room?.log) return [];
+    return room.log.since(fromFrame).map((packet) => encodeInput(packet));
+  }
+
   /** The room a connection is in, or undefined. */
   roomIdOf(connectionId: string): string | undefined {
     return this.byConnection.get(connectionId);
@@ -485,6 +601,7 @@ export class RoomManager {
         start: null,
         game: null,
         log: null,
+        snapshot: null,
         hashFrame: -1,
         hashes: new Map(),
       };

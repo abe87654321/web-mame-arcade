@@ -44,6 +44,12 @@ export interface LockstepDeps {
   onHash?: (frame: number, crc32: number) => void;
   /** Report "waiting" after this many ms without the next frame. */
   waitTimeoutMs?: number;
+  /**
+   * Called once when the loop stalls (the next frame's inputs are late), with
+   * the frame it is waiting on. Lets the caller ask the relay to resend the
+   * recorded inputs (T31 stall recovery).
+   */
+  onStall?: (frame: number) => void;
   /** Cap how far the local schedule may run ahead of the simulation. */
   maxLookahead?: number;
 }
@@ -116,6 +122,9 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
     if (status !== "waiting" && now() - waitSince >= waitTimeoutMs) {
       status = "waiting";
       deps.onStatus?.("waiting");
+      // The next frame's inputs are late beyond the redundancy window; ask for
+      // a resend so we are not stuck forever (T31 stall recovery).
+      deps.onStall?.(current);
     }
   }
 
