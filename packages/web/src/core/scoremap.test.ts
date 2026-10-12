@@ -64,6 +64,13 @@ describe("decodeScore", () => {
     expect(() => decodeScore(new Uint8Array([0x4f, 0x23, 0x01]), entry({ format: "bcd" })))
       .toThrow(/BCD/);
   });
+
+  it("rejects a value above Number.MAX_SAFE_INTEGER", () => {
+    const bytes = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    expect(() =>
+      decodeScore(bytes, entry({ format: "binary", len: 8 })),
+    ).toThrow(/MAX_SAFE_INTEGER/);
+  });
 });
 
 describe("loadScoreMap", () => {
@@ -83,6 +90,11 @@ describe("loadScoreMap", () => {
   it("treats a 404 as 'no scoremap' (undefined), not an error", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
     expect(await loadScoreMap("/static/scoremap/none.json", fetchImpl)).toBeUndefined();
+  });
+
+  it("rejects a non-404 fetch failure", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }));
+    await expect(loadScoreMap("/x.json", fetchImpl)).rejects.toThrow(/500/);
   });
 
   it("rejects a malformed scoremap", async () => {

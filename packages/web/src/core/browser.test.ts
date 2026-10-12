@@ -166,7 +166,8 @@ describe("loadBrowserCore", () => {
     expect(enable).toHaveBeenCalledOnce();
   });
 
-  it("rejects when the runtime aborts instead of hanging", async () => {    const wasm = new Uint8Array([1, 2, 3]);
+  it("rejects when the runtime aborts instead of hanging", async () => {
+    const wasm = new Uint8Array([1, 2, 3]);
     const js = new Uint8Array([4, 5]);
     const wasmHash = await sha256Hex(wasm);
     const jsHash = await sha256Hex(js);

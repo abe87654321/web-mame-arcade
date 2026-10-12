@@ -350,9 +350,16 @@ uint32_t netplay_hash()
 //  netplay_read_bytes - read emulated memory for a
 //  live score (T32b)
 //
-//  A pure address-space read: it never mutates the machine and never steps a
-//  frame, so it cannot affect determinism. `cpu` is a device tag (":maincpu"),
+//  Reads the bytes through the address space's DIRECT host pointer, so no
+//  read handler runs. This is deliberate: `read_byte` dispatches the mapped
+//  read handler and some handlers mutate machine state (gridlee's
+//  analog_port_r at 0x9500 updates save-state that feeds netplay_hash), which
+//  would desync peers — the score read is wall-clock paced, NOT part of the
+//  lockstep. A handler-mapped address (get_read_ptr == nullptr) is refused, so
+//  only RAM-backed regions can be a score. `cpu` is a device tag (":maincpu"),
 //  `space` an address-space name mapped to MAME's enum ("program"/"io").
+//  Only the WASM core calls this (current_machine() is null natively); the
+//  verifier reads scores through verify.lua instead.
 //-------------------------------------------------
 
 int netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_t *out, int len)
@@ -377,11 +384,18 @@ int netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_
 	else
 		return -1;
 
-	address_space *as = memory->space(space_index);
-	if (as == nullptr)
+	// has_space (not space) so a device without that space returns -1 instead
+	// of asserting: device_memory_interface::space() returns a reference.
+	if (!memory->has_space(space_index))
 		return -1;
+	address_space &as = memory->space(space_index);
 
 	for (int i = 0; i < len; ++i)
-		out[i] = as->read_byte(addr + i);
+	{
+		uint8_t const *byte = reinterpret_cast<uint8_t const *>(as.get_read_ptr(addr + i));
+		if (byte == nullptr)
+			return -1;
+		out[i] = *byte;
+	}
 	return len;
 }

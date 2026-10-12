@@ -22,6 +22,16 @@ export interface ScoreMapResponse {
 
 export type ScoreMapFetch = (url: string) => Promise<ScoreMapResponse>;
 
+/** Scores above this cannot round-trip through a JS number. */
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+function toSafeNumber(value: bigint): number {
+  if (value > MAX_SAFE) {
+    throw new Error("scoremap: score exceeds Number.MAX_SAFE_INTEGER");
+  }
+  return Number(value);
+}
+
 /**
  * Combine raw score bytes into a decimal score per the entry's `format` and
  * `endian` (docs/contracts/scoremap.md).
@@ -30,6 +40,9 @@ export type ScoreMapFetch = (url: string) => Promise<ScoreMapResponse>;
  *   least-significant byte.
  * - `bcd`: place the bytes most-significant-byte first, then emit each byte's
  *   high nibble then low nibble as decimal digits; a nibble > 9 is invalid.
+ *
+ * Accumulated with BigInt so a wide entry cannot silently lose precision; a
+ * value above `Number.MAX_SAFE_INTEGER` is rejected rather than rounded.
  */
 export function decodeScore(
   bytes: Uint8Array,
@@ -45,9 +58,9 @@ export function decodeScore(
   const ordered = entry.endian === "big" ? bytes : Uint8Array.from(bytes).reverse();
 
   if (entry.format === "binary") {
-    let value = 0;
-    for (const byte of ordered) value = value * 256 + byte;
-    return value;
+    let value = 0n;
+    for (const byte of ordered) value = value * 256n + BigInt(byte);
+    return toSafeNumber(value);
   }
 
   let digits = "";
@@ -59,13 +72,13 @@ export function decodeScore(
     }
     digits += `${high}${low}`;
   }
-  return Number(digits);
+  return toSafeNumber(BigInt(digits));
 }
 
 /**
- * Fetch and parse a driver's scoremap. `undefined`/no `url` or a non-ok
- * response (e.g. a 404) yields `undefined`: the driver simply has no live score.
- * A malformed body throws (a deploy error should fail loudly).
+ * Fetch and parse a driver's scoremap. `undefined`/no `url` or a **404** yields
+ * `undefined`: the driver simply has no live score. Any other failure (a 5xx, a
+ * network error) or a malformed body throws — a deploy error should fail loudly.
  */
 export async function loadScoreMap(
   url: string | undefined,
@@ -73,6 +86,9 @@ export async function loadScoreMap(
 ): Promise<ScoreMap | undefined> {
   if (!url) return undefined;
   const response = await fetchImpl(url);
-  if (!response.ok) return undefined;
+  if (!response.ok) {
+    if (response.status === 404) return undefined;
+    throw new Error(`scoremap: fetch ${url} failed (${response.status ?? "?"})`);
+  }
   return parseScoreMap(await response.json());
 }

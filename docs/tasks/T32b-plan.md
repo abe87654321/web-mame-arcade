@@ -58,6 +58,21 @@ Docs: 05, contracts/ws-messages, contracts/scoremap. Depends: T32a (done).
 - [ ] Human: `core/build-wasm.sh gridlee`, publish the new core, add
       `core/scoremap/gridlee.json`, pass the golden replay.
 
+## Post-review follow-ups
+
+- **Determinism:** `netplay_read_bytes` now reads RAM through
+  `address_space::get_read_ptr` per byte instead of `read_byte`, and refuses a
+  handler-mapped address. `read_byte` would run the address space's read handler,
+  and gridlee's `analog_port_r` (0x9500, AS_PROGRAM) mutates save state that
+  feeds `netplay_hash` — a wall-clock-paced read with a side effect would desync
+  peers and the verifier. Only RAM is readable now (documented in the contract).
+- **Compile fix:** `device_memory_interface::space()` returns a reference and
+  asserts; use `has_space()` then bind the reference.
+- **Precision:** `decodeScore` accumulates with BigInt and rejects a value above
+  `Number.MAX_SAFE_INTEGER` instead of silently rounding a wide entry.
+- `loadScoreMap` treats only a **404** as "no scoremap"; other non-ok statuses
+  throw (a 5xx is a deploy error, not a missing map).
+
 ## Notes for the agent
 
 - Files you may touch: the paths above. No native/WASM build here.

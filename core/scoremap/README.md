@@ -40,7 +40,7 @@ debugger if needed.
 2. Run with the cheat engine and the free ROMs:
 
    ```sh
-   ./mame/gridlee -rompath packs/web-mame-arcade/roms -cheat   # ROM from roms/
+   ./mame/gridlee -rompath roms -cheat   # ROMs live in roms/ (gitignored)
    ```
 
 3. In game, open **Tab → Cheat → Cheat Search**:
