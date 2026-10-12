@@ -17,6 +17,7 @@ import {
   type PlayerReady,
   type RoomState,
   type RtcSignal,
+  type ScoreLive,
   type ViewerSnapshot,
   type ViewerState,
 } from "@wma/protocol";
@@ -94,6 +95,8 @@ interface Room {
   hashes: Map<number, number>;
   /** Seated player slots that have requested a collaborative pause (T29). */
   paused: Set<number>;
+  /** Latest live score per seated slot, for the input log's end.scores (T32). */
+  scores: Map<number, number>;
 }
 
 /** Outcome of a `hash` message; `mismatch` triggers a `desync` broadcast. */
@@ -306,6 +309,8 @@ export class RoomManager {
     room.hashes.clear();
     // A new match starts unpaused (T29).
     room.paused.clear();
+    // A new match starts with no recorded live scores (T32).
+    room.scores.clear();
     // Open the input log when the host has set the game (T30); without a
     // `game.set` there is no match identity to log, so no log is recorded.
     room.log = room.game
@@ -386,10 +391,18 @@ export class RoomManager {
     room.video = false;
     const recorder = room.log;
     room.log = null;
+    // Per-slot live scores captured during the match (T32), aligned to the log's
+    // start roster and defaulting an unreported slot to 0.
+    const scores = recorder
+      ? recorder.startPlayers().map((player) => ({
+          slot: player.slot,
+          score: room.scores.get(player.slot) ?? 0,
+        }))
+      : [];
     return {
       roomId: room.id,
       from: sender.slot,
-      log: recorder ? recorder.close(message.frame, []) : null,
+      log: recorder ? recorder.close(message.frame, scores) : null,
     };
   }
 
@@ -481,6 +494,29 @@ export class RoomManager {
     }
     room.hashes.set(sender.slot, message.crc32);
     return { roomId: room.id, slot: sender.slot, frame: message.frame, mismatch };
+  }
+
+  /**
+   * Record a seated player's live score (T32). Only a seated player in a
+   * `playing` room may report (`not_joined`/`not_playing` otherwise); the
+   * client-supplied `player` is ignored and the sender's own slot is used, so a
+   * client cannot forge another slot's score. Last write wins; the latest value
+   * per slot is written into the input log's `end.scores` on `game.end`.
+   */
+  recordScore(
+    connectionId: string,
+    message: ScoreLive,
+  ): { roomId: string; from: number; score: number } {
+    const room = this.roomOf(connectionId, "score.live");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can report a score");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    room.scores.set(sender.slot, message.score);
+    return { roomId: room.id, from: sender.slot, score: message.score };
   }
 
   /**
@@ -721,6 +757,7 @@ export class RoomManager {
         hashFrame: -1,
         hashes: new Map(),
         paused: new Set(),
+        scores: new Map(),
       };
       this.rooms.set(roomId, room);
     }

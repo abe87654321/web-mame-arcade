@@ -5,7 +5,7 @@ import type { Core, CoreOptions, FrameInputs, StateHash } from "./types";
 /**
  * Wraps one loaded stock Emscripten module. Methods that need native support
  * the stock build lacks throw CoreCapabilityError instead of guessing:
- * step/save/hash require the T20 netplay patch, readScore requires T32.
+ * step/save/hash require the T20 netplay patch, readScore requires T32b.
  */
 export class MameCore implements Core {
   constructor(
@@ -47,8 +47,10 @@ export class MameCore implements Core {
     return this.netplay("hash", "T20").hash();
   }
 
-  readScore(): number {
-    throw new CoreCapabilityError("readScore", "T32 (scoremap)");
+  readScore(slot: number): number {
+    // The native memory read (`netplay_read_bytes`) and the scoremap decode
+    // land in T32b; a stock core or a driver with no scoremap cannot report.
+    throw new CoreCapabilityError("readScore", `T32b (scoremap, slot ${slot})`);
   }
 
   reset(): void {

@@ -413,7 +413,14 @@ describe("createRelay (input log, T30)", () => {
       [1, 0x10],
       [4, 0],
     ]);
-    expect(decoded.end).toEqual({ frame: 3, scores: [] });
+    expect(decoded.end).toEqual({
+      frame: 3,
+      // T32: no score.live was sent, so every seated slot defaults to 0.
+      scores: [
+        { slot: 0, score: 0 },
+        { slot: 1, score: 0 },
+      ],
+    });
 
     // The room flips to ended for everyone.
     const states = out.filter((o) => o.message.t === "room.state");
@@ -805,5 +812,66 @@ describe("createRelay (LiveKit A/V, T41)", () => {
       (o) => o.connectionId === "v2" && o.message.t === "livekit.access",
     );
     expect(decode((access!.message as { token: string }).token).sub).toBe("late");
+  });
+});
+
+describe("createRelay (score.live, T32)", () => {
+  function playing(withViewer = false) {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    if (withViewer) {
+      r.handle("v1", { t: "room.join", room: "r", role: "viewer", token: "watcher" });
+    }
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return r;
+  }
+
+  it("stamps the sender slot and fans out to every member, the sender included", () => {
+    const r = playing(true);
+    const out = r.handle("c2", { t: "score.live", player: 0, score: 123, frame: 90 });
+    expect(out.map((o) => o.connectionId).sort()).toEqual(["c1", "c2", "v1"]);
+    for (const entry of out) {
+      // The client-supplied player (0) is overwritten with c2's own slot (1).
+      expect(entry.message).toEqual({
+        t: "score.live",
+        player: 1,
+        score: 123,
+        frame: 90,
+      });
+    }
+  });
+
+  it("writes the latest score per slot into the closed log's end.scores", () => {
+    const logs: ClosedLog[] = [];
+    const r = createRelay({ verifier: fakeVerifier, onLogClosed: (log) => logs.push(log) });
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    r.handle("c1", { t: "score.live", score: 5, frame: 30 });
+    r.handle("c1", { t: "score.live", score: 8, frame: 60 });
+    r.handle("c2", { t: "score.live", score: 9, frame: 60 });
+    r.handle("c1", { t: "game.end", frame: 60 });
+    expect(gunzipInputLog(logs[0]!.bytes).end.scores).toEqual([
+      { slot: 0, score: 8 },
+      { slot: 1, score: 9 },
+    ]);
+  });
+
+  it("rejects score.live before the match starts and from a viewer", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("v1", { t: "room.join", room: "r", role: "viewer", token: "watcher" });
+    expect(r.handle("c1", { t: "score.live", score: 1, frame: 0 })[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_playing",
+    });
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 0 });
+    expect(r.handle("v1", { t: "score.live", score: 1, frame: 0 })[0]?.message).toMatchObject({
+      t: "error",
+      code: "not_joined",
+    });
   });
 });

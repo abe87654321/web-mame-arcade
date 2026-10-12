@@ -641,3 +641,88 @@ describe("RoomManager A/V (T41)", () => {
     expect(rooms.livekitGrant("ghost")).toBeNull();
   });
 });
+
+describe("RoomManager.recordScore (T32)", () => {
+  function playing() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice@Alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob@Bob" });
+    rooms.join("v1", { room: "r", role: "viewer", token: "watcher" });
+    rooms.setGame("c1", {
+      t: "game.set",
+      driver: "gridlee",
+      coreHash: "a".repeat(64),
+      mameCommit: "b".repeat(40),
+      romHash: "c".repeat(64),
+      dips: {},
+    });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return rooms;
+  }
+
+  function code(fn: () => void): string {
+    try {
+      fn();
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RelayError);
+      return (error as RelayError).code;
+    }
+  }
+
+  it("stamps the sender slot and ignores a forged client player", () => {
+    const rooms = playing();
+    expect(
+      rooms.recordScore("c2", { t: "score.live", player: 0, score: 42, frame: 90 }),
+    ).toEqual({ roomId: "r", from: 1, score: 42 });
+  });
+
+  it("keeps the latest score per slot (last write wins)", () => {
+    const rooms = playing();
+    rooms.recordScore("c1", { t: "score.live", score: 10, frame: 60 });
+    rooms.recordScore("c1", { t: "score.live", score: 20, frame: 120 });
+    const log = rooms.end("c1", { t: "game.end", frame: 120 }).log!;
+    expect(log.end.scores).toEqual([
+      { slot: 0, score: 20 },
+      { slot: 1, score: 0 },
+    ]);
+  });
+
+  it("writes per-slot end.scores in slot order with 0 defaults", () => {
+    const rooms = playing();
+    rooms.recordScore("c2", { t: "score.live", score: 7, frame: 90 });
+    const log = rooms.end("c1", { t: "game.end", frame: 90 }).log!;
+    expect(log.end.scores).toEqual([
+      { slot: 0, score: 0 },
+      { slot: 1, score: 7 },
+    ]);
+  });
+
+  it("clears recorded scores on a new match", () => {
+    const rooms = playing();
+    rooms.recordScore("c1", { t: "score.live", score: 99, frame: 90 });
+    rooms.end("c1", { t: "game.end", frame: 90 });
+    rooms.begin("c1", { t: "game.start", startFrame: 90, inputDelay: 2 });
+    const log = rooms.end("c1", { t: "game.end", frame: 91 }).log!;
+    expect(log.end.scores).toEqual([
+      { slot: 0, score: 0 },
+      { slot: 1, score: 0 },
+    ]);
+  });
+
+  it("rejects a viewer, an unseated connection and a pre-start room", () => {
+    const rooms = playing();
+    expect(
+      code(() => rooms.recordScore("v1", { t: "score.live", score: 1, frame: 0 })),
+    ).toBe("not_joined");
+    expect(
+      code(() => rooms.recordScore("ghost", { t: "score.live", score: 1, frame: 0 })),
+    ).toBe("not_joined");
+
+    const fresh = manager();
+    fresh.join("c9", { room: "r", role: "player", token: "x" });
+    expect(
+      code(() => fresh.recordScore("c9", { t: "score.live", score: 1, frame: 0 })),
+    ).toBe("not_playing");
+  });
+});

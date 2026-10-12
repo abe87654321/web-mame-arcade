@@ -34,6 +34,7 @@ import {
 import { buildList } from "./list-view";
 import { buildLobby } from "./lobby-view";
 import { buildNetplayOverlay } from "./netplay-overlay";
+import { buildScoreboard } from "./scoreboard-view";
 import {
   browserScheduler,
   createPlayController,
@@ -168,6 +169,25 @@ export function createApp(deps: AppDeps): AppController {
     deps.env.status.textContent = text;
   };
 
+  /**
+   * Render the live scoreboard overlay (T32) into `host`, joining each score to
+   * the roster name for its slot. Display only; the app re-renders it on every
+   * score change for players and viewers.
+   */
+  const renderScores = (
+    host: UiElement,
+    rows: readonly { slot: number; score: number }[],
+    names: ReadonlyMap<number, string>,
+  ): void => {
+    host.textContent = "";
+    host.append(
+      renderTree(
+        deps.env.doc,
+        buildScoreboard(rows.map((row) => ({ ...row, name: names.get(row.slot) }))),
+      ),
+    );
+  };
+
   const teardown = (): void => {
     detachVisibility?.();
     detachVisibility = null;
@@ -198,6 +218,9 @@ export function createApp(deps: AppDeps): AppController {
   ): void => {
     const host = deps.env.doc.createElement("div");
     host.className = "viewer-host";
+    // Live scoreboard overlay for the viewer (T32); names come from the roster.
+    const scoreboardHost = deps.env.doc.createElement("div");
+    scoreboardHost.className = "scoreboard-host";
     let state: ViewerViewState = { status: "connecting", players: [], video: false };
     const renderViewer = (): void => {
       host.textContent = "";
@@ -229,6 +252,12 @@ export function createApp(deps: AppDeps): AppController {
         state = { ...state, players };
         renderViewer();
       },
+      onScores: (rows) =>
+        renderScores(
+          scoreboardHost,
+          rows,
+          new Map(state.players.map((player) => [player.slot, player.name])),
+        ),
       ...(video ? { video } : {}),
       onVideo: (stream) => {
         deps.env.attachVideo?.(stream);
@@ -239,6 +268,7 @@ export function createApp(deps: AppDeps): AppController {
     });
     renderViewer();
     deps.env.root.append(host);
+    deps.env.root.append(scoreboardHost);
     setStatus(`watching ${entry.title}`);
     const loop = (): void => {
       viewer?.tick(now());
@@ -307,6 +337,11 @@ export function createApp(deps: AppDeps): AppController {
         ? deps.env.doc.createElement("div")
         : null;
     if (lobbyHost) lobbyHost.className = "lobby-host";
+    // Live scoreboard overlay for the player (T32), next to the lobby.
+    const scoreboardHost: UiElement | null = lobbyHost
+      ? deps.env.doc.createElement("div")
+      : null;
+    if (scoreboardHost) scoreboardHost.className = "scoreboard-host";
 
     setStatus(`loading ${entry.title}...`);
     void deps
@@ -388,6 +423,22 @@ export function createApp(deps: AppDeps): AppController {
             now: netplay.now ?? (() => Date.now()),
             onStatus: (status) => setStatus(matchStatusText(status)),
             onLobby: renderLobby,
+            // Live per-slot scores (T32); names come from the lobby roster.
+            ...(scoreboardHost
+              ? {
+                  onScores: (rows: readonly { slot: number; score: number }[]) =>
+                    renderScores(
+                      scoreboardHost,
+                      rows,
+                      new Map(
+                        (match?.lobby().players ?? []).map((player) => [
+                          player.slot,
+                          player.name,
+                        ]),
+                      ),
+                    ),
+                }
+              : {}),
             log: (event, fields) => console.warn("[netplay]", event, fields),
             ...(publisher ? { video: publisher } : {}),
             ...(deps.env.inputScript ? { inputScript: deps.env.inputScript } : {}),
@@ -422,6 +473,7 @@ export function createApp(deps: AppDeps): AppController {
           }
           deps.env.root.append(host);
           if (overlayHost) deps.env.root.append(overlayHost);
+          if (scoreboardHost) deps.env.root.append(scoreboardHost);
         }
         play = createPlayController({
           core,

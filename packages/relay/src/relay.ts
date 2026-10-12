@@ -274,8 +274,24 @@ export function createRelay({
               .filter((target) => target !== connectionId)
               .map((target) => ({ connectionId: target, message }));
           }
+          case "score.live": {
+            // A seated player's live score (T32): the relay stamps the sender's
+            // own slot (ignoring any client-supplied `player`) and fans it out
+            // to every member, the sender included. Display only; the latest
+            // per-slot value is also written into the input log's end.scores.
+            const { roomId, from, score } = rooms.recordScore(connectionId, message);
+            return rooms.broadcastTargets(roomId).map((target) => ({
+              connectionId: target,
+              message: {
+                t: "score.live" as const,
+                player: from,
+                score,
+                frame: message.frame,
+              },
+            }));
+          }
           default:
-            // score.live/chat are owned by later tasks (T32/T36).
+            // chat is owned by a later task (T36).
             return errorOut(
               connectionId,
               "unsupported",

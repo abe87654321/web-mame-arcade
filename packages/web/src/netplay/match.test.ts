@@ -784,3 +784,128 @@ describe("createMatch", () => {
     match.close();
   });
 });
+
+describe("createMatch (live scoreboard, T32)", () => {
+  function scoreHarness(overrides: Partial<MatchDeps> = {}) {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    const core = fakeCore();
+    const rows: { slot: number; score: number }[][] = [];
+    let clock = 0;
+    const match = createMatch({
+      core,
+      config,
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+      now: () => clock,
+      inputDelay: 0,
+      game: GAME,
+      onScores: (r) => rows.push(r),
+      ...overrides,
+    });
+    socket.open();
+    return { socket, pc, core, match, rows, setClock: (t: number) => (clock = t) };
+  }
+
+  async function start(match: ReturnType<typeof createMatch>, socket: FakeWebSocket) {
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    // The relay re-broadcasts room.state as playing after game.start.
+    socket.emitMessage(JSON.stringify({ ...roomState(0, [0]), status: "playing" }));
+    await flush();
+  }
+
+  it("samples our own slot at most once per interval and sends score.live", async () => {
+    const { socket, core, match, rows, setClock } = scoreHarness();
+    (core.readScore as ReturnType<typeof vi.fn>).mockReturnValue(1234);
+    await flush();
+    await start(match, socket);
+
+    // First tick arms the cadence and samples immediately.
+    match.tick(0x01);
+    expect(core.readScore).toHaveBeenCalledWith(0);
+    expect(jsonSent(socket).find((m) => m.t === "score.live")).toMatchObject({
+      t: "score.live",
+      score: 1234,
+    });
+
+    // Within the interval: no further sample.
+    (core.readScore as ReturnType<typeof vi.fn>).mockClear();
+    match.tick(0x01);
+    match.tick(0x01);
+    expect(core.readScore).not.toHaveBeenCalled();
+
+    // After the interval: sampled again.
+    setClock(1000);
+    match.tick(0x01);
+    expect(core.readScore).toHaveBeenCalledTimes(1);
+    expect(rows.at(-1)).toEqual([{ slot: 0, score: 1234 }]);
+    match.close();
+  });
+
+  it("swallows a CoreCapabilityError from readScore (no scoremap yet)", async () => {
+    const { socket, core, match } = scoreHarness();
+    (core.readScore as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("no scoremap");
+    });
+    await flush();
+    await start(match, socket);
+
+    expect(() => match.tick(0x01)).not.toThrow();
+    expect(jsonSent(socket).some((m) => m.t === "score.live")).toBe(false);
+    match.close();
+  });
+
+  it("merges a peer's score.live into the scoreboard", async () => {
+    const { socket, core, match, rows } = scoreHarness();
+    (core.readScore as ReturnType<typeof vi.fn>).mockReturnValue(1);
+    await flush();
+    await start(match, socket);
+    match.tick(0x01);
+
+    socket.emitMessage(
+      JSON.stringify({ t: "score.live", player: 1, score: 99, frame: 90 }),
+    );
+    await flush();
+    expect(rows.at(-1)).toEqual([
+      { slot: 0, score: 1 },
+      { slot: 1, score: 99 },
+    ]);
+    expect(match.scores()).toEqual([
+      { slot: 0, score: 1 },
+      { slot: 1, score: 99 },
+    ]);
+    match.close();
+  });
+
+  it("does not report a score before the game is set (no log)", async () => {
+    const { socket, core, match } = scoreHarness({ game: undefined });
+    (core.readScore as ReturnType<typeof vi.fn>).mockReturnValue(5);
+    await flush();
+    await start(match, socket);
+    match.tick(0x01);
+    expect(core.readScore).not.toHaveBeenCalled();
+    match.close();
+  });
+
+  it("stops sampling once the room is no longer playing", async () => {
+    const { socket, core, match, setClock } = scoreHarness();
+    (core.readScore as ReturnType<typeof vi.fn>).mockReturnValue(10);
+    await flush();
+    await start(match, socket);
+    match.tick(0x01); // samples once
+    (core.readScore as ReturnType<typeof vi.fn>).mockClear();
+
+    // The relay flips the room to ended (e.g. after game.end).
+    socket.emitMessage(
+      JSON.stringify({ ...roomState(0, [0]), status: "ended" }),
+    );
+    await flush();
+    setClock(5000);
+    match.tick(0x01);
+    expect(core.readScore).not.toHaveBeenCalled();
+    match.close();
+  });
+});

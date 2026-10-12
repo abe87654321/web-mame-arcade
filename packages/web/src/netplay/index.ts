@@ -58,6 +58,8 @@ export type {
   MatchStatus,
   NetplayMatch,
 } from "./match";
+export { createScoreboard, isSampleDue } from "./scoreboard";
+export type { ScoreRow, Scoreboard } from "./scoreboard";
 export {
   browserRtcFactory,
   browserWebSocketFactory,

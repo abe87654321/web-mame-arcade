@@ -19,6 +19,7 @@ import { selectInputDelay } from "./delay";
 import { createLockstep, type Lockstep } from "./lockstep";
 import { createMetrics, type Metrics, type MetricsSnapshot } from "./metrics";
 import { createSession, type NetplaySession } from "./session";
+import { createScoreboard, isSampleDue, type ScoreRow } from "./scoreboard";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
 import type { VideoPublisher } from "./video";
 export type MatchStatus =
@@ -84,6 +85,13 @@ export interface MatchDeps {
   onStatus?: (status: MatchStatus) => void;
   /** Lobby snapshot on every room.state / ready / peer / status change (T27). */
   onLobby?: (state: LobbyState) => void;
+  /**
+   * Live per-slot scores on every change (T32); display only. Emitted from our
+   * own samples and from peers' `score.live`.
+   */
+  onScores?: (rows: ScoreRow[]) => void;
+  /** Milliseconds between our own score samples; default 1000 (T32). */
+  scoreIntervalMs?: number;
   /** Hash every this many frames; default 60 (T25, docs/03). */
   hashInterval?: number;
   /**
@@ -152,6 +160,8 @@ export interface NetplayMatch {
   lobby(): LobbyState;
   /** The current connection metrics, or null before the match starts (T28). */
   metrics(): MetricsSnapshot | null;
+  /** Latest live score per reported slot, ascending (T32). */
+  scores(): ScoreRow[];
   /** The underlying session (exposed for the play page / status UI). */
   session(): NetplaySession;
   close(): void;
@@ -168,6 +178,8 @@ const DEFAULT_SNAPSHOT_INTERVAL_MS = 5000;
 const RESYNC_INTERVAL_MS = 1000;
 /** Minimum gap between dev-overlay metrics emissions (T28). */
 const DEFAULT_METRICS_INTERVAL_MS = 250;
+/** Milliseconds between a player's own live-score samples (T32). */
+const DEFAULT_SCORE_INTERVAL_MS = 1000;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
@@ -187,6 +199,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   const startFrame = deps.startFrame ?? 0;
   const snapshotIntervalMs = deps.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const metricsIntervalMs = deps.metricsIntervalMs ?? DEFAULT_METRICS_INTERVAL_MS;
+  const scoreIntervalMs = deps.scoreIntervalMs ?? DEFAULT_SCORE_INTERVAL_MS;
   const log = deps.log;
   const inputScript = deps.inputScript;
   const createSnapshot =
@@ -236,6 +249,10 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let paused = false;
   /** Highest snapshot frame applied, so an out-of-order fetch cannot rewind us (T29). */
   let lastAppliedSnapshotFrame = -1;
+  /** Live per-slot scores (T32); cleared on a fresh match. */
+  const scoreboard = createScoreboard();
+  /** Last wall-clock score sample; null until the cadence is armed (T32). */
+  let lastScoreAt: number | null = null;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -390,6 +407,9 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     paused = false;
     relayPaused = false;
     lastAppliedSnapshotFrame = -1;
+    // A fresh match starts with no live scores (T32).
+    scoreboard.clear();
+    lastScoreAt = null;
     const players = roster.length > 0 ? roster.map((p) => p.slot) : [self];
     lockstep = createLockstep({
       core: deps.core,
@@ -542,6 +562,44 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       });
   }
 
+  /**
+   * Sample our own slot's live score at most once per `scoreIntervalMs` and
+   * send `score.live` (T32). Display only: reading memory never mutates the
+   * machine and the wall clock only paces the message, never `core.step`. A
+   * core without the scoremap (stock build / T32b pending) throws
+   * `CoreCapabilityError`, which is swallowed. Only logged matches report.
+   */
+  function maybeSampleScore(now: number): void {
+    if (
+      !lockstep ||
+      closed ||
+      disconnected ||
+      self === null ||
+      !gameSetSent ||
+      roomStatus !== "playing" ||
+      paused ||
+      !isSampleDue(now, lastScoreAt, scoreIntervalMs)
+    ) {
+      return;
+    }
+    const frame = lockstep.frame() - 1;
+    // Nothing stepped yet (the lockstep is still waiting on the first frame's
+    // inputs): do not arm the cadence, so the first eligible sample is not lost.
+    if (frame < 0) return;
+    lastScoreAt = now;
+    let score: number;
+    try {
+      score = deps.core.readScore(self);
+    } catch {
+      return;
+    }
+    if (!Number.isFinite(score)) return;
+    if (session.send({ t: "score.live", score, frame })) {
+      scoreboard.set(self, score);
+      deps.onScores?.(scoreboard.rows());
+    }
+  }
+
   const session = createSession({
     config: deps.config,
     socketFactory: deps.socketFactory,
@@ -575,6 +633,12 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       // unpause us while our tab is still hidden (applyPause ORs the two).
       relayPaused = message.paused;
       applyPause();
+    },
+    onScoreLive: (message) => {
+      // A peer's (or the relay's echo of our own) live score (T32): display only.
+      if (message.player === undefined) return;
+      scoreboard.set(message.player, message.score);
+      deps.onScores?.(scoreboard.rows());
     },
     onGameStart: (message) => {
       // A start can outrace the first `room.state` or the core boot; hold it
@@ -677,6 +741,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         lockstep.tick(localMask);
       }
       maybeViewerSnapshot(now);
+      maybeSampleScore(now);
       emitMetrics(now);
     },
     frame: () => (lockstep ? lockstep.frame() : startFrame),
@@ -716,6 +781,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     },
     lobby,
     metrics: () => (metrics ? metrics.snapshot(lockstep ? lockstep.frame() : 0) : null),
+    scores: () => scoreboard.rows(),
     session: () => session,
     close: () => {
       // The host closes the relay input log on teardown of a playing match; the
@@ -731,6 +797,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       paused = false;
       localPaused = false;
       relayPaused = false;
+      scoreboard.clear();
       deps.video?.stop();
       session.close();
     },

@@ -123,6 +123,17 @@ describe("message schemas", () => {
     expect(safeParseMessage({ t: "nope" }).success).toBe(false);
   });
 
+  it("treats score.live.player as optional and relay-stamped (T32)", () => {
+    // A client may omit the slot; the relay fills it in. A negative score is
+    // rejected (scores are non-negative).
+    expect(safeParseMessage({ t: "score.live", score: 1, frame: 0 }).success).toBe(
+      true,
+    );
+    expect(
+      safeParseMessage({ t: "score.live", player: 0, score: -1, frame: 0 }).success,
+    ).toBe(false);
+  });
+
   it("rejects missing and extra fields (strict objects)", () => {
     expect(safeParseMessage({ t: "chat" }).success).toBe(false);
     expect(safeParseMessage({ t: "chat", text: "hi", extra: 1 }).success).toBe(
@@ -384,7 +395,7 @@ describe("message fuzz", () => {
   const arbScore: fc.Arbitrary<AnyMessage> = fc.record({
     t: fc.constant("score.live" as const),
     player: arbSlot,
-    score: fc.integer({ min: -1000, max: 1_000_000 }),
+    score: fc.integer({ min: 0, max: 1_000_000 }),
     frame: arbFrame,
   });
   const arbDesync: fc.Arbitrary<AnyMessage> = fc.record({

@@ -43,8 +43,11 @@ export interface Core {
   load(state: Uint8Array, frame: number): void;
   /** CRC32 of main RAM at the current frame. Needs the T20 core. */
   hash(): StateHash;
-  /** Current player-1 score. Needs T32 (scoremap). */
-  readScore(): number;
+  /**
+   * Current score for player `slot`, decoded via that driver's scoremap
+   * (T32b). Throws `CoreCapabilityError` on a core/driver with no scoremap.
+   */
+  readScore(slot: number): number;
   /** Soft-reset the machine. */
   reset(): void;
   /** Shut the core down and release its resources. */
