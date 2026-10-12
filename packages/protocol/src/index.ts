@@ -75,3 +75,11 @@ export {
   playerIndex,
 } from "./input-log.ts";
 export type { InputLog, InputLogEnd, InputLogGame, InputLogMeta, InputLogStart } from "./input-log.ts";
+
+export {
+  SCOREMAP_VERSION,
+  parseScoreMap,
+  scoreMap,
+  scoreMapEntry,
+} from "./scoremap.ts";
+export type { ScoreMap, ScoreMapEntry } from "./scoremap.ts";

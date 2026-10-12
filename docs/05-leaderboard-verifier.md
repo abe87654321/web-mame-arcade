@@ -4,9 +4,11 @@ A score enters the leaderboard only after the server replays the input log in na
 score from RAM. Clients never submit a trusted score.
 
 ## Live scoreboard (display only)
-- Browser reads score bytes once per second (addresses from `hiscore.dat` or per-game `core/scoremap/<driver>.json`:
-  `{ "cpu": ":maincpu", "space": "program", "addr": "0x4e80", "len": 3, "format": "bcd" }`), sends `score.live` to relay.
-- Relay broadcasts to players and viewers.
+- Browser reads score bytes once per second (addresses from `hiscore.dat` or per-game
+  `core/scoremap/<driver>.json`, one entry per slot:
+  `{ "v": 1, "players": [ { "slot": 0, "cpu": ":maincpu", "space": "program", "addr": "0x4e80", "len": 3, "format": "bcd" } ] }`;
+  see docs/contracts/scoremap.md), sends `score.live` to relay.
+- Relay stamps the sender's slot and broadcasts to players and viewers.
 
 ## Verified leaderboard
 1. On game end the relay closes the input log (core hash, MAME commit, ROM hash, DIP settings, start state, per-frame inputs)

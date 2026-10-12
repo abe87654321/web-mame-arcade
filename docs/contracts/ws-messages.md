@@ -170,6 +170,22 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
   `canvas.captureStream(60)` + MAME's Web Audio output to LiveKit; a viewer watches the
   video/audio tracks instead of (or alongside) replaying inputs. Determinism is untouched.
 
+## Pinned in T32
+- `score.live` is sent player → relay → all and is **display only**: it never enters the
+  emulation path (AGENTS.md determinism rule). A seated player samples **its own slot's**
+  score at most once per second and sends `{ t: "score.live", score, frame }` — `player` is
+  optional on the wire. The relay stamps the sender's own slot (ignoring any client-supplied
+  `player`) and fans out `{ t: "score.live", player, score, frame }` to **every member**,
+  including the sender. A non-seated connection is rejected with `not_joined` and a room that
+  is not `playing` with `not_playing`, mirroring `hash`. `score` is a non-negative integer
+  and the sample's `frame` is the sender's last stepped frame.
+- The relay keeps the latest `score.live` per slot and writes them into the closed input
+  log's `end.scores` (docs/contracts/input-log.md) on `game.end`, in slot order; a seated
+  slot that never reported defaults to 0. A new match (`game.start`) clears the recorded
+  scores.
+- The per-driver address/format of the score lives in `core/scoremap/<driver>.json`
+  (docs/contracts/scoremap.md); a slot with no scoremap entry is simply not sampled.
+
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional
 display name), `exp` (required, unix seconds). The relay verifies it with the shared secret and rejects

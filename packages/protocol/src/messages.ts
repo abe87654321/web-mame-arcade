@@ -179,10 +179,18 @@ export const desync = z.strictObject({
   frame,
 });
 
+/**
+ * A seated player's live score (T32); display only. The relay stamps the
+ * sender's own slot on the fanned-out message and ignores any client-supplied
+ * `player`, exactly like `player.ready` (T27), so a client cannot forge another
+ * slot's score. Sent player → relay → all.
+ */
 export const scoreLive = z.strictObject({
   t: z.literal("score.live"),
-  player: slot,
-  score: z.number().int(),
+  // Sender slot, stamped by the relay on the fanned-out message; ignored on the
+  // client→relay direction (docs/contracts/ws-messages.md, T32).
+  player: slot.optional(),
+  score: z.number().int().min(0),
   frame,
 });
 
