@@ -80,3 +80,13 @@ Docs: 05, contracts/ws-messages, contracts/scoremap. Depends: T32a (done).
 - Files you may touch: the paths above. No native/WASM build here.
 - `core/scoremap/gridlee.json` is produced by the human with
   `core/scoremap/README.md`; do not invent addresses.
+
+## Deferred
+
+- **gridlee scoremap discovery is deferred.** The code, native read hook, WASM
+  rebuild, publish (`games.json` `coreVersion` = `d8744e50…`) and the
+  netplay/golden e2e are all done, but the interactive MAME Cheat Search
+  (keyboard; the trackball grabs the mouse) has not been completed, so
+  `core/scoremap/gridlee.json` is absent. The browser treats that as "no live
+  score" (the 404 path, already exercised in the e2e run). Add the file and run
+  `core/publish-web.sh gridlee` to turn the scoreboard on.
