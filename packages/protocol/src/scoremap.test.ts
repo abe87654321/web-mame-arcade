@@ -62,6 +62,17 @@ describe("scoremap schema", () => {
     ).toBe(false);
   });
 
+  it("rejects duplicate slots", () => {
+    const result = scoreMap.safeParse({
+      v: 1,
+      players: [
+        { ...entry, slot: 0 },
+        { ...entry, slot: 0, addr: "0x4e90" },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects an unknown version", () => {
     expect(scoreMap.safeParse({ v: 2, players: [] }).success).toBe(false);
   });

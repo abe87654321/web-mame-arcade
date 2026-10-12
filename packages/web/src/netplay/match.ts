@@ -576,14 +576,17 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       disconnected ||
       self === null ||
       !gameSetSent ||
+      roomStatus !== "playing" ||
       paused ||
       !isSampleDue(now, lastScoreAt, scoreIntervalMs)
     ) {
       return;
     }
-    lastScoreAt = now;
     const frame = lockstep.frame() - 1;
+    // Nothing stepped yet (the lockstep is still waiting on the first frame's
+    // inputs): do not arm the cadence, so the first eligible sample is not lost.
     if (frame < 0) return;
+    lastScoreAt = now;
     let score: number;
     try {
       score = deps.core.readScore(self);

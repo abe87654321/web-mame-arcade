@@ -29,10 +29,17 @@ export const scoreMapEntry = z.strictObject({
   endian: z.enum(["little", "big"]).optional(),
 });
 
-export const scoreMap = z.strictObject({
-  v: z.literal(SCOREMAP_VERSION),
-  players: z.array(scoreMapEntry),
-});
+export const scoreMap = z
+  .strictObject({
+    v: z.literal(SCOREMAP_VERSION),
+    players: z.array(scoreMapEntry),
+  })
+  // Each slot maps to one memory region, so a duplicate slot is a malformed map
+  // (docs/contracts/scoremap.md); reject it rather than silently picking one.
+  .refine(
+    (map) => new Set(map.players.map((player) => player.slot)).size === map.players.length,
+    { message: "scoremap slots must be unique", path: ["players"] },
+  );
 
 export type ScoreMapEntry = z.infer<typeof scoreMapEntry>;
 export type ScoreMap = z.infer<typeof scoreMap>;

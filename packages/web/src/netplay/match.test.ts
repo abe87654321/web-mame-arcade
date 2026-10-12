@@ -812,6 +812,9 @@ describe("createMatch (live scoreboard, T32)", () => {
     await flush();
     socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
     await flush();
+    // The relay re-broadcasts room.state as playing after game.start.
+    socket.emitMessage(JSON.stringify({ ...roomState(0, [0]), status: "playing" }));
+    await flush();
   }
 
   it("samples our own slot at most once per interval and sends score.live", async () => {
@@ -882,6 +885,25 @@ describe("createMatch (live scoreboard, T32)", () => {
     (core.readScore as ReturnType<typeof vi.fn>).mockReturnValue(5);
     await flush();
     await start(match, socket);
+    match.tick(0x01);
+    expect(core.readScore).not.toHaveBeenCalled();
+    match.close();
+  });
+
+  it("stops sampling once the room is no longer playing", async () => {
+    const { socket, core, match, setClock } = scoreHarness();
+    (core.readScore as ReturnType<typeof vi.fn>).mockReturnValue(10);
+    await flush();
+    await start(match, socket);
+    match.tick(0x01); // samples once
+    (core.readScore as ReturnType<typeof vi.fn>).mockClear();
+
+    // The relay flips the room to ended (e.g. after game.end).
+    socket.emitMessage(
+      JSON.stringify({ ...roomState(0, [0]), status: "ended" }),
+    );
+    await flush();
+    setClock(5000);
     match.tick(0x01);
     expect(core.readScore).not.toHaveBeenCalled();
     match.close();

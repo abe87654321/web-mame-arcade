@@ -70,6 +70,17 @@ Docs: 05, contracts/ws-messages. Depends: T24 (done).
       match cadence, viewer, scoreboard view.
 - [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
+## Post-review follow-ups
+
+- Enforced the contract's unique-slot rule with a `scoreMap.refine` + a
+  duplicate-slot test (docs/contracts/scoremap.md).
+- Gated the sampler on `roomStatus === "playing"` so it stops once the relay
+  flips the room to `ended` (a later T32b read no longer spams `not_playing`).
+- Armed the sample cadence **after** the "nothing stepped yet" check, so the
+  first eligible second of a match is not skipped.
+- `Core.readScore` became `readScore(slot)` here (not T32b): the per-slot
+  sampler needs it; the implementation still throws until the T32b core read.
+
 ## Notes for the agent
 
 - Files you may touch: the paths above.
