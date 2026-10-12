@@ -200,6 +200,19 @@ describe("createViewer", () => {
     viewer.close();
   });
 
+  it("merges a relayed score.live into the scoreboard (T32)", async () => {
+    const onScores = vi.fn();
+    const { socket, viewer } = harness({ onScores });
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({ t: "score.live", player: 1, score: 4200, frame: 90 }),
+    );
+    await flush();
+    expect(viewer.scores()).toEqual([{ slot: 1, score: 4200 }]);
+    expect(onScores).toHaveBeenCalledWith([{ slot: 1, score: 4200 }]);
+    viewer.close();
+  });
+
   it("stops the subscriber on close (T41)", async () => {
     const stop = vi.fn();
     const subscriber = {

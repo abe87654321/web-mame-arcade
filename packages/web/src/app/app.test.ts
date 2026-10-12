@@ -542,3 +542,106 @@ describe("coreDirUrl", () => {
     expect(coreDirUrl(entry)).toBe(`/static/cores/gridlee/${entry.coreVersion}`);
   });
 });
+
+describe("live scoreboard overlay (T32)", () => {
+  function text(el: FakeElement): string {
+    return [el.textContent ?? "", ...el.children.map(text)].join(" ");
+  }
+  const netplay = () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    return {
+      socket,
+      env: {
+        relayUrl: "ws://relay.test/ws",
+        token: "jwt",
+        iceServers: [],
+        socketFactory: fakeSocketFactory(socket),
+        factory: fakeRtcFactory([pc]),
+      } as NetplayEnv,
+    };
+  };
+
+  it("renders scores on a play route from a relayed score.live", async () => {
+    const { socket, env } = netplay();
+    const h = harness(env);
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "room.state",
+        room: "abc",
+        self: 0,
+        players: [
+          { slot: 0, name: "You", ready: false },
+          { slot: 1, name: "Ryu", ready: true },
+        ],
+        game: "gridlee",
+        coreHash: "a".repeat(64),
+        romHash: "c".repeat(64),
+        dips: {},
+        status: "playing",
+      }),
+    );
+    await flush();
+
+    socket.emitMessage(
+      JSON.stringify({ t: "score.live", player: 1, score: 77, frame: 60 }),
+    );
+    await flush();
+
+    const board = findByClass(h.root, "scoreboard");
+    expect(board).toBeDefined();
+    expect(text(board!)).toContain("Ryu");
+    expect(text(board!)).toContain("77");
+    app.destroy();
+  });
+
+  it("renders scores on a watch route from a relayed score.live", async () => {
+    const { socket, env } = netplay();
+    const h = harness(env);
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc/watch";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "viewer.state",
+        room: "abc",
+        driver: "gridlee",
+        coreHash: "a".repeat(64),
+        mameCommit: "b".repeat(40),
+        romHash: "c".repeat(64),
+        dips: {},
+        startFrame: 0,
+        inputDelay: 2,
+        players: [
+          { slot: 0, name: "You" },
+          { slot: 1, name: "Ryu" },
+        ],
+        snapshot: null,
+        video: false,
+      }),
+    );
+    await flush();
+
+    socket.emitMessage(
+      JSON.stringify({ t: "score.live", player: 0, score: 123, frame: 60 }),
+    );
+    await flush();
+
+    const board = findByClass(h.root, "scoreboard");
+    expect(board).toBeDefined();
+    expect(text(board!)).toContain("You");
+    expect(text(board!)).toContain("123");
+    app.destroy();
+  });
+});

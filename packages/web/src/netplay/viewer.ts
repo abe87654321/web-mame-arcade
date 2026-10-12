@@ -13,6 +13,7 @@ import type { RoomState, ServerMessage, ViewerSnapshot, ViewerState } from "@wma
 import type { Core } from "../core/types";
 import { createPlayback, type Playback } from "./playback";
 import { createRelayClient, type RelayClient } from "./relay-client";
+import { createScoreboard, type ScoreRow } from "./scoreboard";
 import type { WebSocketFactory } from "./types";
 import type { VideoSubscriber } from "./video";
 
@@ -43,6 +44,8 @@ export interface ViewerDeps {
   fetchSnapshot?: (blobUrl: string) => Promise<Uint8Array>;
   onStatus?: (status: ViewerStatus) => void;
   onPlayers?: (players: ViewerPlayer[]) => void;
+  /** Live per-slot scores on every change (T32); display only. */
+  onScores?: (rows: ScoreRow[]) => void;
   /**
    * A/V subscriber (T41): when the host shares video the relay hands this
    * viewer LiveKit credentials and `onVideo` receives the remote stream (or
@@ -60,6 +63,8 @@ export interface Viewer {
   frame(): number;
   status(): ViewerStatus;
   players(): ViewerPlayer[];
+  /** Latest live score per reported slot, ascending (T32). */
+  scores(): ScoreRow[];
   close(): void;
 }
 
@@ -80,6 +85,8 @@ export function createViewer(deps: ViewerDeps): Viewer {
   let players: ViewerPlayer[] = [];
   let playback: Playback | null = null;
   let closed = false;
+  /** Live per-slot scores fanned out by the relay (T32); display only. */
+  const scoreboard = createScoreboard();
   // Binary frames that arrived before the playback existed: the relay sends the
   // viewer.state handshake and the catch-up frames back-to-back, but a snapshot
   // load is async, so without this buffer the whole catch-up would be dropped.
@@ -171,6 +178,12 @@ export function createViewer(deps: ViewerDeps): Viewer {
             deps.onVideo?.(null);
           }
           return;
+        case "score.live":
+          // A player's live score fanned out by the relay (T32): display only.
+          if (message.player === undefined) return;
+          scoreboard.set(message.player, message.score);
+          deps.onScores?.(scoreboard.rows());
+          return;
         default:
           return;
       }
@@ -198,6 +211,7 @@ export function createViewer(deps: ViewerDeps): Viewer {
     frame: () => playback?.frame() ?? 0,
     status: () => status,
     players: () => [...players],
+    scores: () => scoreboard.rows(),
     close: () => {
       closed = true;
       client.close();
