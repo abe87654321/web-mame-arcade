@@ -104,6 +104,10 @@ the check.
   directly from `cwrap`, and the post-js runs before the async wasm instance assigns `Module._netplay_*`.
 - Loads the core, mounts the ROM zip into Emscripten's FS, starts MAME with identical options on every peer:
   `-skip_gameinfo`, empty per-session `-nvram_directory`, no `.ini`, DIP values from the room host.
-- Exposes a typed `Core` interface: `load()`, `step(frame, inputs)`, `save()`, `load(state)`, `hash()`, `readScore()`.
+- Exposes a typed `Core` interface: `load()`, `step(frame, inputs)`, `save()`, `load(state)`, `hash()`,
+  `readScore(slot)`.
+- `readScore(slot)` (T32b) reads a driver's score bytes through the native `netplay_read_bytes` hook from
+  the address/format in `core/scoremap/<driver>.json` (docs/contracts/scoremap.md); it is a pure memory
+  read that never steps the machine.
 - If WASM threads are enabled, serve with `Cross-Origin-Opener-Policy: same-origin` and
   `Cross-Origin-Embedder-Policy: require-corp`.

@@ -583,6 +583,8 @@ function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<
     args: buildMameArgs({ driver: entry.driver, romPath, sessionPath }),
     romPath,
     romZipName: `${entry.driver}.zip`,
+    // Live-score addresses/format for this driver (T32b); 404 = none.
+    scoreMapUrl: `/static/scoremap/${entry.driver}.json`,
     netplay: options.netplay,
     ...(options.canvas ? { canvas: options.canvas } : {}),
   });

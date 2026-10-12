@@ -42,6 +42,13 @@ export interface NetplayHooks {
   setFrame(frame: number): void;
   hash(): number;
   step(frame: number): void;
+  /**
+   * Read `len` bytes of emulated memory from a CPU device's address space
+   * (T32b score reads): `cpu` is a device tag (":maincpu"), `space` a MAME
+   * address-space name ("program"/"io"). A pure read; it never steps the
+   * machine. Provided only by the T32b core build.
+   */
+  readMemory(cpu: string, space: string, addr: number, len: number): Uint8Array;
 }
 
 export interface CoreModule {

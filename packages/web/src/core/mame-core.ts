@@ -1,5 +1,6 @@
 import { CoreCapabilityError } from "./errors";
 import type { CoreModule, NetplayHooks } from "./module";
+import { decodeScore } from "./scoremap";
 import type { Core, CoreOptions, FrameInputs, StateHash } from "./types";
 
 /**
@@ -48,9 +49,18 @@ export class MameCore implements Core {
   }
 
   readScore(slot: number): number {
-    // The native memory read (`netplay_read_bytes`) and the scoremap decode
-    // land in T32b; a stock core or a driver with no scoremap cannot report.
-    throw new CoreCapabilityError("readScore", `T32b (scoremap, slot ${slot})`);
+    // Which memory to read comes from the driver's scoremap (T32b); a driver
+    // without one, or a core built before the read hook, cannot report.
+    const entry = this.options.score?.players.find((player) => player.slot === slot);
+    if (!entry) {
+      throw new CoreCapabilityError("readScore", `T32b (no scoremap, slot ${slot})`);
+    }
+    const np = this.netplay("readScore", "T32b");
+    if (typeof np.readMemory !== "function") {
+      throw new CoreCapabilityError("readScore", "T32b (core rebuild)");
+    }
+    const bytes = np.readMemory(entry.cpu, entry.space, Number(entry.addr), entry.len);
+    return decodeScore(bytes, entry);
   }
 
   reset(): void {

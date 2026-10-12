@@ -36,6 +36,9 @@ NETPLAY_API int      netplay_save_state(uint8_t *buf);
 NETPLAY_API int      netplay_load_state(const uint8_t *buf);
 NETPLAY_API void     netplay_set_frame(uint32_t frame);
 NETPLAY_API uint32_t netplay_hash(void);
+// T32b: read `len` bytes of emulated memory from a CPU's address space (score
+// reads). Pure read; never steps the machine. Returns bytes read, or -1.
+NETPLAY_API int      netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_t *out, int len);
 
 // Internal hooks used by the patched emulation core (machine.cpp, ioport.cpp).
 bool netplay_input_active();

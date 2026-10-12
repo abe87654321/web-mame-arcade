@@ -1,6 +1,7 @@
 import { loadCoreBundle } from "./loader";
 import { MameCore } from "./mame-core";
 import { mountRom } from "./rom";
+import { loadScoreMap, type ScoreMapResponse } from "./scoremap";
 import type { CoreModule } from "./module";
 import type { Core } from "./types";
 
@@ -24,6 +25,12 @@ export interface BrowserCoreInit {
    * since SDL creates the WebGL context during runtime init.
    */
   canvas?: unknown;
+  /**
+   * URL of this driver's scoremap (T32b), e.g. `/static/scoremap/gridlee.json`.
+   * A 404 means the driver has no live score; a malformed one is logged and
+   * ignored so a data error cannot stop the game from booting.
+   */
+  scoreMapUrl?: string;
 }
 
 export interface BrowserCoreDeps {
@@ -90,6 +97,18 @@ export async function loadBrowserCore(
   const romZip = new Uint8Array(
     await (await doFetch(init.romZipUrl)).arrayBuffer(),
   );
+  // The scoremap is optional (T32b): a 404 or a malformed file must not stop the
+  // game from booting, so a parse error is logged and the driver just has no
+  // live score.
+  let score: Awaited<ReturnType<typeof loadScoreMap>> = undefined;
+  try {
+    score = await loadScoreMap(
+      init.scoreMapUrl,
+      (url) => doFetch(url) as unknown as Promise<ScoreMapResponse>,
+    );
+  } catch (error) {
+    console.warn(`[core] ignoring malformed scoremap: ${String(error)}`);
+  }
 
   const source = {
     manifestJson,
@@ -168,5 +187,6 @@ export async function loadBrowserCore(
     args: init.args,
     romPath: init.romPath,
     romZipName: init.romZipName,
+    score,
   });
 }
