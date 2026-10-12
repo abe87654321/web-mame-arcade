@@ -116,6 +116,14 @@ export class InputLogRecorder {
     return packets;
   }
 
+  /**
+   * The seated players the log was opened for, in slot order (T32): used to
+   * align the closed log's `end.scores` with its `start.players`.
+   */
+  startPlayers(): LogPlayer[] {
+    return this.start.players.map((player) => ({ ...player }));
+  }
+
   /** Close the log at `endFrame`; frames after it are dropped. */
   close(endFrame: number, scores: LogScore[]): InputLog {
     this.closed = true;

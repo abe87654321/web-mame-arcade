@@ -34,7 +34,7 @@ Source of truth for the artifact the relay closes on `game.end` and the verifier
   },
   "end": {
     "frame": 120,                 // last stepped frame (game.end.frame)
-    "scores": [{ "slot": 0, "score": 42 }]   // per slot; [] until T32
+    "scores": [{ "slot": 0, "score": 42 }]   // per slot (T32); 0 if unreported
   },
   "frames": [[0, 0], [1, 0], [0, 0]]   // dense, see below
 }
