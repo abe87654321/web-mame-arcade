@@ -84,6 +84,16 @@ export interface AppEnv {
    * `window.__WMA_TEST_INPUT__` by `startApp`. Absent in normal play.
    */
   inputScript?: (slot: number, frame: number) => number;
+  /**
+   * Page-visibility source for the collaborative pause (T29). `startApp`
+   * wires it to `document`; tests omit it, so no listener is attached.
+   */
+  visibility?: {
+    /** Whether the page is currently hidden/occluded. */
+    hidden(): boolean;
+    /** Subscribe to visibility changes; returns an unsubscribe. */
+    onChange(listener: () => void): () => void;
+  };
   /** The shared canvas MAME renders into; set by `startApp`, absent in tests. */
   screen?: HTMLCanvasElement;
   /** LiveKit room factory for the A/V fallback (T41); set by `startApp`. */
@@ -140,6 +150,9 @@ export function matchStatusText(status: MatchStatus): string {
       return "syncing...";
     case "running":
       return "playing online";
+    // A collaborative pause (T29): any player's tab is hidden/away.
+    case "paused":
+      return "paused";
   }
 }
 
@@ -148,6 +161,7 @@ export function createApp(deps: AppDeps): AppController {
   let match: NetplayMatch | null = null;
   let viewer: Viewer | null = null;
   let viewerHandle: number | null = null;
+  let detachVisibility: (() => void) | null = null;
   let token = 0;
 
   const setStatus = (text: string): void => {
@@ -155,6 +169,8 @@ export function createApp(deps: AppDeps): AppController {
   };
 
   const teardown = (): void => {
+    detachVisibility?.();
+    detachVisibility = null;
     match?.close();
     match = null;
     if (viewerHandle !== null) {
@@ -395,6 +411,15 @@ export function createApp(deps: AppDeps): AppController {
               : {}),
           });
           renderLobby(match.lobby());
+          // Collaborative pause on tab visibility (T29): hiding/occluding the
+          // tab tells the relay to pause the room, so peers are not left
+          // waiting on a throttled requestAnimationFrame.
+          if (deps.env.visibility) {
+            const visibility = deps.env.visibility;
+            detachVisibility = visibility.onChange(() => {
+              match?.setPaused(visibility.hidden());
+            });
+          }
           deps.env.root.append(host);
           if (overlayHost) deps.env.root.append(overlayHost);
         }
@@ -610,6 +635,13 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       scheduler: browserScheduler(),
       keyboard: win,
       gamepads: win.navigator,
+      visibility: {
+        hidden: () => doc.hidden,
+        onChange: (listener) => {
+          doc.addEventListener("visibilitychange", listener);
+          return () => doc.removeEventListener("visibilitychange", listener);
+        },
+      },
       screen: screenEl,
       liveKit,
       getAudioStream: () => capture.getAudioStream(),

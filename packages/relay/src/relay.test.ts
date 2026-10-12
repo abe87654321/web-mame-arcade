@@ -293,6 +293,69 @@ const gameSet = {
   dips: { Difficulty: "Medium" },
 };
 
+describe("createRelay (collaborative pause, T29)", () => {
+  const viewerJoin = (token: string) =>
+    ({ t: "room.join", room: "r", role: "viewer", token }) as const;
+
+  function playing() {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return r;
+  }
+
+  it("fans the aggregate pause to every member and stamps the sender slot", () => {
+    const r = playing();
+    r.handle("v1", viewerJoin("watcher"));
+
+    const first = r.handle("c1", { t: "player.pause", paused: true, player: 1 });
+    expect(first.map((o) => o.connectionId).sort()).toEqual(["c1", "c2", "v1"]);
+    for (const entry of first) {
+      expect(entry.message).toEqual({
+        t: "player.pause",
+        paused: true,
+        player: 0,
+      });
+    }
+
+    // A second pause keeps the room paused; the first resume keeps it paused too.
+    expect(r.handle("c2", { t: "player.pause", paused: true }).at(0)?.message).toEqual({
+      t: "player.pause",
+      paused: true,
+      player: 1,
+    });
+    expect(r.handle("c1", { t: "player.pause", paused: false }).at(0)?.message).toEqual({
+      t: "player.pause",
+      paused: true,
+      player: 0,
+    });
+    // The last resume unpauses the room.
+    expect(r.handle("c2", { t: "player.pause", paused: false }).at(0)?.message).toEqual({
+      t: "player.pause",
+      paused: false,
+      player: 1,
+    });
+  });
+
+  it("rejects player.pause before the match starts and from non-players", () => {
+    const r = relay();
+    r.handle("c1", join("c1", "alice"));
+    expect(
+      r.handle("c1", { t: "player.pause", paused: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_playing" });
+
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    r.handle("v1", viewerJoin("watcher"));
+    expect(
+      r.handle("v1", { t: "player.pause", paused: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_joined" });
+    expect(
+      r.handle("ghost", { t: "player.pause", paused: true })[0]?.message,
+    ).toMatchObject({ t: "error", code: "not_joined" });
+  });
+});
+
 describe("createRelay (input log, T30)", () => {
   it("stores the host's game.set and reflects it in room.state", () => {
     const r = relay();

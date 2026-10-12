@@ -13,8 +13,9 @@
  * - lockstep packets go out over the data channels (`broadcast`) and the relay
  *   (`sendBinary`); inbound packets from either path feed `onBytes`.
  */
-import { decodeInput, type RoomState } from "@wma/protocol";
+import { decodeInput, type PlayerPause, type RoomState } from "@wma/protocol";
 import type { Core } from "../core/types";
+import { selectInputDelay } from "./delay";
 import { createLockstep, type Lockstep } from "./lockstep";
 import { createMetrics, type Metrics, type MetricsSnapshot } from "./metrics";
 import { createSession, type NetplaySession } from "./session";
@@ -24,7 +25,8 @@ export type MatchStatus =
   | "connecting"
   | "waiting-for-peers"
   | "running"
-  | "waiting";
+  | "waiting"
+  | "paused";
 
 /** A player row in the lobby snapshot. */
 export interface LobbyPlayer {
@@ -50,6 +52,8 @@ export interface LobbyState {
   canStart: boolean;
   /** The host is sharing A/V via LiveKit (T41). */
   video: boolean;
+  /** The match is collaboratively paused (T29): any player paused the room. */
+  paused: boolean;
 }
 
 /** Match identity the host announces with `game.set` (T30). */
@@ -82,6 +86,11 @@ export interface MatchDeps {
   onLobby?: (state: LobbyState) => void;
   /** Hash every this many frames; default 60 (T25, docs/03). */
   hashInterval?: number;
+  /**
+   * Escalate a persisting stall to a host `state.snapshot` after this many ms
+   * (T29 mutual-stall recovery); default 6000.
+   */
+  stallEscalateMs?: number;
   /**
    * Publish a live-join snapshot for viewers every this many ms (T31);
    * default 5000. Host-only, wall-clock paced (never part of the emulation).
@@ -132,6 +141,11 @@ export interface NetplayMatch {
   start(): boolean;
   /** Toggle our own lobby ready flag; false when we are not a seated player. */
   setReady(ready: boolean): boolean;
+  /**
+   * Toggle this client's collaborative pause (T29); false when the match has
+   * not started. The relay aggregates it with other players' pauses.
+   */
+  setPaused(paused: boolean): boolean;
   /** Host toggles the LiveKit A/V fallback; false for a non-host (T41). */
   setVideo(enabled: boolean): boolean;
   /** The current lobby snapshot. */
@@ -149,7 +163,6 @@ interface RosterEntry {
   ready: boolean;
 }
 
-const DEFAULT_INPUT_DELAY = 2;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 5000;
 /** Minimum gap between `input.request` resends while stalled (T31). */
 const RESYNC_INTERVAL_MS = 1000;
@@ -171,7 +184,6 @@ function httpBase(relayUrl: string): string {
 }
 
 export function createMatch(deps: MatchDeps): NetplayMatch {
-  const inputDelay = deps.inputDelay ?? DEFAULT_INPUT_DELAY;
   const startFrame = deps.startFrame ?? 0;
   const snapshotIntervalMs = deps.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const metricsIntervalMs = deps.metricsIntervalMs ?? DEFAULT_METRICS_INTERVAL_MS;
@@ -215,6 +227,15 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   /** Connection telemetry, armed with the lockstep (T28). */
   let metrics: Metrics | null = null;
   let lastMetricsAt: number | null = null;
+  /** Per-peer lobby RTT (ms) measured for the adaptive input delay (T29). */
+  let measuredRtts: Record<number, number> = {};
+  /** Our own pause intent (tab hidden), and the relay's aggregate (T29). */
+  let localPaused = false;
+  let relayPaused = false;
+  /** The effective pause: either our own intent or another player's. */
+  let paused = false;
+  /** Highest snapshot frame applied, so an out-of-order fetch cannot rewind us (T29). */
+  let lastAppliedSnapshotFrame = -1;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -291,6 +312,51 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     }
   }
 
+  /**
+   * Recompute the effective pause (our own intent OR the relay's aggregate of
+   * other players) and drive the lockstep + status from it (T29). Pausing only
+   * gates `core.step`; it never enters the emulation path.
+   */
+  function applyPause(): void {
+    const next = localPaused || relayPaused;
+    if (next === paused) return;
+    paused = next;
+    if (paused) {
+      lockstep?.pause();
+      if (lockstep) setStatus("paused");
+    } else {
+      lockstep?.resume();
+      if (lockstep) setStatus("running");
+    }
+    emitLobby();
+  }
+
+  /**
+   * Measure the lobby RTT to every peer once, while hosting before the start,
+   * to size the adaptive input delay (T29). Best-effort: a missing/failed stat
+   * leaves the delay at its floor.
+   */
+  function measurePeers(): void {
+    if (
+      closed ||
+      disconnected ||
+      self === null ||
+      !isHost() ||
+      startSent ||
+      lockstep
+    ) {
+      return;
+    }
+    void session
+      .peerRtts()
+      .then((rtts) => {
+        measuredRtts = rtts;
+      })
+      .catch(() => {
+        // Telemetry only; a failed getStats must not disturb the lobby.
+      });
+  }
+
   function lobby(): LobbyState {
     const host = hostSlot();
     return {
@@ -298,6 +364,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       isHost: isHost(),
       canStart: canStart(),
       video: videoEnabled,
+      paused,
       players: roster.map((p) => ({
         slot: p.slot,
         name: p.name,
@@ -317,6 +384,12 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     // Never step before the core has booted: frame 0 must be the same machine
     // state on every peer (AGENTS.md determinism rule).
     if (lockstep || closed || self === null || !coreReady) return;
+    // A fresh match starts unpaused as far as the relay is concerned. Our own
+    // `localPaused` persists across the lobby→play boundary: a tab hidden
+    // before the start must still pause the room once it begins (T29).
+    paused = false;
+    relayPaused = false;
+    lastAppliedSnapshotFrame = -1;
     const players = roster.length > 0 ? roster.map((p) => p.slot) : [self];
     lockstep = createLockstep({
       core: deps.core,
@@ -333,6 +406,9 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       onStatus: setStatus,
       hash: () => deps.core.hash(),
       ...(deps.hashInterval !== undefined ? { hashInterval: deps.hashInterval } : {}),
+      ...(deps.stallEscalateMs !== undefined
+        ? { stallEscalateMs: deps.stallEscalateMs }
+        : {}),
       onHash: (frame, crc32) => {
         // Relay-ward only: it compares per frame across players and broadcasts
         // `desync` on a genuine mismatch (T25, docs/03).
@@ -347,10 +423,55 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         session.send({ t: "input.request", fromFrame: frame });
         log?.("resync-request", { frame });
       },
+      onStallEscalate: (frame) => {
+        // Mutual-stall recovery (T29): a resend never arrived, so both peers are
+        // stuck on `frame`. The host falls back to a full snapshot at its last
+        // stepped frame so everyone resynchronizes from one authority. Never
+        // escalate an intentional pause.
+        if (paused) return;
+        log?.("stall-escalate", { frame });
+        sendRecoverySnapshot(frame - 1, "stall-escalate");
+      },
     });
     metrics = createMetrics({ mySlot: self, players, now: deps.now });
     lastMetricsAt = null;
-    setStatus("running");
+    if (localPaused) {
+      // The tab was hidden before the start: hold the fresh lockstep paused and
+      // tell the relay, so the throttled tab does not stall the other peers.
+      lockstep.pause();
+      setStatus("paused");
+      session.send({ t: "player.pause", paused: true });
+    } else {
+      setStatus("running");
+    }
+  }
+
+  /**
+   * Host-only recovery: save the current state, publish it as `state.snapshot`
+   * and drop our own stale staged inputs (T25 desync / T29 mutual-stall
+   * escalation). The snapshot is labelled with the host's own last stepped
+   * frame, not the relay's (older, latency-delayed) frame.
+   */
+  function sendRecoverySnapshot(frame: number, reason: string): void {
+    if (!isHost() || !lockstep || frame < 0) return;
+    let state: Uint8Array;
+    try {
+      state = deps.core.save();
+    } catch (error) {
+      log?.("resync-error", { frame, error: String(error) });
+      return;
+    }
+    const active = lockstep;
+    void createSnapshot(state)
+      .then((blobUrl) => {
+        session.send({ t: "state.snapshot", frame, blobUrl });
+        // Clear our own input window too: we still hold the desynced peer's
+        // pre-snapshot masks for frames > `frame`, and first-wins would reject
+        // its corrected masks, re-diverging immediately.
+        active.resync(frame);
+        log?.("resync-sent", { frame, reason });
+      })
+      .catch((error) => log?.("resync-error", { frame, error: String(error) }));
   }
 
   /** Emit a throttled metrics snapshot for the dev overlay (T28). */
@@ -435,6 +556,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       );
       if (!lockstep) setStatus("waiting-for-peers");
       maybeSetGame();
+      measurePeers();
       maybeStartPending();
       emitLobby();
     },
@@ -446,6 +568,13 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         if (entry) entry.ready = message.ready;
       }
       emitLobby();
+    },
+    onPlayerPause: (message: PlayerPause) => {
+      // The relay's aggregate: pause/resume our lockstep to match the room
+      // (T29). Our own intent is tracked separately so a peer's resume cannot
+      // unpause us while our tab is still hidden (applyPause ORs the two).
+      relayPaused = message.paused;
+      applyPause();
     },
     onGameStart: (message) => {
       // A start can outrace the first `room.state` or the core boot; hold it
@@ -468,41 +597,28 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       lockstep?.onBytes(bytes);
     },
     onDesync: (message) => {
-      // Only the host can answer; peers wait for its snapshot (docs/03).
+      // Only the host can answer; peers wait for its snapshot (docs/03). The
+      // snapshot must be labelled with the host's *current* position at save
+      // time, not the (older, latency-delayed) frame the relay flagged: the
+      // host keeps ticking between sending a hash and hearing `desync`.
       if (!isHost() || !lockstep) return;
-      const active = lockstep;
-      // The snapshot must be labelled with the host's *current* position at
-      // save time, not the (older, latency-delayed) frame the relay flagged:
-      // the host keeps ticking between sending a hash and hearing `desync`, so
-      // the two differ in general. `frame()` is the next frame to step, so the
-      // last stepped frame is one less.
-      const frame = active.frame() - 1;
+      const frame = lockstep.frame() - 1;
       if (frame < 0) return;
       log?.("desync", { frame: message.frame, snapshotFrame: frame });
-      let state: Uint8Array;
-      try {
-        state = deps.core.save();
-      } catch (error) {
-        log?.("resync-error", { frame, error: String(error) });
-        return;
-      }
-      void createSnapshot(state)
-        .then((blobUrl) => {
-          session.send({ t: "state.snapshot", frame, blobUrl });
-          // Clear our own input window too: we still hold the desynced peer's
-          // pre-snapshot masks for frames > `frame`, and first-wins would reject
-          // its corrected masks, re-diverging immediately. `current` is already
-          // `frame + 1`, so this only drops stale staged input.
-          active.resync(frame);
-          log?.("resync-sent", { frame });
-        })
-        .catch((error) => log?.("resync-error", { frame, error: String(error) }));
+      sendRecoverySnapshot(frame, "desync");
     },
     onStateSnapshot: (message) => {
       void fetchSnapshot(message.blobUrl)
         .then((bytes) => {
+          // Snapshots can be in flight at once (desync + escalation intervals);
+          // a slower fetch of an older frame must not clobber a newer state.
+          if (message.frame <= lastAppliedSnapshotFrame) {
+            log?.("resync-stale", { frame: message.frame, applied: lastAppliedSnapshotFrame });
+            return;
+          }
           deps.core.load(bytes, message.frame);
           lockstep?.resync(message.frame);
+          lastAppliedSnapshotFrame = message.frame;
           log?.("resync-applied", { frame: message.frame });
         })
         .catch((error) => log?.("resync-error", { frame: message.frame, error: String(error) }));
@@ -523,6 +639,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     // A start may have arrived while the core/channel was still coming up.
     onChannelOpen: () => {
       maybeSetGame();
+      measurePeers();
       maybeStartPending();
       emitLobby();
     },
@@ -568,7 +685,14 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     canStart,
     start: () => {
       if (!canStart()) return false;
-      if (!session.send({ t: "game.start", startFrame, inputDelay })) return false;
+      // The host sizes D from the lobby RTTs it measured (T29); an explicit
+      // `deps.inputDelay` (tests/e2e) overrides it. Every peer steps the agreed
+      // value carried by `game.start`, so this stays deterministic.
+      const delay =
+        deps.inputDelay ?? selectInputDelay(Object.values(measuredRtts));
+      if (!session.send({ t: "game.start", startFrame, inputDelay: delay })) {
+        return false;
+      }
       startSent = true;
       emitLobby();
       return true;
@@ -576,6 +700,15 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     setReady: (ready) => {
       if (closed || disconnected || self === null) return false;
       return session.send({ t: "player.ready", ready });
+    },
+    setPaused: (nextPaused) => {
+      if (closed || disconnected) return false;
+      // Record the intent even before the match starts; `startLockstep` honours
+      // it so a tab hidden in the lobby pauses the room once it begins (T29).
+      localPaused = nextPaused;
+      applyPause();
+      if (!lockstep) return false;
+      return session.send({ t: "player.pause", paused: nextPaused });
     },
     setVideo: (enabled) => {
       if (closed || disconnected || self === null || !isHost()) return false;
@@ -595,6 +728,9 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       lockstep = null;
       metrics = null;
       videoEnabled = false;
+      paused = false;
+      localPaused = false;
+      relayPaused = false;
       deps.video?.stop();
       session.close();
     },

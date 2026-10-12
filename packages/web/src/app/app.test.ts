@@ -101,6 +101,7 @@ interface Harness {
   status: FakeElement;
   hash: { value: string };
   fire(): void;
+  setHidden(hidden: boolean): void;
   listenerCount(): number;
   loadCore: ReturnType<typeof vi.fn>;
   cores: Core[];
@@ -125,10 +126,19 @@ function harness(netplay?: NetplayEnv): Harness {
     addEventListener: () => {},
     removeEventListener: () => {},
   } as unknown as KeyboardTarget;
+  const visibilityListeners = new Set<() => void>();
+  const visibilityState = { hidden: false };
   const env: AppEnv = {
     doc,
     root,
     status,
+    visibility: {
+      hidden: () => visibilityState.hidden,
+      onChange: (listener) => {
+        visibilityListeners.add(listener);
+        return () => visibilityListeners.delete(listener);
+      },
+    },
     target: {
       addEventListener: (_type, listener) => {
         listeners.add(listener);
@@ -156,6 +166,10 @@ function harness(netplay?: NetplayEnv): Harness {
     cores,
     fire: () => {
       for (const listener of [...listeners]) listener();
+    },
+    setHidden: (hidden: boolean) => {
+      visibilityState.hidden = hidden;
+      for (const listener of [...visibilityListeners]) listener();
     },
     listenerCount: () => listeners.size,
   };
@@ -414,6 +428,48 @@ describe("createApp", () => {
 
     expect(h.hash.value).toBe("#/");
     expect(h.root.children[0]?.className).toBe("catalogue");
+    app.destroy();
+  });
+
+  it("pauses the match when the tab hides and resumes on show (T29)", async () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    const h = harness({
+      relayUrl: "ws://relay.test/ws",
+      token: "jwt",
+      iceServers: [],
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+    });
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/room/abc";
+    h.fire();
+    await flush();
+    socket.open();
+    await flush();
+    socket.emitMessage(
+      JSON.stringify({
+        t: "room.state",
+        room: "abc",
+        self: 0,
+        players: [{ slot: 0, name: "You", ready: false }],
+        game: null,
+        coreHash: null,
+        romHash: null,
+        dips: {},
+        status: "waiting",
+      }),
+    );
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    h.setHidden(true);
+    expect(socket.sent).toContain(JSON.stringify({ t: "player.pause", paused: true }));
+
+    h.setHidden(false);
+    expect(socket.sent).toContain(JSON.stringify({ t: "player.pause", paused: false }));
     app.destroy();
   });
 

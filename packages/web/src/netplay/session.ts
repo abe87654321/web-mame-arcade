@@ -8,6 +8,7 @@ import type {
   Desync,
   GameStart,
   LivekitAccess,
+  PlayerPause,
   PlayerReady,
   RoomState,
   RtcSignal,
@@ -35,6 +36,8 @@ export interface SessionOptions {
   onGameStart?: (message: GameStart) => void;
   /** A player toggled its ready flag (relay-stamped slot + flag). */
   onPlayerReady?: (message: PlayerReady) => void;
+  /** The relay fanned out the aggregate collaborative pause state (T29). */
+  onPlayerPause?: (message: PlayerPause) => void;
   /** The relay detected a desync; the host answers with a snapshot (T25). */
   onDesync?: (message: Desync) => void;
   /** A host snapshot to fetch, load and resume from (T25). */
@@ -70,6 +73,8 @@ export interface NetplaySession {
   self(): number | null;
   /** Player slots in the room, ascending, from the latest `room.state`. */
   players(): number[];
+  /** Each peer's current RTT in ms, keyed by slot (T29); {} before the mesh. */
+  peerRtts(): Promise<Record<number, number>>;
   /**
    * True when every current peer's data channel is open. A lone player has no
    * peers, so this is vacuously true and they may start a solo netplay game.
@@ -175,6 +180,10 @@ export function createSession(options: SessionOptions): NetplaySession {
         options.onPlayerReady?.(message);
         return;
       }
+      case "player.pause": {
+        options.onPlayerPause?.(message);
+        return;
+      }
       case "desync": {
         options.onDesync?.(message);
         return;
@@ -222,6 +231,7 @@ export function createSession(options: SessionOptions): NetplaySession {
     peerOpen: (slot) => mesh?.channelTo(slot)?.readyState === "open",
     self: () => selfSlot,
     players: () => [...roomPlayers],
+    peerRtts: () => (mesh ? mesh.peerRtts() : Promise.resolve({})),
     ready: () => {
       // Not joined yet: we do not know our slot or peers.
       if (selfSlot === null) return false;

@@ -44,6 +44,10 @@ const validMessages: AnyMessage[] = [
   { t: "rtc.signal", to: 0, candidate: { candidate: "candidate:1", sdpMid: "0" } },
   { t: "player.ready", ready: true },
   { t: "player.ready", ready: false, player: 2 },
+  // T29: a client toggles its own pause; the relay fans the aggregate value out
+  // with the sender slot stamped.
+  { t: "player.pause", paused: true },
+  { t: "player.pause", paused: false, player: 1 },
   {
     t: "game.set",
     driver: "gridlee",
@@ -203,6 +207,24 @@ describe("message schemas", () => {
     ).toBe(true);
   });
 
+  it("stamps the sender slot on the fanned-out player.pause", () => {
+    // Client → relay carries only the toggle; the relay re-emits it with the
+    // sender slot (T29, docs/contracts/ws-messages.md).
+    expect(clientMessage.safeParse({ t: "player.pause", paused: true }).success).toBe(
+      true,
+    );
+    expect(
+      serverMessage.safeParse({ t: "player.pause", paused: true, player: 0 }).success,
+    ).toBe(true);
+    // strict: paused is required and boolean; a bad slot is rejected.
+    expect(safeParseMessage({ t: "player.pause" }).success).toBe(false);
+    expect(safeParseMessage({ t: "player.pause", paused: "yes" }).success).toBe(false);
+    expect(
+      safeParseMessage({ t: "player.pause", paused: true, player: PLAYER_SLOTS })
+        .success,
+    ).toBe(false);
+  });
+
   it("carries the relay-stamped sender slot on forwarded rtc.signal", () => {
     const forwarded = {
       t: "rtc.signal",
@@ -236,6 +258,7 @@ describe("message schemas", () => {
     const both = [
       "rtc.signal",
       "player.ready",
+      "player.pause",
       "game.set",
       "game.start",
       "state.snapshot",

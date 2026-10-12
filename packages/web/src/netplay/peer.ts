@@ -50,6 +50,12 @@ export interface RtcPeer {
   acceptCandidate(candidate: IceCandidateLike): Promise<void>;
   /** Send on the data channel; false when it is not open yet. */
   send(data: ArrayBuffer): boolean;
+  /**
+   * The connection's current round-trip time in ms (T29), read from the
+   * nominated succeeded `candidate-pair` via `getStats`, or null when it is not
+   * measurable yet. Used once, in the lobby, to size the input delay.
+   */
+  rttMs(): Promise<number | null>;
   close(): void;
 }
 
@@ -112,6 +118,39 @@ export function createPeer(options: RtcPeerOptions): RtcPeer {
       if (!channel || channel.readyState !== "open") return false;
       channel.send(data);
       return true;
+    },
+
+    async rttMs(): Promise<number | null> {
+      if (!pc.getStats) return null;
+      try {
+        const report = await pc.getStats();
+        const nominated: number[] = [];
+        const succeeded: number[] = [];
+        report.forEach((entry) => {
+          const stat = entry as {
+            type?: string;
+            state?: string;
+            nominated?: boolean;
+            currentRoundTripTime?: number;
+          };
+          if (
+            stat.type !== "candidate-pair" ||
+            stat.state !== "succeeded" ||
+            typeof stat.currentRoundTripTime !== "number"
+          ) {
+            return;
+          }
+          // Prefer the nominated pair (docs/03); fall back to any succeeded one.
+          if (stat.nominated === true) nominated.push(stat.currentRoundTripTime);
+          else succeeded.push(stat.currentRoundTripTime);
+        });
+        const pool = nominated.length > 0 ? nominated : succeeded;
+        if (pool.length === 0) return null;
+        // `currentRoundTripTime` is in seconds; report ms.
+        return Math.max(...pool) * 1000;
+      } catch {
+        return null;
+      }
     },
 
     close(): void {

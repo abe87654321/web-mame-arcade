@@ -153,6 +153,18 @@ export function createRelay({
               }));
             return [...toggles, ...snapshotOut(roomId)];
           }
+          case "player.pause": {
+            // A seated player's pause toggle pauses the whole room; the relay
+            // aggregates the paused slots and fans one boolean out to every
+            // member (players + viewers) with the sender slot stamped (T29).
+            const { roomId, from, paused } = rooms.setPause(connectionId, message);
+            return rooms
+              .broadcastTargets(roomId)
+              .map((target) => ({
+                connectionId: target,
+                message: { t: "player.pause" as const, paused, player: from },
+              }));
+          }
           case "rtc.signal": {
             const { target, from } = rooms.signal(connectionId, message);
             return [{ connectionId: target, message: { ...message, from } }];

@@ -119,6 +119,23 @@ describe("createPeer", () => {
     expect(peer.send(data)).toBe(false);
   });
 
+  it("reads the RTT in ms from the succeeded candidate pair", async () => {
+    const pc = new FakePeerConnection();
+    pc.statsRttSeconds = 0.045;
+    const { onSignalling } = collectSignals();
+    const peer = createPeer({ pc, initiator: true, onSignalling });
+
+    expect(await peer.rttMs()).toBeCloseTo(45, 5);
+  });
+
+  it("reports no RTT without a succeeded pair", async () => {
+    const pc = new FakePeerConnection();
+    const { onSignalling } = collectSignals();
+    const peer = createPeer({ pc, initiator: true, onSignalling });
+
+    expect(await peer.rttMs()).toBeNull();
+  });
+
   it("closes the underlying connection", () => {
     const pc = new FakePeerConnection();
     const { onSignalling } = collectSignals();

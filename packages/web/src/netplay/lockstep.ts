@@ -50,6 +50,15 @@ export interface LockstepDeps {
    * recorded inputs (T31 stall recovery).
    */
   onStall?: (frame: number) => void;
+  /**
+   * Called when a stall persists past `stallEscalateMs` (T29 mutual-stall
+   * recovery). Fires at most once per interval while the loop stays stalled, so
+   * the host can fall back to a full `state.snapshot` when a resend never
+   * arrives (both peers lost the frame's input). Never consulted while paused.
+   */
+  onStallEscalate?: (frame: number) => void;
+  /** Escalate a still-stalled loop after this many ms; default 6000 (T29). */
+  stallEscalateMs?: number;
   /** Cap how far the local schedule may run ahead of the simulation. */
   maxLookahead?: number;
 }
@@ -76,17 +85,30 @@ export interface Lockstep {
    */
   scheduledFrame(): number;
   status(): LockstepStatus;
+  /**
+   * Freeze the loop (T29 collaborative pause): `tick` becomes a no-op — no
+   * local input scheduled, nothing sent, nothing stepped — until `resume`.
+   * Inbound packets are still buffered. Pause is control-only; it never enters
+   * the emulation path, so it cannot affect determinism.
+   */
+  pause(): void;
+  /** Resume after `pause()`; the stall timer restarts so there is no false stall. */
+  resume(): void;
+  /** Whether the loop is currently paused. */
+  paused(): boolean;
 }
 
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_MAX_LOOKAHEAD = 256;
 const DEFAULT_HASH_INTERVAL = 60;
+const DEFAULT_STALL_ESCALATE_MS = 6000;
 
 export function createLockstep(deps: LockstepDeps): Lockstep {
   const { core, mySlot, players, inputDelay, startFrame, sendInput, now } = deps;
   const waitTimeoutMs = deps.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const maxLookahead = deps.maxLookahead ?? DEFAULT_MAX_LOOKAHEAD;
   const hashInterval = deps.hashInterval ?? DEFAULT_HASH_INTERVAL;
+  const stallEscalateMs = deps.stallEscalateMs ?? DEFAULT_STALL_ESCALATE_MS;
 
   const table = createFrameTable(players);
   let current = startFrame;
@@ -104,11 +126,14 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
 
   let status: LockstepStatus = "running";
   let waitSince: number | null = null;
+  let lastEscalateAt: number | null = null;
+  let paused = false;
 
   function updateStatus(ready: boolean): void {
     if (ready) {
       if (waitSince === null) return;
       waitSince = null;
+      lastEscalateAt = null;
       if (status === "waiting") {
         status = "running";
         deps.onStatus?.("running");
@@ -125,6 +150,19 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       // The next frame's inputs are late beyond the redundancy window; ask for
       // a resend so we are not stuck forever (T31 stall recovery).
       deps.onStall?.(current);
+      lastEscalateAt = now();
+      return;
+    }
+    // The resend did not unstick us within a longer interval: the host may need
+    // to fall back to a full snapshot (T29 mutual-stall recovery). Pause never
+    // runs this path because `tick` returns early while paused.
+    if (status === "waiting") {
+      const at = now();
+      if (lastEscalateAt === null) lastEscalateAt = at;
+      if (at - lastEscalateAt >= stallEscalateMs) {
+        lastEscalateAt = at;
+        deps.onStallEscalate?.(current);
+      }
     }
   }
 
@@ -148,6 +186,9 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
 
   return {
     tick(localMask: number): void {
+      // Paused (T29): schedule nothing, send nothing, step nothing. Inbound
+      // packets still buffer via `onBytes`, so nothing is lost while paused.
+      if (paused) return;
       // Backpressure: while blocked, keep the schedule bounded rather than
       // queueing inputs the simulation may never reach.
       if (scheduleHead - current < maxLookahead) {
@@ -195,18 +236,45 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       // The core was just restored to the state at `frame`; continue from the
       // next one with a clean input window. Every staged frame — including
       // already-buffered future inputs from the pre-snapshot timeline — is
-      // dropped so nothing stale is stepped and the packet history restarts.
+      // dropped so nothing stale is stepped and the packet history restarts,
+      // which also re-aligns peers that were an uneven number of frames ahead
+      // (T25). NOTE: our own post-snapshot masks are re-sampled here, so if the
+      // relay's first-wins input log already holds a different value for one of
+      // those frames, a verifier replay could diverge; reconciling that is the
+      // input-log/rollback work (T30/T33/T40), not this task.
       current = frame + 1;
       table.clear(current);
       scheduleHead = current;
       frames.length = 0;
       waitSince = null;
+      lastEscalateAt = null;
       if (status === "waiting") {
         status = "running";
         deps.onStatus?.("running");
       }
     },
 
+    pause(): void {
+      paused = true;
+      // Forget any in-progress wait so resuming starts the timers fresh.
+      waitSince = null;
+      lastEscalateAt = null;
+    },
+
+    resume(): void {
+      paused = false;
+      waitSince = null;
+      lastEscalateAt = null;
+      // If we paused while stalled, clear the stale "waiting" status too, or
+      // `updateStatus` (which only clears it on the ready branch) would never
+      // re-fire `onStall` and a non-host could not request a resend again.
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
+      }
+    },
+
+    paused: () => paused,
     frame: () => current,
     scheduledFrame: () => scheduleHead,
     status: () => status,

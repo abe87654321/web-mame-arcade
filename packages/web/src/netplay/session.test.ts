@@ -29,6 +29,7 @@ interface HarnessExtras {
   onRoomState?: (message: ServerMessage) => void;
   onGameStart?: (message: { startFrame: number; inputDelay: number }) => void;
   onPlayerReady?: (message: { t: "player.ready"; ready: boolean; player?: number }) => void;
+  onPlayerPause?: (message: { t: "player.pause"; paused: boolean; player?: number }) => void;
   onDesync?: (message: { t: "desync"; frame: number }) => void;
   onStateSnapshot?: (message: { t: "state.snapshot"; frame: number; blobUrl: string }) => void;
   onPeersChanged?: () => void;
@@ -198,6 +199,33 @@ describe("createSession", () => {
       ready: true,
       player: 1,
     });
+  });
+
+  it("forwards player.pause to onPlayerPause", async () => {
+    const onPlayerPause = vi.fn();
+    const { session } = harness([], { onPlayerPause });
+
+    await session.handleMessage({ t: "player.pause", paused: true, player: 0 });
+
+    expect(onPlayerPause).toHaveBeenCalledWith({
+      t: "player.pause",
+      paused: true,
+      player: 0,
+    });
+  });
+
+  it("reads per-peer RTT from the mesh", async () => {
+    const pc = new FakePeerConnection();
+    pc.statsRttSeconds = 0.03;
+    const { session } = harness([pc]);
+
+    await session.handleMessage(roomState(0, [0, 1]));
+    expect(await session.peerRtts()).toEqual({ 1: 30 });
+  });
+
+  it("returns no RTTs before the mesh exists", async () => {
+    const { session } = harness([]);
+    expect(await session.peerRtts()).toEqual({});
   });
 
   it("notifies onClose when the relay socket closes", () => {

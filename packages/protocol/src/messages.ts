@@ -72,6 +72,20 @@ export const playerReady = z.strictObject({
   player: slot.optional(),
 });
 
+/**
+ * Collaborative pause (T29). A seated player sends its own toggle; the relay
+ * aggregates the room's paused slots and fans out one `paused` boolean (so a
+ * single player resuming cannot unpause a peer that is still hidden) with the
+ * sender slot stamped, exactly like `player.ready` (T27).
+ */
+export const playerPause = z.strictObject({
+  t: z.literal("player.pause"),
+  paused: z.boolean(),
+  // Sender slot, stamped by the relay on the fanned-out message; ignored on the
+  // client→relay direction (docs/contracts/ws-messages.md, T29).
+  player: slot.optional(),
+});
+
 export const gameSet = z.strictObject({
   t: z.literal("game.set"),
   driver: z.string().min(1),
@@ -210,6 +224,7 @@ const jsonSchemas = [
   roomState,
   rtcSignal,
   playerReady,
+  playerPause,
   gameSet,
   gameStart,
   stateSnapshot,
@@ -235,6 +250,7 @@ export const clientMessage = z.discriminatedUnion("t", [
   roomJoin,
   rtcSignal,
   playerReady,
+  playerPause,
   gameSet,
   gameStart,
   stateSnapshot,
@@ -257,6 +273,7 @@ export const serverMessage = z.discriminatedUnion("t", [
   // The relay stamps the sender's slot and fans a toggled ready flag out to the
   // room, then re-broadcasts room.state (T27).
   playerReady,
+  playerPause,
   // The relay fans the host's game.set out to every member and reflects it in
   // room.state (T30, docs/contracts/ws-messages.md).
   gameSet,
@@ -283,6 +300,7 @@ export type RoomJoin = z.infer<typeof roomJoin>;
 export type RoomState = z.infer<typeof roomState>;
 export type RtcSignal = z.infer<typeof rtcSignal>;
 export type PlayerReady = z.infer<typeof playerReady>;
+export type PlayerPause = z.infer<typeof playerPause>;
 export type GameSet = z.infer<typeof gameSet>;
 export type GameStart = z.infer<typeof gameStart>;
 export type StateSnapshot = z.infer<typeof stateSnapshot>;

@@ -376,6 +376,217 @@ describe("createLockstep", () => {
     );
   });
 
+  it("freezes stepping and sending while paused, then resumes cleanly", () => {
+    const core = fakeCore();
+    const sent: Uint8Array[] = [];
+    const lockstep = createLockstep({
+      core,
+      mySlot: 0,
+      players: [0],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: (packet) => sent.push(packet),
+      now: () => 0,
+    });
+
+    lockstep.tick(0x01);
+    expect(core.steps.map((s) => s.frame)).toEqual([0]);
+    expect(sent).toHaveLength(1);
+
+    lockstep.pause();
+    expect(lockstep.paused()).toBe(true);
+    lockstep.tick(0x05);
+    // Paused: no new frame stepped, no packet scheduled or sent.
+    expect(core.steps.map((s) => s.frame)).toEqual([0]);
+    expect(sent).toHaveLength(1);
+    expect(lockstep.scheduledFrame()).toBe(1);
+
+    lockstep.resume();
+    expect(lockstep.paused()).toBe(false);
+    lockstep.tick(0x07);
+    expect(core.steps.map((s) => s.frame)).toEqual([0, 1]);
+  });
+
+  it("does not run the stall timer while paused", () => {
+    const time = clock();
+    const onStall = vi.fn();
+    const onStallEscalate = vi.fn();
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      onStall,
+      onStallEscalate,
+      waitTimeoutMs: 100,
+      stallEscalateMs: 100,
+    });
+
+    lockstep.pause();
+    time.advance(10_000);
+    lockstep.tick(0x01);
+    expect(onStall).not.toHaveBeenCalled();
+    expect(onStallEscalate).not.toHaveBeenCalled();
+  });
+
+  it("does not fire a stall right after resuming", () => {
+    const time = clock();
+    const onStall = vi.fn();
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      onStall,
+      waitTimeoutMs: 2000,
+    });
+
+    lockstep.tick(0x01);
+    lockstep.pause();
+    lockstep.resume();
+    // A long real-world pause must not count toward the stall timeout.
+    time.advance(3000);
+    lockstep.tick(0x01);
+    expect(onStall).not.toHaveBeenCalled();
+    expect(lockstep.status()).toBe("running");
+  });
+
+  it("re-arms the stall timer after resuming from a waiting pause", () => {
+    const time = clock();
+    const onStall = vi.fn();
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      onStall,
+      waitTimeoutMs: 2000,
+    });
+
+    lockstep.tick(0x01);
+    time.advance(2000);
+    lockstep.tick(0x01);
+    expect(onStall).toHaveBeenCalledTimes(1);
+
+    // Pause while stalled, then resume: the status must drop back to "running"
+    // so a later stall can fire again (a paused-while-waiting regression).
+    lockstep.pause();
+    lockstep.resume();
+    expect(lockstep.status()).toBe("running");
+
+    time.advance(5000);
+    lockstep.tick(0x01); // arms the wait timer again
+    time.advance(2000);
+    lockstep.tick(0x01); // stalls again
+    expect(onStall).toHaveBeenCalledTimes(2);
+  });
+
+  it("escalates a persistent stall once per stallEscalateMs", () => {
+    const time = clock();
+    const escalated: number[] = [];
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      waitTimeoutMs: 2000,
+      stallEscalateMs: 5000,
+      onStallEscalate: (frame) => escalated.push(frame),
+    });
+
+    lockstep.tick(0x01);
+    time.advance(2000);
+    lockstep.tick(0x01); // enters "waiting"
+    expect(escalated).toEqual([]);
+
+    time.advance(4999);
+    lockstep.tick(0x01);
+    expect(escalated).toEqual([]);
+
+    time.advance(1);
+    lockstep.tick(0x01);
+    expect(escalated).toEqual([0]);
+
+    // Still stalled: escalates again a full interval later.
+    time.advance(5000);
+    lockstep.tick(0x01);
+    expect(escalated).toEqual([0, 0]);
+  });
+
+  it("reproduces the committed golden step trace (T29 regression)", () => {
+    // A fixed, frame-indexed scenario that exercises the hardened loop end to
+    // end: a two-peer lockstep, a collaborative pause/resume, and a resync. The
+    // committed trace is the exact `(frame, inputs)` sequence core A steps;
+    // any change to the emulation path must produce the same trace or peers
+    // diverge. Runs twice so the trace is proven stable, not just once-correct.
+    // Regenerate only with an intentional change to the emulation path.
+    const scenario = (): {
+      a: { frame: number; inputs: FrameInputs }[];
+      b: { frame: number; inputs: FrameInputs }[];
+    } => {
+      const coreA = fakeCore();
+      const coreB = fakeCore();
+      const a = createLockstep({
+        core: coreA,
+        mySlot: 0,
+        players: [0, 1],
+        inputDelay: 2,
+        startFrame: 0,
+        sendInput: (packet) => b.onBytes(packet),
+        now: () => 0,
+      });
+      const b = createLockstep({
+        core: coreB,
+        mySlot: 1,
+        players: [0, 1],
+        inputDelay: 2,
+        startFrame: 0,
+        sendInput: (packet) => a.onBytes(packet),
+        now: () => 0,
+      });
+
+      const run = (masksA: number[], masksB: number[]): void => {
+        for (let i = 0; i < masksA.length; i++) {
+          a.tick(masksA[i]!);
+          b.tick(masksB[i]!);
+        }
+      };
+
+      run([0x01, 0x02, 0x03, 0x04, 0x05], [0x11, 0x12, 0x13, 0x14, 0x15]);
+      a.pause();
+      b.pause();
+      run([0xff, 0xff], [0xff, 0xff]); // ignored while paused
+      a.resume();
+      b.resume();
+      run([0x06, 0x07, 0x08], [0x16, 0x17, 0x18]);
+      // Restore both peers to the same frame and continue (desync-resync path).
+      const frame = Math.min(a.frame(), b.frame()) - 1;
+      a.resync(frame);
+      b.resync(frame);
+      run([0x09, 0x0a], [0x19, 0x1a]);
+      return { a: coreA.steps, b: coreB.steps };
+    };
+
+    const first = scenario();
+    expect(first.a).toEqual(GOLDEN_TRACE);
+    // Fully deterministic: a second run reproduces both traces exactly.
+    const second = scenario();
+    expect(second.a).toEqual(first.a);
+    expect(second.b).toEqual(first.b);
+  });
+
   it("never lets the wall clock reach the core", () => {
     const core = fakeCore();
     const now = vi.fn(() => 123);
@@ -396,6 +607,25 @@ describe("createLockstep", () => {
     expect(core.steps).toHaveLength(5);
   });
 });
+
+/**
+ * Committed golden trace for the T29 regression test above: the exact
+ * `(frame, inputs)` sequence core A steps for the fixed two-peer scenario with
+ * a pause/resume and a resync. `inputs` is the four-slot mask (see FrameInputs).
+ */
+const G0 = (p0: number, p1: number): FrameInputs => [p0, p1, 0, 0];
+const GOLDEN_TRACE: { frame: number; inputs: FrameInputs }[] = [
+  { frame: 0, inputs: G0(0, 0) },
+  { frame: 1, inputs: G0(0, 0) },
+  { frame: 2, inputs: G0(0x01, 0x11) },
+  { frame: 3, inputs: G0(0x02, 0x12) },
+  { frame: 4, inputs: G0(0x03, 0x13) },
+  { frame: 5, inputs: G0(0x04, 0x14) },
+  { frame: 6, inputs: G0(0x05, 0x15) },
+  { frame: 7, inputs: G0(0x06, 0x16) },
+  { frame: 8, inputs: G0(0x07, 0x17) },
+  { frame: 9, inputs: G0(0x09, 0x19) },
+];
 
 function encodePeer(player: number, frame: number, inputs: number[]): Uint8Array {
   return encodeInput({

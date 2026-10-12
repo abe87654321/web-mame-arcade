@@ -13,6 +13,7 @@ import {
   type HashMessage,
   type InputLog,
   type InputPacket,
+  type PlayerPause,
   type PlayerReady,
   type RoomState,
   type RtcSignal,
@@ -91,6 +92,8 @@ interface Room {
   hashFrame: number;
   /** This frame's crc32 per player slot; reset whenever a newer frame arrives. */
   hashes: Map<number, number>;
+  /** Seated player slots that have requested a collaborative pause (T29). */
+  paused: Set<number>;
 }
 
 /** Outcome of a `hash` message; `mismatch` triggers a `desync` broadcast. */
@@ -213,6 +216,9 @@ export class RoomManager {
     this.byConnection.delete(connectionId);
     const room = this.rooms.get(roomId);
     if (room) {
+      // A hidden tab that disconnects must not leave the room paused forever.
+      const leaving = room.members.get(connectionId);
+      if (leaving && leaving.slot !== null) room.paused.delete(leaving.slot);
       room.members.delete(connectionId);
       if (room.members.size === 0) this.rooms.delete(roomId);
     }
@@ -298,6 +304,8 @@ export class RoomManager {
     room.video = false;
     room.hashFrame = -1;
     room.hashes.clear();
+    // A new match starts unpaused (T29).
+    room.paused.clear();
     // Open the input log when the host has set the game (T30); without a
     // `game.set` there is no match identity to log, so no log is recorded.
     room.log = room.game
@@ -402,6 +410,31 @@ export class RoomManager {
     }
     sender.ready = message.ready;
     return { roomId: room.id, from: sender.slot };
+  }
+
+  /**
+   * Record a seated player's collaborative pause toggle (T29). Only seated
+   * players in a `playing` room may toggle (`not_joined`/`not_playing`
+   * otherwise); the client-supplied `player` is ignored. Returns the room id,
+   * the authoritative sender slot and the **aggregate** pause state — true while
+   * any seated player is paused — so a single resume cannot unpause a peer that
+   * is still hidden (docs/contracts/ws-messages.md).
+   */
+  setPause(
+    connectionId: string,
+    message: PlayerPause,
+  ): { roomId: string; from: number; paused: boolean } {
+    const room = this.roomOf(connectionId, "player.pause");
+    const sender = room.members.get(connectionId);
+    if (!sender || sender.slot === null) {
+      throw new RelayError("not_joined", "only seated players can pause");
+    }
+    if (room.status !== "playing") {
+      throw new RelayError("not_playing", `room ${room.id} has not started`);
+    }
+    if (message.paused) room.paused.add(sender.slot);
+    else room.paused.delete(sender.slot);
+    return { roomId: room.id, from: sender.slot, paused: room.paused.size > 0 };
   }
 
   /**
@@ -687,6 +720,7 @@ export class RoomManager {
         video: false,
         hashFrame: -1,
         hashes: new Map(),
+        paused: new Set(),
       };
       this.rooms.set(roomId, room);
     }

@@ -98,6 +98,28 @@ export class FakePeerConnection implements PeerConnectionLike {
     this.addedCandidates.push(candidate);
   }
 
+  /** Nominated succeeded candidate-pair RTT in seconds; null to omit (T29). */
+  statsRttSeconds: number | null = null;
+
+  async getStats(): Promise<{ forEach(cb: (r: Record<string, unknown>) => void): void }> {
+    const rtt = this.statsRttSeconds;
+    return {
+      forEach: (cb) => {
+        if (rtt !== null) {
+          cb({
+            type: "candidate-pair",
+            state: "succeeded",
+            nominated: true,
+            currentRoundTripTime: rtt,
+          });
+        }
+        // Noise the reader must ignore.
+        cb({ type: "candidate-pair", state: "in-progress", currentRoundTripTime: 9 });
+        cb({ type: "transport", currentRoundTripTime: 9 });
+      },
+    };
+  }
+
   close(): void {
     this.closes += 1;
     this.connectionState = "closed";

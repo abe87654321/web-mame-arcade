@@ -43,10 +43,20 @@ export interface DataChannelOptions {
   maxRetransmits?: number;
 }
 
+/** The subset of an RTCStatsReport netplay reads (T29 RTT measurement). */
+export interface RtcStatsReportLike {
+  forEach(callback: (report: Record<string, unknown>) => void): void;
+}
+
 /** The peer-connection members netplay uses. */
 export interface PeerConnectionLike {
   readonly connectionState: string;
   localDescription: SessionDescriptionLike | null;
+  /**
+   * Optional RTC stats, used to size the input delay from the lobby RTT (T29).
+   * Absent in older fakes; `peer.rttMs()` returns null without it.
+   */
+  getStats?(): Promise<RtcStatsReportLike>;
   createDataChannel(
     label: string,
     options?: DataChannelOptions,

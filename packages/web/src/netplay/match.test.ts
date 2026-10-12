@@ -74,7 +74,7 @@ function jsonSent(socket: FakeWebSocket): Record<string, unknown>[] {
     .map((m) => JSON.parse(m) as Record<string, unknown>);
 }
 
-function harness(inputDelay = 2, overrides: Partial<MatchDeps> = {}) {
+function harness(inputDelay?: number, overrides: Partial<MatchDeps> = {}) {
   const socket = new FakeWebSocket();
   const pc = new FakePeerConnection();
   const core = fakeCore();
@@ -86,7 +86,8 @@ function harness(inputDelay = 2, overrides: Partial<MatchDeps> = {}) {
     socketFactory: fakeSocketFactory(socket),
     factory: fakeRtcFactory([pc]),
     now: () => 0,
-    inputDelay,
+    // Omit when undefined so the adaptive path runs (defaults to 2 with no RTT).
+    ...(inputDelay === undefined ? {} : { inputDelay }),
     onStatus: (status) => statuses.push(status),
     onLobby: (lobby) => lobbies.push(lobby),
     ...overrides,
@@ -566,6 +567,220 @@ describe("createMatch", () => {
     expect(match.isHost()).toBe(false);
     expect(match.setVideo(true)).toBe(false);
     expect(jsonSent(socket).some((m) => m.t === "video.set")).toBe(false);
+    match.close();
+  });
+
+  it("pauses the room collaboratively and freezes stepping (T29)", async () => {
+    const { socket, core, match } = harness(0);
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    expect(match.setPaused(true)).toBe(true);
+    expect(jsonSent(socket)).toContainEqual({ t: "player.pause", paused: true });
+    expect(match.status()).toBe("paused");
+    expect(match.lobby().paused).toBe(true);
+
+    // Paused: no frame is stepped even though the local input is sampled.
+    match.tick(0x01);
+    expect(core.steps).toEqual([]);
+
+    // Clearing our own intent (tab shown again) resumes the loop.
+    expect(match.setPaused(false)).toBe(true);
+    expect(jsonSent(socket)).toContainEqual({ t: "player.pause", paused: false });
+    expect(match.status()).toBe("running");
+    expect(match.lobby().paused).toBe(false);
+    match.tick(0x01);
+    expect(core.steps.length).toBeGreaterThan(0);
+    match.close();
+  });
+
+  it("stays paused while our tab is hidden even if a peer resumes (T29)", async () => {
+    const { socket, match } = harness(0);
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    match.setPaused(true);
+    // A peer's resume aggregate arrives while our own tab is still hidden: the
+    // effective pause must stay on because the two intents are OR-ed.
+    socket.emitMessage(JSON.stringify({ t: "player.pause", paused: false, player: 1 }));
+    await flush();
+    expect(match.status()).toBe("paused");
+    expect(match.lobby().paused).toBe(true);
+    match.close();
+  });
+
+  it("pauses locally when a peer pauses (T29)", async () => {
+    const { socket, core, match } = harness(0);
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(JSON.stringify({ t: "player.pause", paused: true, player: 1 }));
+    await flush();
+    expect(match.status()).toBe("paused");
+    match.tick(0x01);
+    expect(core.steps).toEqual([]);
+
+    socket.emitMessage(JSON.stringify({ t: "player.pause", paused: false, player: 1 }));
+    await flush();
+    expect(match.status()).toBe("running");
+    match.tick(0x01);
+    expect(core.steps.length).toBe(1);
+    match.close();
+  });
+
+  it("refuses to pause before the match starts (T29)", async () => {
+    const { match } = harness(0);
+    await flush();
+    expect(match.setPaused(true)).toBe(false);
+    match.close();
+  });
+
+  it("escalates a persistent stall to a host snapshot (T29)", async () => {
+    const createSnapshot = vi.fn(async () => "http://relay/rooms/r/snapshot/1");
+    let clock = 0;
+    const { socket, match } = harness(0, {
+      createSnapshot,
+      now: () => clock,
+      stallEscalateMs: 6000,
+    });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    // Peer 1 sends frame 0, then goes silent: the loop stalls at frame 1.
+    socket.emitMessage(peerPacket(1, 0, [0x02]));
+    match.tick(0x01);
+    expect(match.frame()).toBe(1);
+
+    clock = 2000;
+    match.tick(0x01); // arms the wait timer
+    clock = 4000;
+    match.tick(0x01); // enters "waiting", sends input.request
+    expect(jsonSent(socket).find((m) => m.t === "input.request")).toBeDefined();
+    expect(createSnapshot).not.toHaveBeenCalled();
+
+    clock = 10_000;
+    match.tick(0x01); // escalates one interval later
+    await flush();
+    expect(createSnapshot).toHaveBeenCalledOnce();
+    expect(socket.sent).toContain(
+      JSON.stringify({
+        t: "state.snapshot",
+        frame: 0,
+        blobUrl: "http://relay/rooms/r/snapshot/1",
+      }),
+    );
+    match.close();
+  });
+
+  it("leaves stall escalation to the host (T29)", async () => {
+    const createSnapshot = vi.fn(async () => "http://relay/x");
+    let clock = 0;
+    const { socket, match } = harness(0, {
+      createSnapshot,
+      now: () => clock,
+      stallEscalateMs: 6000,
+    });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(peerPacket(0, 0, [0x01]));
+    match.tick(0x02);
+    clock = 100_000;
+    match.tick(0x02);
+    await flush();
+    expect(createSnapshot).not.toHaveBeenCalled();
+    match.close();
+  });
+
+  it("ignores an out-of-order older snapshot (T29)", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const pending: ((value: Uint8Array) => void)[] = [];
+    const fetchSnapshot = vi.fn(
+      () => new Promise<Uint8Array>((resolve) => pending.push(resolve)),
+    );
+    const { socket, core, match } = harness(0, { fetchSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(
+      JSON.stringify({ t: "state.snapshot", frame: 110, blobUrl: "http://relay/110" }),
+    );
+    socket.emitMessage(
+      JSON.stringify({ t: "state.snapshot", frame: 100, blobUrl: "http://relay/100" }),
+    );
+    await flush();
+
+    // The newer frame resolves first, then the older one: the older must be
+    // ignored rather than rewinding the match.
+    pending[0]?.(bytes);
+    await flush();
+    pending[1]?.(bytes);
+    await flush();
+
+    expect(core.load).toHaveBeenCalledWith(bytes, 110);
+    expect(core.load).not.toHaveBeenCalledWith(bytes, 100);
+    expect(match.frame()).toBe(111);
+    match.close();
+  });
+
+  it("keeps a pre-start pause across game.start (T29)", async () => {
+    const { socket, core, match } = harness(0);
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+
+    // Hidden in the lobby: no lockstep yet, so no message, but the intent sticks.
+    expect(match.setPaused(true)).toBe(false);
+
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    expect(match.status()).toBe("paused");
+    expect(jsonSent(socket)).toContainEqual({ t: "player.pause", paused: true });
+    match.tick(0x01);
+    expect(core.steps).toEqual([]);
+    match.close();
+  });
+
+  it("sizes the input delay from measured peer RTT (T29)", async () => {
+    const socket = new FakeWebSocket();
+    const pc = new FakePeerConnection();
+    pc.statsRttSeconds = 0.045; // 45 ms → ceil(45/16.67)+1 = 4 frames
+    const core = fakeCore();
+    const match = createMatch({
+      core,
+      config,
+      socketFactory: fakeSocketFactory(socket),
+      factory: fakeRtcFactory([pc]),
+      now: () => 0,
+    });
+    socket.open();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
+    await flush();
+
+    expect(match.start()).toBe(true);
+    expect(jsonSent(socket)).toContainEqual({
+      t: "game.start",
+      startFrame: 0,
+      inputDelay: 4,
+    });
     match.close();
   });
 });
