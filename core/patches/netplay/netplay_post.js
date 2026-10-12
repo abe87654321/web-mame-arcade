@@ -62,6 +62,22 @@ var WMA_NETPLAY = (function () {
 		},
 		hash: function () {
 			return Module.cwrap('netplay_hash', 'number', [])() >>> 0;
+		},
+		readMemory: function (cpu, space, addr, len) {
+			var size = len >>> 0;
+			if (size <= 0)
+				return new Uint8Array(0);
+			var ptr = Module._malloc(size);
+			try {
+				var read = Module.cwrap('netplay_read_bytes', 'number',
+					['string', 'string', 'number', 'number', 'number'])(
+					String(cpu), String(space), addr >>> 0, ptr, size);
+				if (read < 0)
+					throw new Error('netplay_read_bytes failed');
+				return Module.HEAPU8.slice(ptr, ptr + read);
+			} finally {
+				Module._free(ptr);
+			}
 		}
 	};
 })();

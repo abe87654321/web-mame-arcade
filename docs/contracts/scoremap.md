@@ -40,6 +40,14 @@ verifier reads on replay (docs/05).
 `len` bytes are read from `(cpu, space)` starting at `addr`, in increasing
 address order.
 
+**Only RAM-backed addresses are readable.** The read fetches a direct host
+pointer for each byte and **refuses** a handler-mapped address (where no direct
+pointer exists), returning no score. This is deliberate: running an address-space
+read handler could mutate machine state and desync peers, because a live score is
+read on a wall-clock cadence *outside* the determinism-critical lockstep. In
+practice `io` space is almost always handler-mapped and so will be refused; put a
+scoremap only on program/work RAM.
+
 - **`binary`** — the bytes form one integer. `endian: "little"` (default) treats
   the lowest address as the least-significant byte; `"big"` the reverse.
 - **`bcd`** — each byte holds two decimal digits (high nibble = tens, low nibble

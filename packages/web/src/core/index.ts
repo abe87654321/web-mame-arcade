@@ -8,6 +8,8 @@ export { parseManifest, sha256Hex, verifyArtifact } from "./manifest";
 export { MameCore } from "./mame-core";
 export type { CoreModule, EmscriptenFS, JsMame, NetplayHooks } from "./module";
 export { mountRom } from "./rom";
+export { decodeScore, loadScoreMap } from "./scoremap";
+export type { ScoreMapFetch, ScoreMapResponse } from "./scoremap";
 export type {
   Core,
   CoreManifest,

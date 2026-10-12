@@ -46,6 +46,77 @@ describe("MameCore", () => {
     );
   });
 
+  it("decodes readScore through the scoremap and the native read", () => {
+    const netplay = {
+      enable: vi.fn(),
+      setInputs: vi.fn(),
+      saveState: vi.fn(),
+      loadState: vi.fn(),
+      setFrame: vi.fn(),
+      hash: vi.fn(),
+      step: vi.fn(),
+      readMemory: vi.fn(() => new Uint8Array([0x45, 0x23, 0x01])),
+    } as unknown as NetplayHooks;
+    const core = new MameCore(fakeModule(netplay), {
+      ...options,
+      score: {
+        v: 1,
+        players: [
+          {
+            slot: 0,
+            cpu: ":maincpu",
+            space: "program",
+            addr: "0x4e80",
+            len: 3,
+            format: "bcd",
+          },
+        ],
+      },
+    });
+    expect(core.readScore(0)).toBe(12345);
+    expect(netplay.readMemory).toHaveBeenCalledWith(":maincpu", "program", 0x4e80, 3);
+  });
+
+  it("throws for a slot with no scoremap entry", () => {
+    const netplay = {
+      enable: vi.fn(),
+      setInputs: vi.fn(),
+      saveState: vi.fn(),
+      loadState: vi.fn(),
+      setFrame: vi.fn(),
+      hash: vi.fn(),
+      step: vi.fn(),
+      readMemory: vi.fn(),
+    } as unknown as NetplayHooks;
+    const core = new MameCore(fakeModule(netplay), {
+      ...options,
+      score: { v: 1, players: [] },
+    });
+    expect(() => core.readScore(0)).toThrow(CoreCapabilityError);
+  });
+
+  it("throws when the core build lacks the read hook", () => {
+    const netplay = {
+      enable: vi.fn(),
+      setInputs: vi.fn(),
+      saveState: vi.fn(),
+      loadState: vi.fn(),
+      setFrame: vi.fn(),
+      hash: vi.fn(),
+      step: vi.fn(),
+    } as unknown as NetplayHooks;
+    const core = new MameCore(fakeModule(netplay), {
+      ...options,
+      score: {
+        v: 1,
+        players: [
+          { slot: 0, cpu: ":maincpu", space: "program", addr: "0x10", len: 1, format: "binary" },
+        ],
+      },
+    });
+    expect(() => core.readScore(0)).toThrow(CoreCapabilityError);
+  });
+
   it("delegates to the netplay hooks when present", () => {
     const netplay: NetplayHooks = {
       enable: vi.fn(),
@@ -55,6 +126,7 @@ describe("MameCore", () => {
       setFrame: vi.fn(),
       hash: vi.fn(() => 0xdeadbeef),
       step: vi.fn(),
+      readMemory: vi.fn(() => new Uint8Array()),
     };
     const core = new MameCore(fakeModule(netplay), options);
     core.step(7, [1, 2, 3, 4]);

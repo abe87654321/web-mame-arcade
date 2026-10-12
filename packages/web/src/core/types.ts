@@ -3,6 +3,7 @@
  * against this interface, never against the raw Emscripten Module.
  * See docs/02-emulation-core.md and docs/contracts/core-version.md.
  */
+import type { ScoreMap } from "@wma/protocol";
 
 /** One u16 button bitmask per player slot, per docs/contracts/input-packet.md. */
 export type FrameInputs = readonly [number, number, number, number];
@@ -26,6 +27,11 @@ export interface CoreOptions {
   readonly romPath: string;
   /** Filename of the mounted ROM zip inside romPath. */
   readonly romZipName: string;
+  /**
+   * This driver's live-score map (T32b), or null when it has none; used by
+   * `Core.readScore`.
+   */
+  readonly score?: ScoreMap | null;
 }
 
 export interface Core {

@@ -18,3 +18,12 @@ gan-harness/
 # Playwright netplay e2e harness (T26).
 e2e/playwright-report/
 e2e/test-results/
+# MAME native run artifacts (config/save/input) written to the cwd by the
+# scoremap discovery workflow (T32b); never committed.
+cfg/
+nvram/
+sta/
+inp/
+snap/
+diff/
+comments/

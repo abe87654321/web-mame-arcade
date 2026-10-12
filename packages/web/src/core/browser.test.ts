@@ -205,4 +205,102 @@ describe("loadBrowserCore", () => {
       ),
     ).rejects.toThrow(/aborted/);
   });
+
+  it("fetches the driver scoremap when a URL is given (T32b)", async () => {
+    const wasm = new Uint8Array([1, 2, 3]);
+    const js = new Uint8Array([4, 5]);
+    const manifest = {
+      driver: "gridlee",
+      core_hash: await sha256Hex(wasm),
+      mame_commit: "b".repeat(40),
+      emsdk: "6.0.2",
+      artifacts: { "gridlee.wasm": await sha256Hex(wasm), "gridlee.js": await sha256Hex(js) },
+    };
+    const scoreMap = {
+      v: 1,
+      players: [
+        { slot: 0, cpu: ":maincpu", space: "program", addr: "0x4e80", len: 3, format: "bcd" },
+      ],
+    };
+    const routes = fakeFetch({
+      "https://x/cores/gridlee/manifest.json": manifest,
+      "https://x/cores/gridlee/gridlee.wasm": wasm,
+      "https://x/cores/gridlee/gridlee.js": js,
+      "https://x/roms/gridlee.zip": new Uint8Array([6]),
+      "https://x/scoremap/gridlee.json": scoreMap,
+    });
+    const fetchImpl = vi.fn(routes);
+    const loadScript = async () => {
+      const mod = (globalThis as Record<string, unknown>).Module as TestModule;
+      mod.FS = { mkdir: () => {}, writeFile: () => {}, readFile: () => new Uint8Array(), unlink: () => {} };
+      mod.JSMAME = { save: () => {}, load: () => {}, soft_reset: () => {}, hard_reset: () => {}, exit: () => {} };
+      mod.HEAPU8 = new Uint8Array(0);
+      mod._malloc = () => 0;
+      mod._free = () => {};
+      mod.onRuntimeInitialized();
+    };
+
+    await loadBrowserCore(
+      {
+        coreBaseUrl: "https://x/cores/gridlee",
+        romZipUrl: "https://x/roms/gridlee.zip",
+        driver: "gridlee",
+        args: ["gridlee"],
+        romPath: "/roms",
+        romZipName: "gridlee.zip",
+        scoreMapUrl: "https://x/scoremap/gridlee.json",
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, loadScript },
+    );
+
+    expect(fetchImpl).toHaveBeenCalledWith("https://x/scoremap/gridlee.json");
+  });
+
+  it("boots despite a malformed scoremap (logged, not fatal)", async () => {
+    const wasm = new Uint8Array([1, 2, 3]);
+    const js = new Uint8Array([4, 5]);
+    const manifest = {
+      driver: "gridlee",
+      core_hash: await sha256Hex(wasm),
+      mame_commit: "b".repeat(40),
+      emsdk: "6.0.2",
+      artifacts: { "gridlee.wasm": await sha256Hex(wasm), "gridlee.js": await sha256Hex(js) },
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const loadScript = async () => {
+      const mod = (globalThis as Record<string, unknown>).Module as TestModule;
+      mod.FS = { mkdir: () => {}, writeFile: () => {}, readFile: () => new Uint8Array(), unlink: () => {} };
+      mod.JSMAME = { save: () => {}, load: () => {}, soft_reset: () => {}, hard_reset: () => {}, exit: () => {} };
+      mod.HEAPU8 = new Uint8Array(0);
+      mod._malloc = () => 0;
+      mod._free = () => {};
+      mod.onRuntimeInitialized();
+    };
+
+    await expect(
+      loadBrowserCore(
+        {
+          coreBaseUrl: "https://x/cores/gridlee",
+          romZipUrl: "https://x/roms/gridlee.zip",
+          driver: "gridlee",
+          args: ["gridlee"],
+          romPath: "/roms",
+          romZipName: "gridlee.zip",
+          scoreMapUrl: "https://x/scoremap/gridlee.json",
+        },
+        {
+          fetchImpl: fakeFetch({
+            "https://x/cores/gridlee/manifest.json": manifest,
+            "https://x/cores/gridlee/gridlee.wasm": wasm,
+            "https://x/cores/gridlee/gridlee.js": js,
+            "https://x/roms/gridlee.zip": new Uint8Array([6]),
+            "https://x/scoremap/gridlee.json": { v: 1, players: [{ slot: 9 }] },
+          }),
+          loadScript,
+        },
+      ),
+    ).resolves.toBeDefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });

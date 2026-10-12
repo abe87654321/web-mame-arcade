@@ -2,7 +2,7 @@
   {
     "driver": "gridlee",
     "title": "Gridlee",
-    "coreVersion": "d26f80aa0e0dc7d99adce1a6ddc9f7df25d0d4d105499392ce512977f32f82f8",
+    "coreVersion": "d8744e50b81f4fd0f647458293e4c249c3c3dd043101f325fc3ca3acae2cd0ab",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e",
     "supportsSave": true,
