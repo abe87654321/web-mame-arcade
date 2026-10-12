@@ -707,6 +707,58 @@ describe("createMatch", () => {
     match.close();
   });
 
+  it("ignores an out-of-order older snapshot (T29)", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const pending: ((value: Uint8Array) => void)[] = [];
+    const fetchSnapshot = vi.fn(
+      () => new Promise<Uint8Array>((resolve) => pending.push(resolve)),
+    );
+    const { socket, core, match } = harness(0, { fetchSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    socket.emitMessage(
+      JSON.stringify({ t: "state.snapshot", frame: 110, blobUrl: "http://relay/110" }),
+    );
+    socket.emitMessage(
+      JSON.stringify({ t: "state.snapshot", frame: 100, blobUrl: "http://relay/100" }),
+    );
+    await flush();
+
+    // The newer frame resolves first, then the older one: the older must be
+    // ignored rather than rewinding the match.
+    pending[0]?.(bytes);
+    await flush();
+    pending[1]?.(bytes);
+    await flush();
+
+    expect(core.load).toHaveBeenCalledWith(bytes, 110);
+    expect(core.load).not.toHaveBeenCalledWith(bytes, 100);
+    expect(match.frame()).toBe(111);
+    match.close();
+  });
+
+  it("keeps a pre-start pause across game.start (T29)", async () => {
+    const { socket, core, match } = harness(0);
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0])));
+    await flush();
+
+    // Hidden in the lobby: no lockstep yet, so no message, but the intent sticks.
+    expect(match.setPaused(true)).toBe(false);
+
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+    expect(match.status()).toBe("paused");
+    expect(jsonSent(socket)).toContainEqual({ t: "player.pause", paused: true });
+    match.tick(0x01);
+    expect(core.steps).toEqual([]);
+    match.close();
+  });
+
   it("sizes the input delay from measured peer RTT (T29)", async () => {
     const socket = new FakeWebSocket();
     const pc = new FakePeerConnection();

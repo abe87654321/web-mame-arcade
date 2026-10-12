@@ -63,6 +63,11 @@ override (tests/e2e) wins over the measurement. `ack_frame` remains play-time te
   further interval, the **host** escalates: it saves its last stepped frame and broadcasts a
   full `state.snapshot` (T25 path), so peers still stuck on a frame both sides lost re-load one
   authority's state and resume from it. Escalation is skipped while the room is paused.
+  - **Known limitation (deferred to T30/T33/T40).** After any resync the loop re-samples this
+    client's own masks for the first frames after the snapshot frame. If the relay's first-wins
+    input log already holds a different value for one of those frames, a verifier replay could
+    diverge. Reconciling it (preserve our own already-sent masks with a coordinated frame clock,
+    or let the log follow the snapshot) is the input-log/rollback work, not this task.
 
 ## Rollback (opt-in per game)
 Predict missing remote input = last known; save state every frame in a ring of 8; on mismatch load the

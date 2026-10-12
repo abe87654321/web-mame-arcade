@@ -457,6 +457,39 @@ describe("createLockstep", () => {
     expect(lockstep.status()).toBe("running");
   });
 
+  it("re-arms the stall timer after resuming from a waiting pause", () => {
+    const time = clock();
+    const onStall = vi.fn();
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      onStall,
+      waitTimeoutMs: 2000,
+    });
+
+    lockstep.tick(0x01);
+    time.advance(2000);
+    lockstep.tick(0x01);
+    expect(onStall).toHaveBeenCalledTimes(1);
+
+    // Pause while stalled, then resume: the status must drop back to "running"
+    // so a later stall can fire again (a paused-while-waiting regression).
+    lockstep.pause();
+    lockstep.resume();
+    expect(lockstep.status()).toBe("running");
+
+    time.advance(5000);
+    lockstep.tick(0x01); // arms the wait timer again
+    time.advance(2000);
+    lockstep.tick(0x01); // stalls again
+    expect(onStall).toHaveBeenCalledTimes(2);
+  });
+
   it("escalates a persistent stall once per stallEscalateMs", () => {
     const time = clock();
     const escalated: number[] = [];
@@ -499,7 +532,10 @@ describe("createLockstep", () => {
     // any change to the emulation path must produce the same trace or peers
     // diverge. Runs twice so the trace is proven stable, not just once-correct.
     // Regenerate only with an intentional change to the emulation path.
-    const scenario = (): { frame: number; inputs: FrameInputs }[] => {
+    const scenario = (): {
+      a: { frame: number; inputs: FrameInputs }[];
+      b: { frame: number; inputs: FrameInputs }[];
+    } => {
       const coreA = fakeCore();
       const coreB = fakeCore();
       const a = createLockstep({
@@ -540,12 +576,15 @@ describe("createLockstep", () => {
       a.resync(frame);
       b.resync(frame);
       run([0x09, 0x0a], [0x19, 0x1a]);
-      return coreA.steps;
+      return { a: coreA.steps, b: coreB.steps };
     };
 
     const first = scenario();
-    expect(first).toEqual(GOLDEN_TRACE);
-    expect(scenario()).toEqual(first);
+    expect(first.a).toEqual(GOLDEN_TRACE);
+    // Fully deterministic: a second run reproduces both traces exactly.
+    const second = scenario();
+    expect(second.a).toEqual(first.a);
+    expect(second.b).toEqual(first.b);
   });
 
   it("never lets the wall clock reach the core", () => {

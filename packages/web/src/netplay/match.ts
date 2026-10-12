@@ -234,6 +234,8 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let relayPaused = false;
   /** The effective pause: either our own intent or another player's. */
   let paused = false;
+  /** Highest snapshot frame applied, so an out-of-order fetch cannot rewind us (T29). */
+  let lastAppliedSnapshotFrame = -1;
   const roster: RosterEntry[] = [];
 
   function setStatus(next: MatchStatus): void {
@@ -382,10 +384,12 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     // Never step before the core has booted: frame 0 must be the same machine
     // state on every peer (AGENTS.md determinism rule).
     if (lockstep || closed || self === null || !coreReady) return;
-    // A fresh match always starts unpaused (T29).
+    // A fresh match starts unpaused as far as the relay is concerned. Our own
+    // `localPaused` persists across the lobby→play boundary: a tab hidden
+    // before the start must still pause the room once it begins (T29).
     paused = false;
-    localPaused = false;
     relayPaused = false;
+    lastAppliedSnapshotFrame = -1;
     const players = roster.length > 0 ? roster.map((p) => p.slot) : [self];
     lockstep = createLockstep({
       core: deps.core,
@@ -431,7 +435,15 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     });
     metrics = createMetrics({ mySlot: self, players, now: deps.now });
     lastMetricsAt = null;
-    setStatus("running");
+    if (localPaused) {
+      // The tab was hidden before the start: hold the fresh lockstep paused and
+      // tell the relay, so the throttled tab does not stall the other peers.
+      lockstep.pause();
+      setStatus("paused");
+      session.send({ t: "player.pause", paused: true });
+    } else {
+      setStatus("running");
+    }
   }
 
   /**
@@ -598,8 +610,15 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     onStateSnapshot: (message) => {
       void fetchSnapshot(message.blobUrl)
         .then((bytes) => {
+          // Snapshots can be in flight at once (desync + escalation intervals);
+          // a slower fetch of an older frame must not clobber a newer state.
+          if (message.frame <= lastAppliedSnapshotFrame) {
+            log?.("resync-stale", { frame: message.frame, applied: lastAppliedSnapshotFrame });
+            return;
+          }
           deps.core.load(bytes, message.frame);
           lockstep?.resync(message.frame);
+          lastAppliedSnapshotFrame = message.frame;
           log?.("resync-applied", { frame: message.frame });
         })
         .catch((error) => log?.("resync-error", { frame: message.frame, error: String(error) }));
@@ -683,9 +702,12 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       return session.send({ t: "player.ready", ready });
     },
     setPaused: (nextPaused) => {
-      if (closed || disconnected || !lockstep) return false;
+      if (closed || disconnected) return false;
+      // Record the intent even before the match starts; `startLockstep` honours
+      // it so a tab hidden in the lobby pauses the room once it begins (T29).
       localPaused = nextPaused;
       applyPause();
+      if (!lockstep) return false;
       return session.send({ t: "player.pause", paused: nextPaused });
     },
     setVideo: (enabled) => {

@@ -51,11 +51,22 @@ Docs: 03, 04, contracts/ws-messages, contracts/input-packet. Depends: T28 (done)
 ## Acceptance criteria
 
 - [x] A hidden tab pauses the whole room via `player.pause`; our own hidden intent is
-      OR-ed with the relay aggregate so a peer's resume cannot unpause us.
+      OR-ed with the relay aggregate so a peer's resume cannot unpause us. A tab hidden
+      before `game.start` still pauses the room once it begins.
 - [x] A still-stalled loop escalates (host-only) to a `state.snapshot`; skipped while paused.
 - [x] The host sizes D from lobby RTT and announces it in `game.start`; override wins.
 - [x] Golden step-trace regression (unit) + e2e golden harness; no clock reaches `core.step`.
 - [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+## Post-review follow-ups
+
+- Fixed a blocking `resume()` bug: resuming from a `waiting` pause left the status stale,
+  suppressing future `onStall`/`input.request` (lockstep.test.ts regression added).
+- Guarded `state.snapshot` application against out-of-order fetches (match.test.ts).
+- `rttMs()` prefers the nominated succeeded candidate pair (docs/03 wording).
+- **Deferred (documented in docs/03):** the resync re-samples this client's own immediate
+  post-snapshot masks; reconciling that with the relay's first-wins input log is T30/T33/T40.
+  A first attempt to preserve own masks skewed the two peers and was reverted.
 
 ## Notes for the agent
 

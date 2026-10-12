@@ -236,7 +236,12 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       // The core was just restored to the state at `frame`; continue from the
       // next one with a clean input window. Every staged frame — including
       // already-buffered future inputs from the pre-snapshot timeline — is
-      // dropped so nothing stale is stepped and the packet history restarts.
+      // dropped so nothing stale is stepped and the packet history restarts,
+      // which also re-aligns peers that were an uneven number of frames ahead
+      // (T25). NOTE: our own post-snapshot masks are re-sampled here, so if the
+      // relay's first-wins input log already holds a different value for one of
+      // those frames, a verifier replay could diverge; reconciling that is the
+      // input-log/rollback work (T30/T33/T40), not this task.
       current = frame + 1;
       table.clear(current);
       scheduleHead = current;
@@ -260,6 +265,13 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
       paused = false;
       waitSince = null;
       lastEscalateAt = null;
+      // If we paused while stalled, clear the stale "waiting" status too, or
+      // `updateStatus` (which only clears it on the ready branch) would never
+      // re-fire `onStall` and a non-host could not request a resend again.
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
+      }
     },
 
     paused: () => paused,
