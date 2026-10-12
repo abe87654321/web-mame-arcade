@@ -52,7 +52,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   SLO-C decision T45). Docs: 02, 03, 08, contracts/input-packet, contracts/ws-messages. Depends: T24,
   T25, T31. Acceptance: metrics + overlay unit tests; committed spike report (`core/spike/README.md`:
   per-driver ms/bytes + round-trip PASS); no change to the emulation path.
-- [ ] **T29 Client lockstep hardening (deferred, pending T28 data)** – make the browser lockstep
+- [x] **T29 Client lockstep hardening** – make the browser lockstep
   resilient once the metrics show what actually stalls: visibility-aware collaborative pause (a
   hidden/occluded tab throttles `requestAnimationFrame`, so that peer stops feeding inputs and stalls
   everyone), mutual-stall recovery + a host-snapshot fallback, adaptive input delay from measured

@@ -492,6 +492,62 @@ describe("createLockstep", () => {
     expect(escalated).toEqual([0, 0]);
   });
 
+  it("reproduces the committed golden step trace (T29 regression)", () => {
+    // A fixed, frame-indexed scenario that exercises the hardened loop end to
+    // end: a two-peer lockstep, a collaborative pause/resume, and a resync. The
+    // committed trace is the exact `(frame, inputs)` sequence core A steps;
+    // any change to the emulation path must produce the same trace or peers
+    // diverge. Runs twice so the trace is proven stable, not just once-correct.
+    // Regenerate only with an intentional change to the emulation path.
+    const scenario = (): { frame: number; inputs: FrameInputs }[] => {
+      const coreA = fakeCore();
+      const coreB = fakeCore();
+      const a = createLockstep({
+        core: coreA,
+        mySlot: 0,
+        players: [0, 1],
+        inputDelay: 2,
+        startFrame: 0,
+        sendInput: (packet) => b.onBytes(packet),
+        now: () => 0,
+      });
+      const b = createLockstep({
+        core: coreB,
+        mySlot: 1,
+        players: [0, 1],
+        inputDelay: 2,
+        startFrame: 0,
+        sendInput: (packet) => a.onBytes(packet),
+        now: () => 0,
+      });
+
+      const run = (masksA: number[], masksB: number[]): void => {
+        for (let i = 0; i < masksA.length; i++) {
+          a.tick(masksA[i]!);
+          b.tick(masksB[i]!);
+        }
+      };
+
+      run([0x01, 0x02, 0x03, 0x04, 0x05], [0x11, 0x12, 0x13, 0x14, 0x15]);
+      a.pause();
+      b.pause();
+      run([0xff, 0xff], [0xff, 0xff]); // ignored while paused
+      a.resume();
+      b.resume();
+      run([0x06, 0x07, 0x08], [0x16, 0x17, 0x18]);
+      // Restore both peers to the same frame and continue (desync-resync path).
+      const frame = Math.min(a.frame(), b.frame()) - 1;
+      a.resync(frame);
+      b.resync(frame);
+      run([0x09, 0x0a], [0x19, 0x1a]);
+      return coreA.steps;
+    };
+
+    const first = scenario();
+    expect(first).toEqual(GOLDEN_TRACE);
+    expect(scenario()).toEqual(first);
+  });
+
   it("never lets the wall clock reach the core", () => {
     const core = fakeCore();
     const now = vi.fn(() => 123);
@@ -512,6 +568,25 @@ describe("createLockstep", () => {
     expect(core.steps).toHaveLength(5);
   });
 });
+
+/**
+ * Committed golden trace for the T29 regression test above: the exact
+ * `(frame, inputs)` sequence core A steps for the fixed two-peer scenario with
+ * a pause/resume and a resync. `inputs` is the four-slot mask (see FrameInputs).
+ */
+const G0 = (p0: number, p1: number): FrameInputs => [p0, p1, 0, 0];
+const GOLDEN_TRACE: { frame: number; inputs: FrameInputs }[] = [
+  { frame: 0, inputs: G0(0, 0) },
+  { frame: 1, inputs: G0(0, 0) },
+  { frame: 2, inputs: G0(0x01, 0x11) },
+  { frame: 3, inputs: G0(0x02, 0x12) },
+  { frame: 4, inputs: G0(0x03, 0x13) },
+  { frame: 5, inputs: G0(0x04, 0x14) },
+  { frame: 6, inputs: G0(0x05, 0x15) },
+  { frame: 7, inputs: G0(0x06, 0x16) },
+  { frame: 8, inputs: G0(0x07, 0x17) },
+  { frame: 9, inputs: G0(0x09, 0x19) },
+];
 
 function encodePeer(player: number, frame: number, inputs: number[]): Uint8Array {
   return encodeInput({
