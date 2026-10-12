@@ -27,6 +27,7 @@ Docs: 05, contracts/ws-messages, contracts/scoremap. Depends: T32a (done).
 
 - `core/patches/netplay/netplay.h`, `netplay.cpp`, `netplay_post.js` — the read ABI.
 - `core/scoremap/README.md` — the discovery procedure (new).
+- `core/publish-web.sh` + `core/test/publish-web.test.mjs` — one-command core+scoremap publish (new).
 - `packages/web/src/core/scoremap.ts` + `.test.ts` — loader + `decodeScore` (new).
 - `packages/web/src/core/module.ts` — `NetplayHooks.readMemory`.
 - `packages/web/src/core/types.ts` — `CoreOptions.score`.
@@ -55,8 +56,9 @@ Docs: 05, contracts/ws-messages, contracts/scoremap. Depends: T32a (done).
       `readMemory`; throws `CoreCapabilityError` without a scoremap or hook.
 - [ ] `loadBrowserCore` fetches `/static/scoremap/<driver>.json` and passes it in.
 - [ ] Tests added; `pnpm lint && pnpm typecheck && pnpm test` pass.
-- [ ] Human: `core/build-wasm.sh gridlee`, publish the new core, add
-      `core/scoremap/gridlee.json`, pass the golden replay.
+- [ ] Human: `core/build-wasm.sh gridlee`, then `core/publish-web.sh gridlee`
+      (copies the core to `public/`, updates `games.json` `coreVersion`, copies the
+      scoremap), add `core/scoremap/gridlee.json`, pass the golden replay.
 
 ## Post-review follow-ups
 

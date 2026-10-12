@@ -92,7 +92,11 @@ another driver, rather than committing a wrong address.
 ## Using the discovered address
 
 1. Write `core/scoremap/<driver>.json`.
-2. Copy it to `packages/web/public/static/scoremap/<driver>.json` (like the core
-   bundles, this publish step is manual).
+2. Build and publish the core + scoremap + `games.json` in one step:
+   ```sh
+   core/build-wasm.sh gridlee     # prints the new core hash
+   core/publish-web.sh gridlee    # copies the core to public/, updates games.json,
+                                  # and copies core/scoremap/gridlee.json to /static/scoremap/
+   ```
 3. In the verifier (T33) `verify.lua` reads the same file's `addr`/`len`/`format`
    to read the final score on replay.
