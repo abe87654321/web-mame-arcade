@@ -64,8 +64,11 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   inputs, end score), append-only log per match, close on `game.end`, upload to object storage (local disk or
   MinIO). Docs: 04, 05, contracts/input-log. Depends: T21, T24.
 - [x] **T31 Viewer page** – load state + subscribe to inputs, 3 s buffer, catch-up after stalls. Docs: 04. Depends: T11, T30.
-- [ ] **T32 Live scoreboard** – `scoremap` discovery procedure (MAME debugger + `hiscore.dat`) written to
-  `core/scoremap/<driver>.json`, loader, `score.live` messages, overlay UI. Docs: 05, contracts/ws-messages. Depends: T24.
+- [ ] **T32a Live scoreboard (browser)** – `scoremap` schema/loader + `score.live` messages (player samples its
+  slot's score once per second, relay stamps and fans out, fills the input log's `end.scores`) + overlay UI for
+  players and viewers. `readScore` stays behind `CoreCapabilityError` until T32b. Docs: 05, contracts/ws-messages. Depends: T24.
+- [ ] **T32b Scoremap core read** – native `netplay_read_bytes` + WASM rebuild + gridlee address discovery
+  (`core/scoremap/<driver>.json`), wired into `Core.readScore`. Docs: 05, contracts/ws-messages. Depends: T32a.
 - [ ] **T33 Verifier worker** – Redis job → native MAME + `verify.lua` → compare → write scores / flag. Docs: 05. Depends: T01, T21, T30.
 - [ ] **T34 API + leaderboards** – Fastify, auth/JWT, schema migrations, board endpoints (Redis sorted sets), replay links. Docs: 05, 06. Depends: T33.
 - [ ] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
