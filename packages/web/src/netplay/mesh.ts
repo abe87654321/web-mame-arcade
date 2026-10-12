@@ -38,6 +38,11 @@ export interface Mesh {
   channelTo(slot: number): DataChannelLike | null;
   /** Connected peer slots, ascending. */
   peers(): number[];
+  /**
+   * Each peer's current RTT in ms (T29), keyed by slot; peers that are not yet
+   * measurable are omitted. Read once, in the lobby, to size the input delay.
+   */
+  peerRtts(): Promise<Record<number, number>>;
   close(): void;
 }
 
@@ -103,6 +108,17 @@ export function createMesh(deps: MeshDeps): Mesh {
 
     peers(): number[] {
       return [...peers.keys()].sort((a, b) => a - b);
+    },
+
+    async peerRtts(): Promise<Record<number, number>> {
+      const result: Record<number, number> = {};
+      await Promise.all(
+        [...peers.entries()].map(async ([slot, peer]) => {
+          const rtt = await peer.rttMs();
+          if (rtt !== null) result[slot] = rtt;
+        }),
+      );
+      return result;
     },
 
     close(): void {

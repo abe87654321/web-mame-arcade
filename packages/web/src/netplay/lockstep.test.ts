@@ -376,6 +376,122 @@ describe("createLockstep", () => {
     );
   });
 
+  it("freezes stepping and sending while paused, then resumes cleanly", () => {
+    const core = fakeCore();
+    const sent: Uint8Array[] = [];
+    const lockstep = createLockstep({
+      core,
+      mySlot: 0,
+      players: [0],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: (packet) => sent.push(packet),
+      now: () => 0,
+    });
+
+    lockstep.tick(0x01);
+    expect(core.steps.map((s) => s.frame)).toEqual([0]);
+    expect(sent).toHaveLength(1);
+
+    lockstep.pause();
+    expect(lockstep.paused()).toBe(true);
+    lockstep.tick(0x05);
+    // Paused: no new frame stepped, no packet scheduled or sent.
+    expect(core.steps.map((s) => s.frame)).toEqual([0]);
+    expect(sent).toHaveLength(1);
+    expect(lockstep.scheduledFrame()).toBe(1);
+
+    lockstep.resume();
+    expect(lockstep.paused()).toBe(false);
+    lockstep.tick(0x07);
+    expect(core.steps.map((s) => s.frame)).toEqual([0, 1]);
+  });
+
+  it("does not run the stall timer while paused", () => {
+    const time = clock();
+    const onStall = vi.fn();
+    const onStallEscalate = vi.fn();
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      onStall,
+      onStallEscalate,
+      waitTimeoutMs: 100,
+      stallEscalateMs: 100,
+    });
+
+    lockstep.pause();
+    time.advance(10_000);
+    lockstep.tick(0x01);
+    expect(onStall).not.toHaveBeenCalled();
+    expect(onStallEscalate).not.toHaveBeenCalled();
+  });
+
+  it("does not fire a stall right after resuming", () => {
+    const time = clock();
+    const onStall = vi.fn();
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      onStall,
+      waitTimeoutMs: 2000,
+    });
+
+    lockstep.tick(0x01);
+    lockstep.pause();
+    lockstep.resume();
+    // A long real-world pause must not count toward the stall timeout.
+    time.advance(3000);
+    lockstep.tick(0x01);
+    expect(onStall).not.toHaveBeenCalled();
+    expect(lockstep.status()).toBe("running");
+  });
+
+  it("escalates a persistent stall once per stallEscalateMs", () => {
+    const time = clock();
+    const escalated: number[] = [];
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: () => {},
+      now: time.now,
+      waitTimeoutMs: 2000,
+      stallEscalateMs: 5000,
+      onStallEscalate: (frame) => escalated.push(frame),
+    });
+
+    lockstep.tick(0x01);
+    time.advance(2000);
+    lockstep.tick(0x01); // enters "waiting"
+    expect(escalated).toEqual([]);
+
+    time.advance(4999);
+    lockstep.tick(0x01);
+    expect(escalated).toEqual([]);
+
+    time.advance(1);
+    lockstep.tick(0x01);
+    expect(escalated).toEqual([0]);
+
+    // Still stalled: escalates again a full interval later.
+    time.advance(5000);
+    lockstep.tick(0x01);
+    expect(escalated).toEqual([0, 0]);
+  });
+
   it("never lets the wall clock reach the core", () => {
     const core = fakeCore();
     const now = vi.fn(() => 123);

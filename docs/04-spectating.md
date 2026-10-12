@@ -30,3 +30,6 @@ Player names, live score overlay, chat (same WS), viewer count, "watch from star
   get the stream (and players get it as redundancy). The viewer's pure playback buffer
   (docs/contracts/ws-messages.md, `netplay/playback.ts`) holds 3 s behind live and catches
   up in bounded bursts after a stall. Live score overlay/chat/viewer count are later (T32/T36).
+- A collaborative pause (T29, `player.pause`) is fanned to viewers too: no fresh inputs arrive
+  while the room is paused, so the viewer simply drains its buffer and waits — no separate
+  pause handling is needed in the playback loop.

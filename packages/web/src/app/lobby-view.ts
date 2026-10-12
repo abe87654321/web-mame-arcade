@@ -143,6 +143,11 @@ export function buildLobby(state: LobbyState, options: LobbyViewOptions): ViewNo
             className: `lobby-status ${state.roomStatus}`,
             text: statusText(state.roomStatus),
           },
+          // A collaborative pause (T29): any player paused the room. Shown
+          // alongside the room status so it reads as a distinct condition.
+          ...(state.paused
+            ? [{ tag: "span" as const, className: "lobby-paused", text: "paused" }]
+            : []),
         ],
       },
       {

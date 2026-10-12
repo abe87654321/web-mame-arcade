@@ -31,10 +31,13 @@ Implementation: `packages/protocol/src/input.ts` — button bits plus `encodeInp
 the local wall-clock time it scheduled each frame; when a later packet arrives whose `ack_frame`
 reaches that frame, the difference is a round-trip estimate for that peer. `ack_frame` is also
 used to count losses (a gap in a peer's `firstFrame` series before redundancy fills it) and jitter
-(inter-arrival variance). All of this is **local telemetry** (T28): it drives the dev overlay and
-the adaptive-delay input only, never `core.step`, so a clock reading can never make two peers
-diverge. The one-frame-lagged `ack_frame` remains informational until rollback (T40) needs a real
-per-peer acknowledgement.
+(inter-arrival variance). All of this is **local telemetry** (T28): it drives the dev overlay only,
+never `core.step`, so a clock reading can never make two peers diverge. The one-frame-lagged
+`ack_frame` remains informational until rollback (T40) needs a real per-peer acknowledgement.
+
+The adaptive input delay (T29) is sized **before the match starts**, in the lobby, from
+`RTCPeerConnection.getStats` RTT — not from `ack_frame`, which only exists once packets flow
+(docs/03-netplay-protocol.md). `ack_frame` is therefore not the adaptive-delay source.
 
 ## Local input config vs host default
 Which physical key/button/axis feeds each bit is **per-browser local configuration**, never sent

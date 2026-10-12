@@ -36,10 +36,33 @@ Start with delay-based lockstep; add rollback per game once stable.
   never requested and never stepped.
 
 ## Lockstep loop, per frame N
-1. Read local controls, schedule them for frame N + D (D = 2-3, tuned from measured ping).
+1. Read local controls, schedule them for frame N + D (D = 2-3, tuned from measured RTT).
 2. Send to all peers and to the relay.
 3. When all players' inputs for N are present: `core.step(N, inputs)`.
 4. Late input → wait. After 2 s without input → show "waiting for player", pause.
+
+## Adaptive input delay (T29)
+D is chosen **once, in the lobby, by the host**, from the round-trip time to every peer
+(`RTCPeerConnection.getStats`, the nominated succeeded `candidate-pair`) — never mid-game, so
+the frame schedule is fixed for the whole match. The host picks the worst peer's RTT rounded up
+to whole 60 Hz frames plus one frame of headroom, clamped to `[2, 6]`, and announces it in
+`game.start`; every peer steps that agreed value, so it stays deterministic. An explicit
+override (tests/e2e) wins over the measurement. `ack_frame` remains play-time telemetry
+(`docs/contracts/input-packet.md`), not the lobby measurement.
+
+## Resilience: collaborative pause and stall recovery (T29)
+- **Collaborative pause.** A hidden/occluded tab throttles `requestAnimationFrame`, so that peer
+  stops feeding inputs and stalls everyone. On `visibilitychange` the client sends
+  `player.pause {paused}`; the relay keeps the room's paused slots and fans one aggregate
+  boolean (docs/contracts/ws-messages.md). While the room is paused every peer's lockstep is
+  frozen (`core.step` is not called; inbound packets still buffer). Our own hidden intent is
+  OR-ed with the relay aggregate, so a peer's resume cannot unpause a tab that is still hidden.
+  Pause is control-only: no clock reading reaches `core.step`, so it cannot cause a desync.
+- **Stall recovery.** After 2 s without the next frame's input the peer sends `input.request`
+  (T31) and the relay resends the recorded frames. If that does not unstick the loop within a
+  further interval, the **host** escalates: it saves its last stepped frame and broadcasts a
+  full `state.snapshot` (T25 path), so peers still stuck on a frame both sides lost re-load one
+  authority's state and resume from it. Escalation is skipped while the room is paused.
 
 ## Rollback (opt-in per game)
 Predict missing remote input = last known; save state every frame in a ring of 8; on mismatch load the

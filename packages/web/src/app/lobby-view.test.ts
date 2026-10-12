@@ -25,6 +25,7 @@ function state(overrides: Partial<LobbyState> = {}): LobbyState {
     isHost: true,
     canStart: false,
     video: false,
+    paused: false,
     players: [
       { slot: 0, name: "You", host: true, self: true, connected: true, ready: false },
       { slot: 1, name: "Ryu", host: false, self: false, connected: true, ready: false },
@@ -49,6 +50,12 @@ describe("buildLobby", () => {
     expect(slots).toHaveLength(2);
     expect(slots[0]?.children?.some((c) => c.text === "You")).toBe(true);
     expect(find(tree, "lobby-status")?.text).toBe("waiting for players");
+  });
+
+  it("shows a paused badge only while the room is paused (T29)", () => {
+    expect(find(buildLobby(state(), options()), "lobby-paused")).toBeUndefined();
+    const paused = buildLobby(state({ paused: true }), options());
+    expect(find(paused, "lobby-paused")?.text).toBe("paused");
   });
 
   it("disables the host start button until canStart", () => {
