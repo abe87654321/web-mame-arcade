@@ -81,12 +81,14 @@ Docs: 05, contracts/ws-messages, contracts/scoremap. Depends: T32a (done).
 - `core/scoremap/gridlee.json` is produced by the human with
   `core/scoremap/README.md`; do not invent addresses.
 
-## Deferred
+## Discovery (resolved)
 
-- **gridlee scoremap discovery is deferred.** The code, native read hook, WASM
-  rebuild, publish (`games.json` `coreVersion` = `d8744e50…`) and the
-  netplay/golden e2e are all done, but the interactive MAME Cheat Search
-  (keyboard; the trackball grabs the mouse) has not been completed, so
-  `core/scoremap/gridlee.json` is absent. The browser treats that as "no live
-  score" (the 404 path, already exercised in the e2e run). Add the file and run
-  `core/publish-web.sh gridlee` to turn the scoreboard on.
+- **gridlee score found: 3-byte BCD at `0x0433` (program space, big-endian).**
+  `core/scoremap/gridlee.json` is committed and published. The value was located
+  by adding a dev-only RAM-capture hook to the play page
+  (`?scorewatch=1` → `/tmp/gridlee_ram.log`, see `packages/web/src/scorewatch.ts`)
+  while playing in a local browser, then matching two reported
+  `frame ↔ score` points: `0800` and `002600`. `x0434 x0435` alone is the
+  score/100 in BCD; the leading `x0433` is the high digit (0 for scores < 10000).
+- The scoreboard is only rendered on the netplay play/watch routes, so it was
+  verified in an online room via the relay.

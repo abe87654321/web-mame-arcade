@@ -69,7 +69,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   players and viewers. `readScore` stays behind `CoreCapabilityError` until T32b. Docs: 05, contracts/ws-messages. Depends: T24.
 - [x] **T32b Scoremap core read** – native `netplay_read_bytes` + WASM rebuild + gridlee address discovery
   (`core/scoremap/<driver>.json`), wired into `Core.readScore`. Docs: 05, contracts/ws-messages. Depends: T32a.
-  Note: gridlee address discovery deferred (see `docs/tasks/T32b-plan.md` §Deferred).
+  Note: gridlee score found (3-byte BCD @0x0433; `core/scoremap/gridlee.json`).
 - [ ] **T33 Verifier worker** – Redis job → native MAME + `verify.lua` → compare → write scores / flag. Docs: 05. Depends: T01, T21, T30.
 - [ ] **T34 API + leaderboards** – Fastify, auth/JWT, schema migrations, board endpoints (Redis sorted sets), replay links. Docs: 05, 06. Depends: T33.
 - [ ] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
