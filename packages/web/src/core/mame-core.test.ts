@@ -40,8 +40,8 @@ describe("MameCore", () => {
     expect(() => core.load(new Uint8Array([1]), 42)).toThrow(CoreCapabilityError);
   });
 
-  it("throws CoreCapabilityError for readScore until T32", () => {
-    expect(() => new MameCore(fakeModule(), options).readScore()).toThrow(
+  it("throws CoreCapabilityError for readScore until T32b", () => {
+    expect(() => new MameCore(fakeModule(), options).readScore(0)).toThrow(
       CoreCapabilityError,
     );
   });

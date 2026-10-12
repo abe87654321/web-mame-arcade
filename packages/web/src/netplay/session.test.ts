@@ -30,6 +30,12 @@ interface HarnessExtras {
   onGameStart?: (message: { startFrame: number; inputDelay: number }) => void;
   onPlayerReady?: (message: { t: "player.ready"; ready: boolean; player?: number }) => void;
   onPlayerPause?: (message: { t: "player.pause"; paused: boolean; player?: number }) => void;
+  onScoreLive?: (message: {
+    t: "score.live";
+    player?: number;
+    score: number;
+    frame: number;
+  }) => void;
   onDesync?: (message: { t: "desync"; frame: number }) => void;
   onStateSnapshot?: (message: { t: "state.snapshot"; frame: number; blobUrl: string }) => void;
   onPeersChanged?: () => void;
@@ -211,6 +217,20 @@ describe("createSession", () => {
       t: "player.pause",
       paused: true,
       player: 0,
+    });
+  });
+
+  it("forwards score.live to onScoreLive", async () => {
+    const onScoreLive = vi.fn();
+    const { session } = harness([], { onScoreLive });
+
+    await session.handleMessage({ t: "score.live", player: 1, score: 4200, frame: 90 });
+
+    expect(onScoreLive).toHaveBeenCalledWith({
+      t: "score.live",
+      player: 1,
+      score: 4200,
+      frame: 90,
     });
   });
 

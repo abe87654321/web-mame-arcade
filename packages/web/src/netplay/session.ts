@@ -12,6 +12,7 @@ import type {
   PlayerReady,
   RoomState,
   RtcSignal,
+  ScoreLive,
   ServerMessage,
   StateSnapshot,
   VideoSet,
@@ -38,6 +39,8 @@ export interface SessionOptions {
   onPlayerReady?: (message: PlayerReady) => void;
   /** The relay fanned out the aggregate collaborative pause state (T29). */
   onPlayerPause?: (message: PlayerPause) => void;
+  /** The relay fanned out a player's live score (T32). */
+  onScoreLive?: (message: ScoreLive) => void;
   /** The relay detected a desync; the host answers with a snapshot (T25). */
   onDesync?: (message: Desync) => void;
   /** A host snapshot to fetch, load and resume from (T25). */
@@ -182,6 +185,10 @@ export function createSession(options: SessionOptions): NetplaySession {
       }
       case "player.pause": {
         options.onPlayerPause?.(message);
+        return;
+      }
+      case "score.live": {
+        options.onScoreLive?.(message);
         return;
       }
       case "desync": {
