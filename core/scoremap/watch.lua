@@ -30,6 +30,11 @@ emu.register_frame_done(function()
 			t[#t + 1] = string.format("%02x", prog:read_direct_u8(a) & 0xff)
 		end
 		f:write("RAM " .. n .. " " .. table.concat(t) .. "\n")
+		-- A timestamped screenshot every 5 s so the on-screen score can be
+		-- matched to the RAM offline (read with the -snapshot_directory output).
+		if n % 300 == 0 then
+			pcall(function() m.video:snapshot(); f:write("SHOT " .. n .. "\n") end)
+		end
 		f:flush()
 	end
 end)
