@@ -8,6 +8,7 @@ Every JSON message: `{ "t": "<type>", ...fields }`.
 | `room.state` | relay → client | room, self, players[], game, coreHash, romHash, dips, status | room snapshot (`self` = recipient's slot or null; game fields null pre-game) |
 | `rtc.signal` | both | to, sdp?, candidate? (client); from, to, sdp?, candidate? (relay) | WebRTC signalling relay |
 | `player.ready` | both | ready, player? (relay-stamped slot) | a player toggles its own lobby ready flag |
+| `player.pause` | both | paused, player? (relay-stamped slot) | a player toggles its own pause; the relay fans the aggregate |
 | `game.set` | host → relay → all | driver, coreHash, mameCommit, romHash, dips | host picks the game + DIPs (fills `room.state`) |
 | `game.start` | host → relay → all | startFrame, inputDelay | begins input log; relay fans it out and sets status `playing` |
 | `input` | player → relay → all members | binary input packet | recorded; fanned to viewers + peers as redundancy (T31) |
@@ -68,6 +69,21 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
   with `not_joined`; `player` is relay-authoritative and any client-supplied value is ignored.
 - The host's `game.start` is gated on readiness in the UI only (all peers connected and all
   non-host players ready); the relay does not enforce readiness, so a lone host may still start.
+
+## Pinned in T29
+- `player.pause` is a single strict schema used in both directions: a client sends
+  `{ t: "player.pause", paused: boolean }`; the relay stamps the sender's own `player` slot,
+  aggregates the room's paused slots and fans `{ t: "player.pause", paused, player }` out to
+  **every member** (players + viewers). `paused` is the relay-authoritative **aggregate**:
+  true while **any** seated player is paused, so one player resuming cannot unpause a peer
+  that is still hidden (or otherwise away). A client-supplied `player` is ignored.
+- Only a seated player in a `playing` room may toggle (`not_joined`/`not_playing` otherwise).
+  A player that leaves (or whose socket closes) is dropped from the paused set, so a hidden
+  tab that disconnects cannot leave the room wedged paused. `game.start` clears the set, so a
+  fresh match always starts running.
+- Pause is display/control only and **never enters the emulation path**: a paused peer simply
+  stops calling `core.step` until `paused` returns to false. No clock reading reaches `step`,
+  so pause/resume cannot make two peers diverge (AGENTS.md determinism rule).
 
 ## Pinned in T25
 - `hash` is sent relay-ward only, by a **seated player**, every 60 simulated frames

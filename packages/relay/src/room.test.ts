@@ -316,6 +316,76 @@ describe("RoomManager.setReady", () => {
   });
 });
 
+describe("RoomManager.setPause", () => {
+  function playing() {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c2", { room: "r", role: "player", token: "bob" });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    return rooms;
+  }
+
+  it("aggregates pause across the room's seated players", () => {
+    const rooms = playing();
+    // One player pausing pauses the whole room.
+    expect(rooms.setPause("c1", { t: "player.pause", paused: true })).toEqual({
+      roomId: "r",
+      from: 0,
+      paused: true,
+    });
+    // A second pause does not change the aggregate.
+    expect(rooms.setPause("c2", { t: "player.pause", paused: true }).paused).toBe(true);
+    // One resume leaves the room paused while the other is still paused.
+    expect(rooms.setPause("c1", { t: "player.pause", paused: false }).paused).toBe(true);
+    // The room unpauses only when the last paused player resumes.
+    expect(rooms.setPause("c2", { t: "player.pause", paused: false }).paused).toBe(false);
+  });
+
+  it("drops a disconnected player from the paused set", () => {
+    const rooms = playing();
+    rooms.setPause("c1", { t: "player.pause", paused: true });
+    rooms.leave("c1");
+    // The room must not stay paused because a hidden tab's socket vanished.
+    expect(rooms.setPause("c2", { t: "player.pause", paused: true }).paused).toBe(true);
+    expect(rooms.setPause("c2", { t: "player.pause", paused: false }).paused).toBe(false);
+  });
+
+  it("clears the paused set when a new match starts", () => {
+    const rooms = playing();
+    rooms.setPause("c1", { t: "player.pause", paused: true });
+    rooms.end("c1", { t: "game.end", frame: 10 });
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    // c2's resume reads false only if c1's pause from the previous match was cleared.
+    expect(rooms.setPause("c2", { t: "player.pause", paused: true }).paused).toBe(true);
+    expect(rooms.setPause("c2", { t: "player.pause", paused: false }).paused).toBe(false);
+  });
+
+  it("requires a playing room and a seated player", () => {
+    const rooms = manager();
+    rooms.join("c1", { room: "r", role: "player", token: "alice" });
+    rooms.join("c9", { room: "r", role: "viewer", token: "watcher" });
+    try {
+      rooms.setPause("c1", { t: "player.pause", paused: true });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_playing");
+    }
+    rooms.begin("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    try {
+      rooms.setPause("c9", { t: "player.pause", paused: true });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+    try {
+      rooms.setPause("ghost", { t: "player.pause", paused: true });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as RelayError).code).toBe("not_joined");
+    }
+  });
+});
+
 describe("RoomManager.recordHash", () => {
   function playing() {
     const rooms = manager();
