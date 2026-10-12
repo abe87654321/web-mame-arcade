@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "players": [
+    {
+      "slot": 0,
+      "cpu": ":maincpu",
+      "space": "program",
+      "addr": "0x0433",
+      "len": 3,
+      "format": "bcd",
+      "endian": "big"
+    }
+  ]
+}
