@@ -64,7 +64,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   inputs, end score), append-only log per match, close on `game.end`, upload to object storage (local disk or
   MinIO). Docs: 04, 05, contracts/input-log. Depends: T21, T24.
 - [x] **T31 Viewer page** – load state + subscribe to inputs, 3 s buffer, catch-up after stalls. Docs: 04. Depends: T11, T30.
-- [ ] **T32a Live scoreboard (browser)** – `scoremap` schema/loader + `score.live` messages (player samples its
+- [x] **T32a Live scoreboard (browser)** – `scoremap` schema/loader + `score.live` messages (player samples its
   slot's score once per second, relay stamps and fans out, fills the input log's `end.scores`) + overlay UI for
   players and viewers. `readScore` stays behind `CoreCapabilityError` until T32b. Docs: 05, contracts/ws-messages. Depends: T24.
 - [ ] **T32b Scoremap core read** – native `netplay_read_bytes` + WASM rebuild + gridlee address discovery
