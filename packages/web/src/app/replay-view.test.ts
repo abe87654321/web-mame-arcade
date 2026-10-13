@@ -67,6 +67,22 @@ describe("buildReplay", () => {
     expect(textFor("ended")).toBe("match ended");
   });
 
+  it("clamps progress to the last frame once ended", () => {
+    const tree = buildReplay(
+      state({ status: "ended", frame: 5401, endFrame: 5400 }),
+      options(),
+    );
+    expect(find(tree, "replay-progress")?.text).toBe("5400 / 5400");
+  });
+
+  it("disables the playback controls until a replay exists", () => {
+    const loading = buildReplay(state({ status: "loading" }), options());
+    expect(find(loading, "replay-pause")?.disabled).toBe(true);
+    expect(find(loading, "replay-restart")?.disabled).toBe(true);
+    const playing = buildReplay(state({ status: "playing" }), options());
+    expect(find(playing, "replay-pause")?.disabled).toBe(false);
+  });
+
   it("shows the error message on failure", () => {
     const tree = buildReplay(
       state({ status: "error", error: "core_hash mismatch" }),

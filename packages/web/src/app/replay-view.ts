@@ -70,6 +70,10 @@ export function buildReplay(
   options: ReplayViewOptions,
 ): ViewNode {
   const paused = state.status === "paused";
+  // `frame` is the next frame to step, so clamp the display to the last one and
+  // disable the playback controls until a replay actually exists.
+  const shownFrame = Math.min(state.frame, state.endFrame);
+  const idle = state.status === "loading" || state.status === "error";
   const children: ViewNode[] = [
     {
       tag: "div",
@@ -101,7 +105,7 @@ export function buildReplay(
     {
       tag: "div",
       className: "replay-progress",
-      text: `${state.frame} / ${state.endFrame}`,
+      text: `${shownFrame} / ${state.endFrame}`,
     },
   ];
   if (state.status === "error") {
@@ -119,12 +123,14 @@ export function buildReplay(
         tag: "button",
         className: "btn replay-pause",
         text: paused ? "Resume" : "Pause",
+        disabled: idle,
         onClick: paused ? options.onResume : options.onPause,
       },
       {
         tag: "button",
         className: "btn replay-restart",
         text: "Restart",
+        disabled: idle,
         onClick: options.onRestart,
       },
       {

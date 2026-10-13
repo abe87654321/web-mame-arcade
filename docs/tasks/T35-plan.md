@@ -29,8 +29,13 @@ T34's API (done); this task adds the route the links will point at.
   maps `row[j]` to `start.players[j].slot`. Frames before `start.frame` are neutral.
   No clock reading reaches `core.step` (AGENTS.md determinism rule).
 - **Restart uses a boot snapshot, not a re-`load()`.** The controller captures
-  `core.save()` once at frame 0 (T20 seam) and `restart()` does `core.load(boot, 0)`,
-  which is the same recovery path T25 uses — no fresh boot, no clock.
+  `core.save()` once at frame `start.frame` (T20 seam) and `restart()` does
+  `core.load(boot, start.frame - 1)`: `netplay_set_frame` resumes at
+  `frame + 1`, so this makes the next stepped frame `start.frame` (for the
+  `start.frame === 0` case the `uint32` clock wraps). Same recovery path T25
+  uses — no fresh boot, no clock. A log with `start.frame > 0` and a null
+  `start_state_key` is not supported (the boot snapshot is the frame-0 state);
+  T30 always writes `start.frame = 0`, so this cannot occur today.
 - **Arbitrary seek is out of scope.** With no intermediate snapshots a seek would
   re-step from boot; "watch from start" only needs play/pause/restart. A scrub bar
   can come with replay snapshots later.
@@ -79,7 +84,23 @@ T34's API (done); this task adds the route the links will point at.
 
 ## Post-review follow-ups
 
-- (filled in after review)
+- **Blocker fixed:** `.replay-host` had no CSS and was appended after the
+  full-viewport `#canvas`, so the controls/progress rendered below the fold and
+  were unreachable in a real browser (unit tests use a fake DOM; the e2e only
+  polls `core.hash()`). Added a fixed-position `.replay-host` + panel styling in
+  `packages/web/index.html`, matching the lobby/viewer overlays.
+- Clamped the progress readout to `end.frame` (it showed `frame+1 / end.frame`
+  once ended) and disabled the pause/restart controls until a replay exists.
+- Corrected the restart plan text to `core.load(boot, start.frame - 1)` and
+  documented that `start.frame > 0` with a null `start_state_key` is unsupported
+  (T30 always writes `start.frame = 0`).
+- Broadened coverage: all three identity fields (`core_hash`/`rom_hash`/
+  `mame_commit`) and a malformed artifact now have app tests; the view tests
+  cover the ended clamp and disabled controls.
+- **Deferred (documented):** `/api` is not proxied by the Vite dev server, so a
+  developer needs `VITE_API_URL`; production nginx fronts the URL and the e2e
+  intercepts it. Replay links/leaderboard UI remain later work (T34 shipped the
+  API only).
 
 ## Notes for the agent
 

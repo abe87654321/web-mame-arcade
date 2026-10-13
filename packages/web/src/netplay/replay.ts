@@ -78,9 +78,11 @@ export function createReplay(deps: ReplayDeps): Replay {
   const maxPerTick = deps.maxPerTick ?? DEFAULT_MAX_PER_TICK;
   const startFrame = deps.log.start.frame;
   const endFrame = deps.log.end.frame;
-  // The core is frozen at boot here, so this is the state at `start.frame`
-  // (the lockstep also starts stepping there). `restart` restores it via the
-  // T25 recovery seam rather than a fresh boot.
+  // The core is frozen at boot here, so this is the frame-0 state, which is
+  // also the state at `start.frame` (the lockstep starts stepping there, and
+  // T30 always writes `start.frame = 0`). `restart` restores it via the T25
+  // recovery seam rather than a fresh boot. A log with `start.frame > 0` and a
+  // null `start_state_key` is therefore unsupported.
   const bootState = deps.core.save();
 
   let playFrame = startFrame;
