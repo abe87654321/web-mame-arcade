@@ -11,6 +11,9 @@ Source of truth for the artifact the relay closes on `game.end` and the verifier
   A match is ~1 KB/s of play compressed; gzip collapses the long neutral runs.
 - `matches.replay_key` (docs/contracts/db-schema.sql) stores this key. The DB write
   is T34; T30 only produces the object and its key.
+- Consumers: the verifier (T33) replays the log natively; the browser replay page
+  (T35) fetches the same artifact via `GET /api/replays/:key` and replays it in the
+  WASM core. Both decode with the shared `decodeInputLog`.
 
 ## JSON model
 

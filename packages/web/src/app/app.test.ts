@@ -179,6 +179,40 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 16; i++) await Promise.resolve();
 }
 
+/** gzip bytes for a replay-log artifact the app will gunzip + decode. */
+async function gzipBytes(text: string): Promise<Uint8Array> {
+  const bytes = new TextEncoder().encode(text);
+  const stream = new Blob([new Uint8Array(bytes)])
+    .stream()
+    .pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** A minimal closed log matching `entry`'s core/ROM/commit identity. */
+function replayLog(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    v: 1,
+    room: "room1",
+    meta: {
+      driver: "gridlee",
+      core_hash: entry.coreVersion,
+      mame_commit: entry.mameCommit,
+      rom_hash: entry.romHash,
+      dips: {},
+      mode: "solo",
+    },
+    start: {
+      frame: 0,
+      input_delay: 1,
+      players: [{ slot: 0, name: "alice" }],
+      start_state_key: null,
+    },
+    end: { frame: 2, scores: [{ slot: 0, score: 0 }] },
+    frames: [[0], [0x10], [0]],
+    ...overrides,
+  });
+}
+
 describe("createApp", () => {
   it("renders the catalogue on start", () => {
     const h = harness();
@@ -642,6 +676,97 @@ describe("live scoreboard overlay (T32)", () => {
     expect(board).toBeDefined();
     expect(text(board!)).toContain("You");
     expect(text(board!)).toContain("123");
+    app.destroy();
+  });
+
+  it("fetches, verifies and replays a closed log on a replay route (T35)", async () => {
+    const h = harness();
+    const bytes = await gzipBytes(replayLog());
+    const loadReplay = vi.fn(async () => bytes);
+    const app = createApp({
+      env: h.env,
+      games: [entry],
+      loadCore: h.loadCore,
+      loadReplay,
+    });
+
+    h.hash.value = "#/game/gridlee/replay/match%2Froom1%2Flog.json.gz";
+    h.fire();
+    await vi.waitFor(() => expect(text(h.root)).toContain("alice"));
+
+    expect(findByClass(h.root, "replay")).toBeDefined();
+    expect(loadReplay).toHaveBeenCalledWith("match/room1/log.json.gz");
+    expect(h.loadCore).toHaveBeenCalledWith(entry, { netplay: true });
+
+    app.destroy();
+    expect(h.cores[0]?.destroy).toHaveBeenCalledOnce();
+  });
+
+  it.each(["core_hash", "rom_hash", "mame_commit"] as const)(
+    "refuses a replay whose %s does not match the catalogue (T35)",
+    async (field) => {
+      const h = harness();
+      const value = field === "mame_commit" ? "d".repeat(40) : "d".repeat(64);
+      const bytes = await gzipBytes(
+        replayLog({
+          meta: {
+            driver: "gridlee",
+            core_hash: entry.coreVersion,
+            mame_commit: entry.mameCommit,
+            rom_hash: entry.romHash,
+            dips: {},
+            mode: "solo",
+            [field]: value,
+          },
+        }),
+      );
+      const app = createApp({
+        env: h.env,
+        games: [entry],
+        loadCore: h.loadCore,
+        loadReplay: async () => bytes,
+      });
+
+      h.hash.value = "#/game/gridlee/replay/key";
+      h.fire();
+      await vi.waitFor(() =>
+        expect(findByClass(h.root, "replay-error")).toBeDefined(),
+      );
+
+      expect(h.loadCore).not.toHaveBeenCalled();
+      app.destroy();
+    },
+  );
+
+  it("shows an error for a malformed replay artifact (T35)", async () => {
+    const h = harness();
+    const app = createApp({
+      env: h.env,
+      games: [entry],
+      loadCore: h.loadCore,
+      loadReplay: async () => new Uint8Array([1, 2, 3]),
+    });
+
+    h.hash.value = "#/game/gridlee/replay/key";
+    h.fire();
+    await vi.waitFor(() =>
+      expect(findByClass(h.root, "replay-error")).toBeDefined(),
+    );
+
+    expect(h.loadCore).not.toHaveBeenCalled();
+    app.destroy();
+  });
+
+  it("shows an error when replay loading is not configured (T35)", async () => {
+    const h = harness();
+    const app = createApp({ env: h.env, games: [entry], loadCore: h.loadCore });
+
+    h.hash.value = "#/game/gridlee/replay/key";
+    h.fire();
+    await flush();
+
+    expect(findByClass(h.root, "replay-error")).toBeDefined();
+    expect(h.loadCore).not.toHaveBeenCalled();
     app.destroy();
   });
 });

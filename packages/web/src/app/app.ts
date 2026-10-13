@@ -1,4 +1,6 @@
+import { decodeInputLog, type InputLog } from "@wma/protocol";
 import { loadCatalogue, findGame, type GameEntry } from "../catalogue";
+import { gunzip } from "../core";
 import { buildMameArgs } from "../core/options";
 import { loadBrowserCore } from "../core/browser";
 import type { Core } from "../core/types";
@@ -8,6 +10,7 @@ import {
   browserRtcFactory,
   browserWebSocketFactory,
   createMatch,
+  createReplay,
   createViewer,
   createVideoPublisher,
   createVideoSubscriber,
@@ -19,6 +22,7 @@ import {
   type LobbyState,
   type MatchStatus,
   type NetplayMatch,
+  type Replay,
   type RtcFactory,
   type Viewer,
   type WebSocketFactory,
@@ -34,6 +38,7 @@ import {
 import { buildList } from "./list-view";
 import { buildLobby } from "./lobby-view";
 import { buildNetplayOverlay } from "./netplay-overlay";
+import { buildReplay, type ReplayViewState } from "./replay-view";
 import { buildScoreboard } from "./scoreboard-view";
 import {
   browserScheduler,
@@ -128,6 +133,12 @@ export interface AppDeps {
   env: AppEnv;
   games: readonly GameEntry[];
   loadCore: (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
+  /**
+   * Fetch a closed match's gzip input-log artifact for the replay route (T35).
+   * Wired to `GET /api/replays/<key>` by `startApp`; absent when the API is not
+   * configured, in which case the replay route shows an error.
+   */
+  loadReplay?: (key: string) => Promise<Uint8Array>;
 }
 
 export interface AppController {
@@ -157,11 +168,33 @@ export function matchStatusText(status: MatchStatus): string {
   }
 }
 
+/**
+ * A replay may only run on the exact core the match used (docs/contracts/
+ * core-version.md): a different core_hash/rom_hash/mame_commit is a guaranteed
+ * false replay, so refuse it instead of stepping.
+ */
+export function assertReplayIdentity(entry: GameEntry, log: InputLog): void {
+  if (log.meta.driver !== entry.driver) {
+    throw new Error(`replay is for ${log.meta.driver}, not ${entry.driver}`);
+  }
+  if (log.meta.core_hash !== entry.coreVersion) {
+    throw new Error("replay core hash does not match the catalogue");
+  }
+  if (log.meta.rom_hash !== entry.romHash) {
+    throw new Error("replay ROM hash does not match the catalogue");
+  }
+  if (log.meta.mame_commit !== entry.mameCommit) {
+    throw new Error("replay MAME commit does not match the catalogue");
+  }
+}
+
 export function createApp(deps: AppDeps): AppController {
   let play: PlayController | null = null;
   let match: NetplayMatch | null = null;
   let viewer: Viewer | null = null;
   let viewerHandle: number | null = null;
+  let replay: Replay | null = null;
+  let replayHandle: number | null = null;
   let detachVisibility: (() => void) | null = null;
   let token = 0;
 
@@ -199,6 +232,12 @@ export function createApp(deps: AppDeps): AppController {
     }
     viewer?.close();
     viewer = null;
+    if (replayHandle !== null) {
+      deps.env.scheduler.cancel(replayHandle);
+      replayHandle = null;
+    }
+    replay?.destroy();
+    replay = null;
     play?.destroy();
     play = null;
   };
@@ -312,6 +351,95 @@ export function createApp(deps: AppDeps): AppController {
       deps.env.root.append(
         renderTree(deps.env.doc, notFound(`Unknown game: ${route.driver}`)),
       );
+      return;
+    }
+
+    // Replay route (T35): fetch the closed log, verify it against the catalogue
+    // entry, then replay it on a frozen core. Needs no relay, so it is handled
+    // before the room/netplay guard.
+    if (route.kind === "replay") {
+      const replayScreen = deps.env.screen ? wrapElement(deps.env.screen) : null;
+      if (replayScreen) deps.env.root.append(replayScreen);
+      const host = deps.env.doc.createElement("div");
+      host.className = "replay-host";
+      let state: ReplayViewState = {
+        status: "loading",
+        driver: entry.driver,
+        frame: 0,
+        endFrame: 0,
+        players: [],
+      };
+      const renderReplay = (): void => {
+        host.textContent = "";
+        host.append(
+          renderTree(
+            deps.env.doc,
+            buildReplay(state, {
+              onPause: () => replay?.pause(),
+              onResume: () => replay?.play(),
+              onRestart: () => replay?.restart(),
+              onLeave: () => deps.env.navigate("#/"),
+            }),
+          ),
+        );
+      };
+      renderReplay();
+      deps.env.root.append(host);
+      setStatus(`loading ${entry.title} replay...`);
+      const loadReplay = deps.loadReplay;
+      if (!loadReplay) {
+        state = { ...state, status: "error", error: "replay loading is not configured" };
+        renderReplay();
+        return;
+      }
+      void loadReplay(route.key)
+        .then(async (bytes) => {
+          const log = decodeInputLog(await gunzip(bytes));
+          assertReplayIdentity(entry, log);
+          const core = await deps.loadCore(entry, {
+            netplay: true,
+            ...(deps.env.screen ? { canvas: deps.env.screen } : {}),
+          });
+          if (myToken !== token) {
+            core.destroy();
+            return;
+          }
+          replay = createReplay({
+            core,
+            log,
+            onStatus: (status) => {
+              state = { ...state, status };
+              renderReplay();
+            },
+            onProgress: ({ frame, endFrame }) => {
+              state = { ...state, frame, endFrame };
+              renderReplay();
+            },
+          });
+          state = {
+            ...state,
+            status: replay.status(),
+            frame: replay.frame(),
+            endFrame: replay.endFrame(),
+            players: log.start.players.map((player) => ({
+              slot: player.slot,
+              name: player.name,
+            })),
+          };
+          renderReplay();
+          setStatus(`replaying ${entry.title}`);
+          const loop = (): void => {
+            replay?.tick(now());
+            replayHandle = deps.env.scheduler.request(loop);
+          };
+          replayHandle = deps.env.scheduler.request(loop);
+        })
+        .catch((error: unknown) => {
+          if (myToken !== token) return;
+          setStatus("");
+          state = { ...state, status: "error", error: String(error) };
+          renderReplay();
+        });
       return;
     }
 
@@ -514,6 +642,8 @@ export interface StartOptions {
   catalogueUrl?: string;
   loadGames?: (url: string) => Promise<GameEntry[]>;
   loadCore?: (entry: GameEntry, options: LoadCoreOptions) => Promise<Core>;
+  /** Overrides the replay-log fetch; by default `GET /api/replays/<key>`. */
+  loadReplay?: (key: string) => Promise<Uint8Array>;
   doc?: Document;
   win?: Window;
   /** Overrides the relay wiring; by default it comes from `VITE_RELAY_*`. */
@@ -588,6 +718,27 @@ function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<
     netplay: options.netplay,
     ...(options.canvas ? { canvas: options.canvas } : {}),
   });
+}
+
+/**
+ * Default replay-log fetch (T35): read the gzip artifact from the API's replay
+ * route (T34), `VITE_API_URL` or `/api/replays`. The gunzip/decode happens in
+ * the replay route so this stays a plain fetch.
+ */
+function browserReplayLoader(): (key: string) => Promise<Uint8Array> {
+  const env =
+    (import.meta as unknown as { env?: Record<string, string | boolean> }).env ?? {};
+  const base =
+    typeof env.VITE_API_URL === "string" && env.VITE_API_URL.length > 0
+      ? env.VITE_API_URL
+      : "/api/replays";
+  return async (key: string): Promise<Uint8Array> => {
+    const response = await fetch(`${base}/${encodeURIComponent(key)}`);
+    if (!response.ok) {
+      throw new Error(`replay fetch failed: ${response.status}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  };
 }
 
 interface ResumableAudioContext {
@@ -677,6 +828,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   return createApp({
     games,
     loadCore,
+    loadReplay: options.loadReplay ?? browserReplayLoader(),
     env: {
       doc: browserUiDocument(doc),
       root: wrapElement(rootEl),

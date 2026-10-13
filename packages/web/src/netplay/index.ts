@@ -14,6 +14,13 @@ export { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
 export type { BuildPacketOptions, FrameTable } from "./inputs";
 export { createPlayback } from "./playback";
 export type { Playback, PlaybackDeps } from "./playback";
+export { createReplay, frameInputsAt } from "./replay";
+export type {
+  Replay,
+  ReplayDeps,
+  ReplayProgress,
+  ReplayStatus,
+} from "./replay";
 export { createVideoPublisher, createVideoSubscriber } from "./video";
 export type {
   VideoPublisher,
