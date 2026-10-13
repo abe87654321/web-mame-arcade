@@ -94,3 +94,52 @@ describe("db module", () => {
     });
   });
 });
+
+describe("match upsert (T34)", async () => {
+  const { getOrCreateGame, upsertMatch, upsertMatchPlayers } = await import("./db");
+  beforeEach(() => mockQuery.mockReset());
+
+  it("upserts a game and returns its id", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: "7" }] });
+    const id = await getOrCreateGame(mockPool, { driver: "gridlee", coreVersion: "a".repeat(64) });
+    expect(id).toBe(7);
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("ON CONFLICT (driver) DO UPDATE SET core_version"),
+      ["gridlee", "a".repeat(64)],
+    );
+  });
+
+  it("upserts a match by replay_key and returns its id", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: "99" }] });
+    const id = await upsertMatch(mockPool, {
+      gameId: 7,
+      mode: "solo",
+      coreVersion: "a".repeat(64),
+      mameCommit: "b".repeat(40),
+      romHash: "c".repeat(64),
+      dips: { Difficulty: "Medium" },
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:05:00.000Z",
+      replayKey: "match/room/1.json.gz",
+      status: "ended",
+    });
+    expect(id).toBe(99n);
+    const [sql, params] = mockQuery.mock.calls[0]!;
+    expect(sql).toContain("ON CONFLICT (replay_key) DO UPDATE");
+    expect(params[5]).toBe(JSON.stringify({ Difficulty: "Medium" }));
+    expect(params[8]).toBe("match/room/1.json.gz");
+  });
+
+  it("links players idempotently", async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    await upsertMatchPlayers(mockPool, 99n, [
+      { slot: 0, userId: "42" },
+      { slot: 1, userId: "43" },
+    ]);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("ON CONFLICT (match_id, slot) DO NOTHING"),
+      [99n, "42", 0],
+    );
+  });
+});

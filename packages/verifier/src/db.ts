@@ -82,7 +82,7 @@ export async function markMatchVerified(
 
 /**
  * Look up the match and player info for a given replay key.
- * Returns null if the match has not been created yet (T34 hasn't run yet).
+ * Returns null if the match has not been created yet.
  */
 export async function findMatchByReplayKey(
   pool: PgPool,
@@ -97,7 +97,7 @@ export async function findMatchByReplayKey(
   return {
     matchId: BigInt(row.id),
     gameId: parseInt(row.game_id, 10),
-    userId: 0n, // T34: join with match_players
+    userId: 0n, // match_players carries the real user ids
   };
 }
 
@@ -116,4 +116,92 @@ export async function getMatchPlayers(
     userId: BigInt(r.user_id),
     slot: r.slot,
   }));
+}
+
+export interface GameKey {
+  driver: string;
+  coreVersion: string;
+}
+
+/**
+ * Resolve a `games.id` for `driver`, inserting a minimal row if the API has not
+ * seeded it. An existing row keeps its title/metadata; only `core_version` is
+ * refreshed to the core that actually played (T34).
+ */
+export async function getOrCreateGame(
+  pool: PgPool,
+  key: GameKey,
+): Promise<number> {
+  const result = await pool.query(
+    `INSERT INTO games
+       (driver, title, core_version, supports_save, netplay_mode, max_players, rom_licensed)
+     VALUES ($1, $1, $2, true, 'lockstep', 2, false)
+     ON CONFLICT (driver) DO UPDATE SET core_version = EXCLUDED.core_version
+     RETURNING id`,
+    [key.driver, key.coreVersion],
+  );
+  return parseInt((result.rows[0] as { id: string }).id, 10);
+}
+
+export interface MatchInsert {
+  gameId: number;
+  mode: string;
+  coreVersion: string;
+  mameCommit: string;
+  romHash: string;
+  dips: Record<string, string | number>;
+  startedAt: string;
+  endedAt: string;
+  replayKey: string;
+  status: string;
+}
+
+/**
+ * Create the match row (idempotent on `replay_key`) so the verifier can flag or
+ * verify it. `replay_key` is UNIQUE (migration 0002), so an at-least-once job
+ * redelivery does not create a duplicate match (T34).
+ */
+export async function upsertMatch(
+  pool: PgPool,
+  match: MatchInsert,
+): Promise<bigint> {
+  const result = await pool.query(
+    `INSERT INTO matches
+       (game_id, mode, core_version, mame_commit, rom_hash, dip_settings,
+        started_at, ended_at, replay_key, status)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+     ON CONFLICT (replay_key) DO UPDATE SET
+       ended_at = EXCLUDED.ended_at,
+       status = EXCLUDED.status
+     RETURNING id`,
+    [
+      match.gameId,
+      match.mode,
+      match.coreVersion,
+      match.mameCommit,
+      match.romHash,
+      JSON.stringify(match.dips),
+      match.startedAt,
+      match.endedAt,
+      match.replayKey,
+      match.status,
+    ],
+  );
+  return BigInt((result.rows[0] as { id: string }).id);
+}
+
+/** Link seated players to a match; idempotent on (match_id, slot). */
+export async function upsertMatchPlayers(
+  pool: PgPool,
+  matchId: bigint,
+  players: { slot: number; userId: string }[],
+): Promise<void> {
+  for (const player of players) {
+    await pool.query(
+      `INSERT INTO match_players (match_id, user_id, slot)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (match_id, slot) DO NOTHING`,
+      [matchId, player.userId, player.slot],
+    );
+  }
 }

@@ -27,7 +27,7 @@ CREATE TABLE matches (
   dip_settings jsonb NOT NULL,
   started_at   timestamptz NOT NULL,
   ended_at     timestamptz,
-  replay_key   text,                       -- object storage key of the input log
+  replay_key   text UNIQUE,                -- object storage key of the input log
   status       text NOT NULL CHECK (status IN ('live','ended','verified','flagged'))
 );
 CREATE TABLE match_players (

@@ -97,6 +97,11 @@ interface Room {
   paused: Set<number>;
   /** Latest live score per seated slot, for the input log's end.scores (T32). */
   scores: Map<number, number>;
+  /**
+   * Epoch ms the current match started (game.start), or null before one. This
+   * is match metadata only (T34) and never reaches the emulation path.
+   */
+  startedAt: number | null;
 }
 
 /** Outcome of a `hash` message; `mismatch` triggers a `desync` broadcast. */
@@ -124,6 +129,25 @@ function seatedPlayers(room: Room): { slot: number; name: string }[] {
 }
 
 /**
+ * Seated players with their token `sub`, in slot order (T34). The verifier uses
+ * `userId` to write `match_players`; `sub` is the API's `users.id` (see the API
+ * JWT issuance). Unlike {@link seatedPlayers} this carries the user id.
+ */
+function seatedRoster(room: Room): RosterPlayer[] {
+  return [...room.members.values()]
+    .filter((m): m is RoomMember & { slot: number } => m.slot !== null)
+    .sort((a, b) => a.slot - b.slot)
+    .map((m) => ({ slot: m.slot, userId: m.sub, name: m.name }));
+}
+
+/** A seated player at match end, with the user id the verifier persists (T34). */
+export interface RosterPlayer {
+  slot: number;
+  userId: string;
+  name: string;
+}
+
+/**
  * Largest frame advance accepted between hash comparisons (T25), and the
  * farthest a hash frame may sit from the room's start. Legitimate hashes
  * advance ~60 per report; the window (one hour of frames) tolerates a long
@@ -137,9 +161,11 @@ export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly byConnection = new Map<string, string>();
   private readonly verifier: TokenVerifier;
+  private readonly now: () => number;
 
-  constructor(verifier: TokenVerifier) {
+  constructor(verifier: TokenVerifier, now: () => number = Date.now) {
     this.verifier = verifier;
+    this.now = now;
   }
 
   /** Verify the token and seat the connection. Throws TokenError/RelayError. */
@@ -301,6 +327,8 @@ export class RoomManager {
     }
     room.status = "playing";
     room.start = { startFrame: message.startFrame, inputDelay: message.inputDelay };
+    // Match start time for the matches row (T34 metadata; not the emulation path).
+    room.startedAt = this.now();
     // A new match invalidates any live-join snapshot from a previous one (T31).
     room.snapshot = null;
     // A new match starts with A/V sharing off; the host re-opts in (T41).
@@ -370,7 +398,14 @@ export class RoomManager {
   end(
     connectionId: string,
     message: GameEnd,
-  ): { roomId: string; from: number; log: InputLog | null } {
+  ): {
+    roomId: string;
+    from: number;
+    log: InputLog | null;
+    roster: RosterPlayer[];
+    startedAt: number;
+    endedAt: number;
+  } {
     const room = this.roomOf(connectionId, "game.end");
     const sender = room.members.get(connectionId);
     if (!sender || sender.slot === null) {
@@ -391,6 +426,7 @@ export class RoomManager {
     room.video = false;
     const recorder = room.log;
     room.log = null;
+    const endedAt = this.now();
     // Per-slot live scores captured during the match (T32), aligned to the log's
     // start roster and defaulting an unreported slot to 0.
     const scores = recorder
@@ -403,6 +439,11 @@ export class RoomManager {
       roomId: room.id,
       from: sender.slot,
       log: recorder ? recorder.close(message.frame, scores) : null,
+      // The roster with user ids and the match window, for the verifier's
+      // matches/match_players write (T34).
+      roster: seatedRoster(room),
+      startedAt: room.startedAt ?? endedAt,
+      endedAt,
     };
   }
 
@@ -758,6 +799,7 @@ export class RoomManager {
         hashes: new Map(),
         paused: new Set(),
         scores: new Map(),
+        startedAt: null,
       };
       this.rooms.set(roomId, room);
     }

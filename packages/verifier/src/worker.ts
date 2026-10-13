@@ -102,11 +102,55 @@ async function runReplay(
   });
 }
 
+/**
+ * Create (or refresh) the `matches` + `match_players` rows for a job before it
+ * is replayed, so a match can be flagged or verified even if the replay fails
+ * (T34). `replay_key` is UNIQUE, so a redelivered job updates rather than
+ * duplicates. Returns the match id.
+ */
+export async function ensureMatch(
+  opts: Pick<WorkerOptions, "pgPool">,
+  job: VerifyJob,
+): Promise<bigint> {
+  const { getOrCreateGame, upsertMatch, upsertMatchPlayers } = await import("./db.js");
+  const gameId = await getOrCreateGame(opts.pgPool, {
+    driver: job.driver,
+    coreVersion: job.coreHash,
+  });
+  const matchId = await upsertMatch(opts.pgPool, {
+    gameId,
+    mode: job.mode,
+    coreVersion: job.coreHash,
+    mameCommit: job.mameCommit,
+    romHash: job.romHash,
+    dips: job.dips,
+    startedAt: job.startedAt,
+    endedAt: job.endedAt,
+    replayKey: job.replayKey,
+    status: "ended",
+  });
+  await upsertMatchPlayers(opts.pgPool, matchId, job.players);
+  return matchId;
+}
+
 export async function processJob(
   opts: WorkerOptions,
   job: VerifyJob,
 ): Promise<void> {
   const { mameBin, romDir, scoremapDir, logDir, pinnedMameCommit, log } = opts;
+
+  // Persist the match identity first, so any rejection below still leaves a
+  // `matches` row to flag (T34).
+  try {
+    await ensureMatch(opts, job);
+  } catch (err) {
+    log?.("match-upsert-error", {
+      room: job.room,
+      replayKey: job.replayKey,
+      error: String(err),
+    });
+    return;
+  }
 
   if (job.mameCommit !== pinnedMameCommit) {
     log?.("job-rejected", {

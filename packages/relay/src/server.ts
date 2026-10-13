@@ -36,6 +36,8 @@ export interface RelayServerOptions {
   jobQueue?: JobQueue;
   /** LiveKit issuer config (T41); A/V is unavailable when omitted. */
   livekit?: LivekitConfig;
+  /** Clock for match metadata timestamps (T34); injectable for tests. */
+  now?: () => number;
 }
 
 export interface RelayServer {
@@ -95,6 +97,12 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
         driver: closed.driver,
         coreHash: closed.coreHash,
         mameCommit: closed.mameCommit,
+        romHash: closed.romHash,
+        dips: closed.dips,
+        mode: closed.mode,
+        players: closed.players,
+        startedAt: closed.startedAt,
+        endedAt: closed.endedAt,
       });
     })()
       .catch((error: unknown) => {
@@ -112,6 +120,7 @@ export function createRelayServer(options: RelayServerOptions): Promise<RelaySer
     log: logger,
     onLogClosed: persistLog,
     ...(options.livekit ? { livekit: options.livekit } : {}),
+    ...(options.now ? { now: options.now } : {}),
   });
   // Recent desync-recovery snapshots per room (T25), newest first. Keeping a
   // short history means a url handed out just before another desync still

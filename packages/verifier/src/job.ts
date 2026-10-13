@@ -9,6 +9,15 @@ export interface VerifyJob {
   driver: string;
   coreHash: string;
   mameCommit: string;
+  /** Match identity the verifier persists into `matches` (T34). */
+  romHash: string;
+  dips: Record<string, string | number>;
+  mode: "solo" | "coop";
+  /** Seated players with user ids, in slot order (T34). */
+  players: { slot: number; userId: string; name: string }[];
+  /** ISO timestamps of the match window (T34). */
+  startedAt: string;
+  endedAt: string;
 }
 
 /** Score result parsed from the MAME replay output. */

@@ -405,6 +405,14 @@ describe("createRelay (input log, T30)", () => {
     expect(log.driver).toBe("gridlee");
     expect(log.mameCommit).toBe("b".repeat(40));
     expect(log.replayKey).toMatch(/^match\/r\/.+\.json\.gz$/);
+    // T34: match identity + roster with user ids ride along on the ClosedLog.
+    expect(log.romHash).toBe("c".repeat(64));
+    expect(log.dips).toEqual({ Difficulty: "Medium" });
+    expect(log.mode).toBe("coop");
+    expect(log.players).toEqual([
+      { slot: 0, userId: "alice", name: "player" },
+      { slot: 1, userId: "bob", name: "player" },
+    ]);
 
     const decoded = gunzipInputLog(log.bytes);
     expect(decoded.frames).toEqual([
@@ -428,6 +436,25 @@ describe("createRelay (input log, T30)", () => {
     for (const state of states) {
       expect(state.message).toMatchObject({ t: "room.state", status: "ended" });
     }
+  });
+
+  it("stamps the match window from the injected clock (T34)", () => {
+    const logs: ClosedLog[] = [];
+    let now = 1_000;
+    const r = createRelay({
+      verifier: fakeVerifier,
+      onLogClosed: (log) => logs.push(log),
+      now: () => now,
+    });
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c1", gameSet);
+    now = 2_000;
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    now = 5_000;
+    r.handle("c1", { t: "game.end", frame: 1 });
+
+    expect(logs[0]!.startedAt).toBe(new Date(2_000).toISOString());
+    expect(logs[0]!.endedAt).toBe(new Date(5_000).toISOString());
   });
 
   it("rejects game.end from a non-host or a non-playing room", () => {
