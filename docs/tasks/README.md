@@ -76,6 +76,15 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
 - [ ] **T36 Anti-cheat input analysis** – flag inhumanly regular / recorded input patterns from the log for review.
   Docs: 05, 07. Depends: T30, T33.
+- [ ] **T46 Netplay save/load continuation is not reproducible (bug)** – `e2e/save-integrity.e2e.ts` shows that on
+  the real netplay seam `Core.load(save())` + same inputs does **not** reproduce the uninterrupted future
+  (`forward != reload`, even all-zero inputs at span 1), and `afterLoad != atSave`; raiden/raiden2 `Core.save()`
+  throws despite `MACHINE_SUPPORTS_SAVE`. Underlies T25 recovery, T31 late-join and T35 replay. Root-cause in
+  `core/patches/` and fix. Docs: 00, 03, 04. Depends: T20, T25, T35.
+  Plan: `docs/tasks/T46-save-load-continuation.md`.
+- [ ] **T47 Scoremaps for the local-dev drivers** – discover and add `core/scoremap/<driver>.json`
+  (live scoreboard + verified leaderboard) for `twinbee`/`raiden`/`raiden2`/`twincobr`, following the
+  T32b workflow (`core/scoremap/README.md`, cheat search). Docs: 05, contracts/scoremap. Depends: T32b, T33.
 
 ## Phase 4 · Scale and polish
 - [ ] **T40 Rollback** (per game flag) – Docs: 03. Depends: T25.

@@ -84,3 +84,12 @@ repeated desyncs ⇒ remove the driver from online play.
 
 ## Late join / reconnect
 Joiner receives the latest host state + inputs since, then fast-forwards to live.
+
+## Known open issue: save/load continuation is not reproducible (T46)
+Everything above that recovers by `core.load(save())` + continue (desync `state.snapshot`,
+viewer late-join, replay boot snapshot) currently rests on an **unproven** assumption. The
+`e2e/save-integrity.e2e.ts` check shows that on the real netplay seam a reloaded snapshot does
+**not** reproduce the uninterrupted future (`forward != reload`, even with all-zero inputs at
+span 1), and `afterLoad != atSave`; `raiden`/`raiden2` `Core.save()` throws despite
+`MACHINE_SUPPORTS_SAVE`. Until T46 (`docs/tasks/T46-save-load-continuation.md`) root-causes and
+fixes this, treat snapshot-based recovery as best-effort, not bit-exact.
