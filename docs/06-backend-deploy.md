@@ -36,9 +36,10 @@ Move the SFU to its own machine first if video fallback is enabled.
 `packages/api` runs on the pinned Node with native type stripping
 (`pnpm --filter @wma/api start`). Env: `WMA_API_SECRET` (or `WMA_RELAY_SECRET`, the shared
 HS256 secret), `WMA_PG_URL` (or `DATABASE_URL`), optional `PORT` (default 8080), `HOST`,
-`WMA_TOKEN_TTL_SEC` and `WMA_LOG_BASE_URL` (replay links). It serves `/healthz`,
-`/api/auth/{register,login}`, `/api/games`, `/api/matches/:id`, `/api/matches/:id/replay`
-and `/api/leaderboards/:driver`. Schema from `docs/contracts/db-schema.sql` via
+`WMA_TOKEN_TTL_SEC`, `WMA_LOG_BASE_URL` (replay link base) and `WMA_LOG_DIR` (serve replay
+artifacts). It serves `/healthz`, `/api/auth/{register,login}`, `/api/games`,
+`/api/matches/:id`, `/api/matches/:id/replay`, `/api/replays/:key` and
+`/api/leaderboards/:driver`. Schema from `docs/contracts/db-schema.sql` via
 `pnpm --filter @wma/api migrate`; the catalogue is loaded with `pnpm --filter @wma/api seed`.
 `users` stores a scrypt `password_hash`; the issued JWT `sub` is the `users.id`, so the
 verifier writes `match_players.user_id` directly from the roster in the job.

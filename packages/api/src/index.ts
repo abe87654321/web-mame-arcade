@@ -4,7 +4,14 @@
 export const serviceName = "@wma/api";
 
 export { buildApp, type AppOptions } from "./app.ts";
-export { createPool, type PgPool, type QueryResult, type DbConfig } from "./pg.ts";
+export {
+  createPool,
+  type PgPool,
+  type PgClient,
+  type PgQueryable,
+  type QueryResult,
+  type DbConfig,
+} from "./pg.ts";
 export {
   applyMigrations,
   loadMigrations,
@@ -37,3 +44,4 @@ export {
 } from "./db.ts";
 export { hashPassword, verifyPassword } from "./password.ts";
 export { issueSessionToken, signHs256, type SessionClaims } from "./jwt.ts";
+export { readReplay, ReplayNotFound } from "./replays.ts";

@@ -457,6 +457,38 @@ describe("createRelay (input log, T30)", () => {
     expect(logs[0]!.endedAt).toBe(new Date(5_000).toISOString());
   });
 
+  it("freezes the verification roster at game.start (T34)", () => {
+    const logs: ClosedLog[] = [];
+    const r = createRelay({ verifier: fakeVerifier, onLogClosed: (l) => logs.push(l) });
+    r.handle("c1", join("c1", "alice"));
+    r.handle("c2", join("c2", "bob"));
+    r.handle("c1", gameSet);
+    r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 });
+    r.leave("c2"); // a peer drops mid-match
+    r.handle("c1", { t: "game.end", frame: 1 });
+
+    expect(logs[0]!.players).toEqual([
+      { slot: 0, userId: "alice", name: "player" },
+      { slot: 1, userId: "bob", name: "player" },
+    ]);
+  });
+
+  it("never exposes match timestamps in outbound messages (T34)", () => {
+    const r = createRelay({
+      verifier: fakeVerifier,
+      onLogClosed: () => {},
+      now: () => 5_000,
+    });
+    const out: Outbound[] = [
+      ...r.handle("c1", join("c1", "alice")),
+      ...r.handle("c1", gameSet),
+      ...r.handle("c1", { t: "game.start", startFrame: 0, inputDelay: 2 }),
+      ...r.handle("c1", { t: "game.end", frame: 1 }),
+    ];
+    expect(out.length).toBeGreaterThan(0);
+    expect(JSON.stringify(out)).not.toMatch(/startedAt|endedAt/);
+  });
+
   it("rejects game.end from a non-host or a non-playing room", () => {
     const r = relay();
     r.handle("c1", join("c1", "alice"));

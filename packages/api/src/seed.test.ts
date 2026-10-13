@@ -36,7 +36,11 @@ describe("seed", () => {
       void params;
       return { rows: [] as unknown[] };
     });
-    const pool: PgPool = { query, end: async () => {} };
+    const pool: PgPool = {
+      query,
+      connect: async () => ({ query, release() {} }),
+      end: async () => {},
+    };
     const count = await seedGames(pool, await loadCatalogue());
     expect(count).toBeGreaterThanOrEqual(1);
     expect(query).toHaveBeenCalledTimes(count);

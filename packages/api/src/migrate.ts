@@ -34,25 +34,35 @@ export async function applyMigrations(
   pool: PgPool,
   migrations: Migration[],
 ): Promise<string[]> {
-  await pool.query(CREATE_MIGRATIONS);
-  const { rows } = await pool.query("SELECT id FROM schema_migrations");
-  const applied = new Set((rows as { id: string }[]).map((row) => row.id));
+  // One dedicated connection for the whole run so each migration's DDL and its
+  // schema_migrations bookkeeping commit atomically (BEGIN/COMMIT on the same
+  // session); `pool.query` would check out a different connection per call.
+  const client = await pool.connect();
+  try {
+    await client.query(CREATE_MIGRATIONS);
+    const { rows } = await client.query("SELECT id FROM schema_migrations");
+    const applied = new Set((rows as { id: string }[]).map((row) => row.id));
 
-  const ran: string[] = [];
-  for (const migration of migrations) {
-    if (applied.has(migration.id)) continue;
-    await pool.query("BEGIN");
-    try {
-      await pool.query(migration.sql);
-      await pool.query("INSERT INTO schema_migrations (id) VALUES ($1)", [migration.id]);
-      await pool.query("COMMIT");
-    } catch (error) {
-      await pool.query("ROLLBACK");
-      throw error;
+    const ran: string[] = [];
+    for (const migration of migrations) {
+      if (applied.has(migration.id)) continue;
+      await client.query("BEGIN");
+      try {
+        await client.query(migration.sql);
+        await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [
+          migration.id,
+        ]);
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+      ran.push(migration.id);
     }
-    ran.push(migration.id);
+    return ran;
+  } finally {
+    client.release();
   }
-  return ran;
 }
 
 /** Directory holding the API's migration files. */

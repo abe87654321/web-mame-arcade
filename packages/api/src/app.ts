@@ -16,6 +16,7 @@ import {
 } from "./db.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { issueSessionToken, type SessionClaims } from "./jwt.ts";
+import { ReplayNotFound, readReplay } from "./replays.ts";
 
 export interface AppOptions {
   pool: PgPool;
@@ -25,6 +26,8 @@ export interface AppOptions {
   tokenTtlSec?: number;
   /** Public base URL for replay artifacts; default `/api/replays`. */
   replayBaseUrl?: string;
+  /** Directory the relay writes closed logs to; enables `GET /api/replays/:key`. */
+  logDir?: string;
   /** Injectable clock (unix seconds) for token expiry tests. */
   now?: () => number;
 }
@@ -71,6 +74,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   // Replay links point at object storage / nginx, not an API route: the default
   // is served by the deploy layer (T42); override with WMA_LOG_BASE_URL.
   const replayBaseUrl = options.replayBaseUrl ?? "/api/replays";
+  const logDir = options.logDir;
   const app = Fastify({ logger: false });
 
   const mint = (id: bigint, name: string): { token: string; claims: SessionClaims } =>
@@ -168,6 +172,24 @@ export function buildApp(options: AppOptions): FastifyInstance {
       };
     },
   );
+
+  // Serve a stored replay artifact when a log directory is configured. Without
+  // one (no WMA_LOG_DIR), the route reports it is not configured rather than
+  // 500ing; deploy fronts the same URL via nginx/object storage (T42).
+  app.get<{ Params: { key: string } }>("/api/replays/:key", async (request, reply) => {
+    if (!logDir) return reply.code(404).send({ error: "replays_not_configured" });
+    try {
+      const bytes = await readReplay(logDir, request.params.key);
+      return reply
+        .header("content-type", "application/gzip")
+        .send(Buffer.from(bytes));
+    } catch (error) {
+      if (error instanceof ReplayNotFound) {
+        return reply.code(404).send({ error: "no_replay" });
+      }
+      throw error;
+    }
+  });
 
   const PERIOD_MS: Record<string, number> = {
     day: 24 * 60 * 60 * 1000,

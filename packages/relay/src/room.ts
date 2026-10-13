@@ -102,6 +102,12 @@ interface Room {
    * is match metadata only (T34) and never reaches the emulation path.
    */
   startedAt: number | null;
+  /**
+   * Seated roster (with user ids) captured at game.start, or null before one
+   * (T34). Captured at start so a mid-match join/leave cannot make the verifier's
+   * `match_players` diverge from the input log's `start.players`.
+   */
+  roster: RosterPlayer[] | null;
 }
 
 /** Outcome of a `hash` message; `mismatch` triggers a `desync` broadcast. */
@@ -339,6 +345,8 @@ export class RoomManager {
     room.paused.clear();
     // A new match starts with no recorded live scores (T32).
     room.scores.clear();
+    // Seated roster with user ids, frozen at start for the verifier (T34).
+    room.roster = seatedRoster(room);
     // Open the input log when the host has set the game (T30); without a
     // `game.set` there is no match identity to log, so no log is recorded.
     room.log = room.game
@@ -440,8 +448,9 @@ export class RoomManager {
       from: sender.slot,
       log: recorder ? recorder.close(message.frame, scores) : null,
       // The roster with user ids and the match window, for the verifier's
-      // matches/match_players write (T34).
-      roster: seatedRoster(room),
+      // matches/match_players write (T34). The roster is the one frozen at
+      // game.start, so it matches the input log's start players.
+      roster: room.roster ?? seatedRoster(room),
       startedAt: room.startedAt ?? endedAt,
       endedAt,
     };
@@ -800,6 +809,7 @@ export class RoomManager {
         paused: new Set(),
         scores: new Map(),
         startedAt: null,
+        roster: null,
       };
       this.rooms.set(roomId, room);
     }

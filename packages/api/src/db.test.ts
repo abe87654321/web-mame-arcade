@@ -15,6 +15,13 @@ const pool: PgPool = {
   async query(sql, params) {
     return mockQuery(sql, params) as Promise<{ rows: unknown[] }>;
   },
+  async connect() {
+    return {
+      query: async (sql, params) =>
+        mockQuery(sql, params) as Promise<{ rows: unknown[] }>,
+      release() {},
+    };
+  },
   async end() {},
 };
 

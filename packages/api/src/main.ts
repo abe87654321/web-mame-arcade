@@ -28,6 +28,7 @@ const app = buildApp({
     ? { tokenTtlSec: Number(process.env.WMA_TOKEN_TTL_SEC) }
     : {}),
   ...(process.env.WMA_LOG_BASE_URL ? { replayBaseUrl: process.env.WMA_LOG_BASE_URL } : {}),
+  ...(process.env.WMA_LOG_DIR ? { logDir: process.env.WMA_LOG_DIR } : {}),
 });
 
 try {

@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join as pjoin } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app";
 import { hashPassword } from "./password";
@@ -9,6 +12,13 @@ const query = vi.fn();
 const pool: PgPool = {
   async query(sql, params) {
     return query(sql, params) as Promise<{ rows: unknown[] }>;
+  },
+  async connect() {
+    return {
+      query: async (sql, params) =>
+        query(sql, params) as Promise<{ rows: unknown[] }>,
+      release() {},
+    };
   },
   async end() {},
 };
@@ -283,5 +293,42 @@ describe("GET /api/leaderboards/:driver", () => {
     });
     expect(bad.statusCode).toBe(400);
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/replays/:key", () => {
+  it("404s with a clear code when no log dir is configured", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/replays/" + encodeURIComponent("match/r/1.json.gz"),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "replays_not_configured" });
+  });
+
+  it("serves a stored artifact and rejects traversal", async () => {
+    const dir = await mkdtemp(pjoin(tmpdir(), "wma-replays-"));
+    try {
+      await mkdir(pjoin(dir, "match/r"), { recursive: true });
+      await writeFile(pjoin(dir, "match/r/1.json.gz"), Buffer.from([1, 2, 3]));
+      const withDir = buildApp({ pool, secret: SECRET, logDir: dir });
+
+      const ok = await withDir.inject({
+        method: "GET",
+        url: "/api/replays/" + encodeURIComponent("match/r/1.json.gz"),
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.headers["content-type"]).toContain("application/gzip");
+      expect(new Uint8Array(ok.rawPayload)).toEqual(new Uint8Array([1, 2, 3]));
+
+      const traversal = await withDir.inject({
+        method: "GET",
+        url: "/api/replays/" + encodeURIComponent("../../etc/passwd"),
+      });
+      expect(traversal.statusCode).toBe(404);
+      expect(traversal.json()).toEqual({ error: "no_replay" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
