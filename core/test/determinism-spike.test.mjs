@@ -37,6 +37,14 @@ test("unknown driver is rejected", () => {
   assert.match(r.stderr, /unknown driver: pacman/);
 });
 
+test("--dry-run accepts the local-dev drivers", () => {
+  for (const driver of ["twinbee", "raiden", "raiden2", "twincobr"]) {
+    const r = run(driver, "--dry-run");
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, new RegExp(`driver:\\s+${driver}`));
+  }
+});
+
 test("--dry-run default prints record and playback commands", () => {
   const r = run("--dry-run");
   assert.equal(r.status, 0);
