@@ -2,6 +2,7 @@ export { buildMameArgs } from "./options";
 export { loadBrowserCore } from "./browser";
 export type { BrowserCoreDeps, BrowserCoreInit } from "./browser";
 export { CoreCapabilityError } from "./errors";
+export { gunzip } from "./gzip";
 export { loadCoreBundle } from "./loader";
 export type { CoreBundle, CoreBundleSource } from "./loader";
 export { parseManifest, sha256Hex, verifyArtifact } from "./manifest";
