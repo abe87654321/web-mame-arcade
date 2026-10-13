@@ -73,7 +73,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T33 Verifier worker** – Redis job → native MAME + `verify.lua` → compare → write scores / flag. Docs: 05. Depends: T01, T21, T30.
 - [x] **T34 API + leaderboards** – Fastify, auth/JWT, schema migrations, board endpoints (Redis sorted sets), replay links. Docs: 05, 06. Depends: T33.
   Note: boards are derived from PostgreSQL `scores` (ZSET write-through deferred); the verifier upserts `matches`/`match_players` from the closed log.
-- [ ] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
+- [x] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
 - [ ] **T36 Anti-cheat input analysis** – flag inhumanly regular / recorded input patterns from the log for review.
   Docs: 05, 07. Depends: T30, T33.
 
