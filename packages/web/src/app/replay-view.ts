@@ -74,6 +74,8 @@ export function buildReplay(
   // disable the playback controls until a replay actually exists.
   const shownFrame = Math.min(state.frame, state.endFrame);
   const idle = state.status === "loading" || state.status === "error";
+  // Pause is meaningless once the match has ended; restart stays available.
+  const pauseDisabled = idle || state.status === "ended";
   const children: ViewNode[] = [
     {
       tag: "div",
@@ -123,7 +125,7 @@ export function buildReplay(
         tag: "button",
         className: "btn replay-pause",
         text: paused ? "Resume" : "Pause",
-        disabled: idle,
+        disabled: pauseDisabled,
         onClick: paused ? options.onResume : options.onPause,
       },
       {

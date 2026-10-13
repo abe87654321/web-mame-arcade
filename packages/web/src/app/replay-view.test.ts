@@ -75,12 +75,18 @@ describe("buildReplay", () => {
     expect(find(tree, "replay-progress")?.text).toBe("5400 / 5400");
   });
 
-  it("disables the playback controls until a replay exists", () => {
+  it("disables the playback controls until a replay exists, and pause once ended", () => {
     const loading = buildReplay(state({ status: "loading" }), options());
     expect(find(loading, "replay-pause")?.disabled).toBe(true);
     expect(find(loading, "replay-restart")?.disabled).toBe(true);
+
     const playing = buildReplay(state({ status: "playing" }), options());
     expect(find(playing, "replay-pause")?.disabled).toBe(false);
+    expect(find(playing, "replay-restart")?.disabled).toBe(false);
+
+    const ended = buildReplay(state({ status: "ended" }), options());
+    expect(find(ended, "replay-pause")?.disabled).toBe(true);
+    expect(find(ended, "replay-restart")?.disabled).toBe(false);
   });
 
   it("shows the error message on failure", () => {

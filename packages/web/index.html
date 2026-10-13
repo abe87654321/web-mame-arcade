@@ -845,6 +845,10 @@
         transform: translateY(1px);
         box-shadow: 1px 1px 0 rgba(42, 24, 16, 0.1);
       }
+      .replay-controls button:disabled {
+        cursor: not-allowed;
+        color: var(--muted);
+      }
       .replay-controls button:focus-visible {
         outline: none;
         box-shadow: var(--focus-ring);
@@ -935,6 +939,13 @@
           left: 8px;
         }
         .viewer {
+          max-width: calc(100vw - 16px);
+        }
+        .replay-host {
+          top: 8px;
+          right: 8px;
+        }
+        .replay {
           max-width: calc(100vw - 16px);
         }
       }
