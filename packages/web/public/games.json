@@ -11,5 +11,57 @@
     "romLicensed": true,
     "coreBaseUrl": "/static/cores/gridlee",
     "romZipUrl": "/roms/gridlee.zip"
+  },
+  {
+    "driver": "twinbee",
+    "title": "TwinBee",
+    "coreVersion": "bed721e8686e7f57b1f7ee92d6cc2a818016406972f5ca35f9b5994593a258a4",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "2beca5f6c8fe71736b742f154e5ecb1af78dfb98d4bfefa578854ccb6bafd4a8",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/twinbee",
+    "romZipUrl": "/roms/twinbee.zip"
+  },
+  {
+    "driver": "raiden",
+    "title": "Raiden",
+    "coreVersion": "79cbe8d291f6b41f18562cdb96e3051e19e2c2f798974197c7fbfc50c6c8b78e",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "455da1b5befdb5cace483edd63bf44ffd45dfb9eed631d9589dabaef54dd2588",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/raiden",
+    "romZipUrl": "/roms/raiden.zip"
+  },
+  {
+    "driver": "raiden2",
+    "title": "Raiden II",
+    "coreVersion": "5dff9eaabd8561e3d491a51f57f69fe6f503b1e866dd12dad059b94bfa266d36",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "3cdbd3b03c3fc64d6bcedc5c52b10c8a2b288ab7e4e526f157f02479e975c878",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/raiden2",
+    "romZipUrl": "/roms/raiden2.zip"
+  },
+  {
+    "driver": "twincobr",
+    "title": "Twin Cobra",
+    "coreVersion": "b6ebb70ec16852c4ce5eaf583100788b46e1cf676c734cb3b662acde14659bb3",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "7bec391859fe08b14f1dc296ad491d5a6291781d7b3924707710aa4ae8521c87",
+    "supportsSave": false,
+    "netplayMode": "none",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/twincobr",
+    "romZipUrl": "/roms/twincobr.zip"
   }
 ]

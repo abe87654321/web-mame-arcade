@@ -33,6 +33,13 @@ Build the native verifier binary from the **same commit** (`make SUBTARGET=... -
 `core/build-native.sh <driver>` wraps this for one free driver and prints the binary sha256; it was
 first validated with `gridlee` at pinned commit `b67e5bc`.
 
+Known drivers live in `core/drivers.sh` (shared by both build scripts; list them with
+`core/build-wasm.sh --list-drivers`): `gridlee` (free) plus the commercial `twinbee`,
+`raiden`, `raiden2` and `twincobr`, whose ROMs stay in the gitignored `roms/` for local
+dev only (docs/07). After a build, `core/publish-web.sh <driver>` copies the core into
+`packages/web/public/static/cores/<driver>/<core_hash>/` and points that `<driver>`'s
+`games.json` entry (which must already exist) at the new `coreVersion`.
+
 ## Pinned versions (never use "latest")
 The machine-readable source of truth is `core/versions.json`; this table mirrors it and a test
 (`core/test/version-pins.test.mjs`) keeps the two equal.

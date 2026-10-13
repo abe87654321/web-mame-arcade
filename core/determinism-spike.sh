@@ -17,9 +17,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LUA="$REPO_ROOT/core/determinism/spike.lua"
 
-# Only drivers verified as MACHINE_SUPPORTS_SAVE with all RAM in memory shares
-# (see docs/01-mame-source-notes.md). gridlee is the T02 smoke driver.
-declare -A KNOWN_DRIVERS=( [gridlee]=1 )
+# Drivers declared MACHINE_SUPPORTS_SAVE (see docs/01-mame-source-notes.md), plus
+# twincobr which has NO save state (solo-only; record/playback still validates
+# its determinism). gridlee is the T02 smoke driver; the rest are local-dev
+# titles. "all RAM in memory shares" is still verified per driver by running
+# this spike.
+declare -A KNOWN_DRIVERS=( [gridlee]=1 [twinbee]=1 [raiden]=1 [raiden2]=1 [twincobr]=1 )
 DEFAULT_DRIVER=gridlee
 
 FRAMES=36000
@@ -53,8 +56,9 @@ Options:
 
 Known drivers: ${!KNOWN_DRIVERS[*]}
 
-A free gridlee.zip ROM is available from https://www.mamedev.org/roms/ and
-must be placed in the ROM directory (roms/ is gitignored).
+A free gridlee.zip ROM is available from https://www.mamedev.org/roms/. Every
+ROM must be placed in the ROM directory (roms/ is gitignored); the commercial
+twinbee/raiden/raiden2 zips are local-dev only and never committed (docs/07).
 EOF
 }
 

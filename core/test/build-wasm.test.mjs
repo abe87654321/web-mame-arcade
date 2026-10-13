@@ -28,6 +28,21 @@ test("--list-drivers includes gridlee", () => {
   assert.match(r.stdout, /\bgridlee\b/);
 });
 
+test("--list-drivers includes the local-dev drivers", () => {
+  const r = run("--list-drivers");
+  assert.equal(r.status, 0);
+  for (const driver of ["twinbee", "raiden", "raiden2", "twincobr"]) {
+    assert.match(r.stdout, new RegExp(`\\b${driver}\\b`));
+  }
+});
+
+test("--dry-run raiden names the Seibu raiden source", () => {
+  const r = run("--dry-run", "raiden");
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SUBTARGET=raiden/);
+  assert.match(r.stdout, /src\/mame\/seibu\/raiden\.cpp/);
+});
+
 test("--dry-run gridlee prints a reproducible emmake command", () => {
   const r = run("--dry-run", "gridlee");
   assert.equal(r.status, 0, r.stderr);
