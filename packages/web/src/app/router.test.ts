@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   gameHref,
   parseRoute,
+  replayHref,
   startRouter,
   watchHref,
   type RouterTarget,
@@ -45,6 +46,21 @@ describe("parseRoute", () => {
     });
   });
 
+  it("maps a replay hash to the replay route, decoding the key", () => {
+    expect(parseRoute("#/game/gridlee/replay/match%2Froom1%2Flog.json.gz")).toEqual({
+      kind: "replay",
+      driver: "gridlee",
+      key: "match/room1/log.json.gz",
+    });
+  });
+
+  it("rejects a replay hash without a key", () => {
+    expect(parseRoute("#/game/gridlee/replay/")).toEqual({
+      kind: "not-found",
+      path: "/game/gridlee/replay/",
+    });
+  });
+
   it("rejects a missing driver", () => {
     expect(parseRoute("#/game/")).toEqual({
       kind: "not-found",
@@ -74,6 +90,14 @@ describe("watchHref", () => {
   it("builds the viewer link for a driver and room", () => {
     expect(watchHref("gridlee", "abc123")).toBe(
       "#/game/gridlee/room/abc123/watch",
+    );
+  });
+});
+
+describe("replayHref", () => {
+  it("builds the replay link, encoding the key", () => {
+    expect(replayHref("gridlee", "match/room1/log.json.gz")).toBe(
+      "#/game/gridlee/replay/match%2Froom1%2Flog.json.gz",
     );
   });
 });

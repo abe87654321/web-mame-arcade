@@ -148,6 +148,10 @@ export function createReplay(deps: ReplayDeps): Replay {
       report();
     },
     bootHash: () => deps.core.hash(),
-    destroy(): void {},
+    destroy(): void {
+      // The replay owns the core on its route (like the viewer on watch), so
+      // shut MAME down with it.
+      deps.core.destroy();
+    },
   };
 }

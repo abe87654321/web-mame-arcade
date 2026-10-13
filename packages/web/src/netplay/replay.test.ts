@@ -191,4 +191,10 @@ describe("createReplay", () => {
     const replay = createReplay({ core, log: makeLog() });
     expect(replay.bootHash()).toBe(123456);
   });
+
+  it("destroys the core it owns on destroy", () => {
+    const { core } = fakeCore();
+    createReplay({ core, log: makeLog() }).destroy();
+    expect(core.destroy).toHaveBeenCalledOnce();
+  });
 });
