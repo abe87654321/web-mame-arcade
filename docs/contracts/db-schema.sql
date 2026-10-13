@@ -10,10 +10,12 @@ CREATE TABLE games (
   rom_licensed  boolean NOT NULL DEFAULT false
 );
 CREATE TABLE users (
-  id         bigserial PRIMARY KEY,
-  name       text UNIQUE NOT NULL,
-  country    char(2),
-  created_at timestamptz NOT NULL DEFAULT now()
+  id            bigserial PRIMARY KEY,
+  name          text UNIQUE NOT NULL,
+  -- scrypt hash of the user's password (T34); the JWT `sub` is this row's id.
+  password_hash text NOT NULL,
+  country       char(2),
+  created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE matches (
   id           bigserial PRIMARY KEY,
