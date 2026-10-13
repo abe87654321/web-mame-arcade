@@ -33,3 +33,20 @@ Player names, live score overlay, chat (same WS), viewer count, "watch from star
 - A collaborative pause (T29, `player.pause`) is fanned to viewers too: no fresh inputs arrive
   while the room is paused, so the viewer simply drains its buffer and waits — no separate
   pause handling is needed in the playback loop.
+
+## Implemented in T35 ("watch from start")
+- Entry point: `#/game/<driver>/replay/<key>`, where `key` is the closed match's
+  `matches.replay_key` (`match/<room>/<id>.json.gz`), URL-encoded because it contains
+  slashes. The driver sits in the route so the catalogue entry (core URL, ROM URL) is
+  known before the log is decoded.
+- The page fetches the gzip artifact from `GET /api/replays/:key` (T34), gunzips it and
+  decodes the closed `InputLog` (docs/contracts/input-log.md) with the shared
+  `decodeInputLog`, then verifies `core_hash` / `rom_hash` / `mame_commit` against the
+  catalogue entry. A mismatch is refused, never replayed.
+- It boots the **same** WASM core the match used, armed (`netplay: true`) so the machine
+  is frozen at boot, and steps frames `start.frame … end.frame` from the log's `frames`
+  only — the offline sibling of the live viewer. Controls: play/pause, restart (reloads a
+  boot snapshot via `core.load`), and a frame progress indicator; the match reaches status
+  `ended` at `end.frame`. No clock reading reaches `core.step` (determinism rule).
+- No new link UI: replay links come from T34's API (`/api/matches/:id/replay`, leaderboard
+  `replayUrl`); a leaderboard/match page that surfaces them is later work.
