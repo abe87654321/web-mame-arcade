@@ -432,15 +432,24 @@ describe("createRelayServer", () => {
           [1, 0],
           [4, 0],
         ]);
-        expect(jobQueue.jobs).toEqual([
-          {
-            room: "r",
-            replayKey: keys[0],
-            driver: "gridlee",
-            coreHash: "a".repeat(64),
-            mameCommit: "b".repeat(40),
-          },
-        ]);
+        expect(jobQueue.jobs).toHaveLength(1);
+        const job = jobQueue.jobs[0]!;
+        expect(job).toMatchObject({
+          room: "r",
+          replayKey: keys[0],
+          driver: "gridlee",
+          coreHash: "a".repeat(64),
+          mameCommit: "b".repeat(40),
+          romHash: "c".repeat(64),
+          dips: { Difficulty: "Medium" },
+          mode: "coop",
+          players: [
+            { slot: 0, userId: "alice", name: "player" },
+            { slot: 1, userId: "bob", name: "player" },
+          ],
+        });
+        expect(job.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+        expect(job.endedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       } finally {
         await srv.close();
       }

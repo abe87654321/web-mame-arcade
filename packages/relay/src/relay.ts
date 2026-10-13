@@ -40,6 +40,15 @@ export interface ClosedLog {
   driver: string;
   coreHash: string;
   mameCommit: string;
+  /** Match identity copied from the log's meta (T34, for the matches row). */
+  romHash: string;
+  dips: Record<string, string | number>;
+  mode: "solo" | "coop";
+  /** Seated players with user ids, in slot order (T34). */
+  players: { slot: number; userId: string; name: string }[];
+  /** ISO timestamps of the match window (T34 metadata). */
+  startedAt: string;
+  endedAt: string;
   bytes: Uint8Array;
 }
 
@@ -61,6 +70,7 @@ export function createRelay({
   log,
   onLogClosed,
   livekit,
+  now,
 }: {
   verifier: TokenVerifier;
   /** Optional structured logger for desync/resync events (T25). */
@@ -69,8 +79,10 @@ export function createRelay({
   onLogClosed?: (closed: ClosedLog) => void;
   /** LiveKit issuer config; A/V is unavailable when omitted (T41). */
   livekit?: LivekitConfig;
+  /** Clock for match metadata timestamps (T34); injectable for tests. */
+  now?: () => number;
 }): Relay {
-  const rooms = new RoomManager(verifier);
+  const rooms = new RoomManager(verifier, now);
 
   function snapshotOut(roomId: string): Outbound[] {
     return rooms
@@ -212,7 +224,8 @@ export function createRelay({
             // The host closes the match: store the input log and queue
             // verification, then fan the end out and flip room.state to
             // "ended" (T30, docs/contracts/input-log.md).
-            const { roomId, log: closedLog } = rooms.end(connectionId, message);
+            const { roomId, log: closedLog, roster, startedAt, endedAt } =
+              rooms.end(connectionId, message);
             if (closedLog) {
               const replayKey = inputLogKey(roomId, randomUUID());
               log?.("input-log", {
@@ -226,6 +239,12 @@ export function createRelay({
                 driver: closedLog.meta.driver,
                 coreHash: closedLog.meta.core_hash,
                 mameCommit: closedLog.meta.mame_commit,
+                romHash: closedLog.meta.rom_hash,
+                dips: closedLog.meta.dips,
+                mode: closedLog.meta.mode,
+                players: roster,
+                startedAt: new Date(startedAt).toISOString(),
+                endedAt: new Date(endedAt).toISOString(),
                 bytes: gzipInputLog(closedLog),
               });
             }

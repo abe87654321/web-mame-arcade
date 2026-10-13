@@ -9,6 +9,15 @@ const sampleJob: VerifyJob = {
   coreHash:
     "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
   mameCommit: "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+  romHash: "d".repeat(64),
+  dips: { Difficulty: "Medium" },
+  mode: "coop",
+  players: [
+    { slot: 0, userId: "42", name: "alice" },
+    { slot: 1, userId: "43", name: "bob" },
+  ],
+  startedAt: "2026-01-01T00:00:00.000Z",
+  endedAt: "2026-01-01T00:05:00.000Z",
 };
 
 describe("redis-queue", () => {

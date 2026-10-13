@@ -31,3 +31,21 @@ Redis `verify:jobs` list as drop-ins (T33/T42); the relay's in-memory job sink i
 
 Starting server: 8 vCPU, 16 GB RAM, 1 Gbit/s, Ubuntu 24.04, Docker Compose (`deploy/docker-compose.yml`).
 Move the SFU to its own machine first if video fallback is enabled.
+
+## API (T34)
+`packages/api` runs on the pinned Node with native type stripping
+(`pnpm --filter @wma/api start`). Env: `WMA_API_SECRET` (or `WMA_RELAY_SECRET`, the shared
+HS256 secret), `WMA_PG_URL` (or `DATABASE_URL`), optional `PORT` (default 8080), `HOST`,
+`WMA_TOKEN_TTL_SEC`, `WMA_LOG_BASE_URL` (replay link base) and `WMA_LOG_DIR` (serve replay
+artifacts). It serves `/healthz`, `/api/auth/{register,login}`, `/api/games`,
+`/api/matches/:id`, `/api/matches/:id/replay`, `/api/replays/:key` and
+`/api/leaderboards/:driver`. Schema from `docs/contracts/db-schema.sql` via
+`pnpm --filter @wma/api migrate`; the catalogue is loaded with `pnpm --filter @wma/api seed`.
+`users` stores a scrypt `password_hash`; the issued JWT `sub` is the `users.id`, so the
+verifier writes `match_players.user_id` directly from the roster in the job.
+
+Match rows: the relay's `ClosedLog` carries the roster (slot + user id), `rom_hash`, DIPs,
+mode and the match window; the relay forwards them on the `verify:jobs` job and the verifier
+upserts `games`/`matches`/`match_players` (status `ended`) before replaying, flipping the
+match to `verified` (or `flagged` on failure). `matches.replay_key` is UNIQUE, so a
+redelivered job updates rather than duplicates.

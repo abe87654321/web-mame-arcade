@@ -10,10 +10,12 @@ CREATE TABLE games (
   rom_licensed  boolean NOT NULL DEFAULT false
 );
 CREATE TABLE users (
-  id         bigserial PRIMARY KEY,
-  name       text UNIQUE NOT NULL,
-  country    char(2),
-  created_at timestamptz NOT NULL DEFAULT now()
+  id            bigserial PRIMARY KEY,
+  name          text UNIQUE NOT NULL,
+  -- scrypt hash of the user's password (T34); the JWT `sub` is this row's id.
+  password_hash text NOT NULL,
+  country       char(2),
+  created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE matches (
   id           bigserial PRIMARY KEY,
@@ -25,7 +27,7 @@ CREATE TABLE matches (
   dip_settings jsonb NOT NULL,
   started_at   timestamptz NOT NULL,
   ended_at     timestamptz,
-  replay_key   text,                       -- object storage key of the input log
+  replay_key   text UNIQUE,                -- object storage key of the input log
   status       text NOT NULL CHECK (status IN ('live','ended','verified','flagged'))
 );
 CREATE TABLE match_players (
@@ -40,6 +42,9 @@ CREATE TABLE scores (
   user_id     bigint NOT NULL REFERENCES users(id),
   game_id     int NOT NULL REFERENCES games(id),
   score       bigint NOT NULL,
-  verified_at timestamptz NOT NULL DEFAULT now()
+  verified_at timestamptz NOT NULL DEFAULT now(),
+  -- One verified score per (match, user): makes the verifier's score insert
+  -- idempotent under at-least-once job redelivery (T34).
+  UNIQUE (match_id, user_id)
 );
 CREATE INDEX scores_board ON scores (game_id, score DESC);

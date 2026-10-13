@@ -5,7 +5,18 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
+    "start": "node src/main.ts",
+    "migrate": "node src/migrate-cli.ts",
+    "seed": "node src/seed-cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^5.12.5",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.6",
+    "@wma/relay": "workspace:*"
   }
 }
