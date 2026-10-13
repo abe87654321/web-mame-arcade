@@ -189,7 +189,9 @@ rejected. `input` is binary and deliberately **not** in the JSON union — tag i
 ## Auth
 `room.join.token` is an HS256 JWT. Claims: `sub` (required, non-empty user id), `name` (optional
 display name), `exp` (required, unix seconds). The relay verifies it with the shared secret and rejects
-an invalid/expired token before adding the member. Issuance is the API's job (T34).
+an invalid/expired token before adding the member. Issuance is the API's job (T34): `POST
+/api/auth/register` and `/api/auth/login` mint the token with `sub` = the `users.id`, so the roster in a
+verification job can be written to `match_players.user_id` directly.
 
 ## Relay error codes
 Relay replies to a client problem with `error { code, message }`. Codes used in T22:

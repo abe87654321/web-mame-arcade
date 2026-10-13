@@ -70,8 +70,9 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T32b Scoremap core read** – native `netplay_read_bytes` + WASM rebuild + gridlee address discovery
   (`core/scoremap/<driver>.json`), wired into `Core.readScore`. Docs: 05, contracts/ws-messages. Depends: T32a.
   Note: gridlee score found (3-byte BCD @0x0433; `core/scoremap/gridlee.json`).
-- [ ] **T33 Verifier worker** – Redis job → native MAME + `verify.lua` → compare → write scores / flag. Docs: 05. Depends: T01, T21, T30.
-- [ ] **T34 API + leaderboards** – Fastify, auth/JWT, schema migrations, board endpoints (Redis sorted sets), replay links. Docs: 05, 06. Depends: T33.
+- [x] **T33 Verifier worker** – Redis job → native MAME + `verify.lua` → compare → write scores / flag. Docs: 05. Depends: T01, T21, T30.
+- [x] **T34 API + leaderboards** – Fastify, auth/JWT, schema migrations, board endpoints (Redis sorted sets), replay links. Docs: 05, 06. Depends: T33.
+  Note: boards are derived from PostgreSQL `scores` (ZSET write-through deferred); the verifier upserts `matches`/`match_players` from the closed log.
 - [ ] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
 - [ ] **T36 Anti-cheat input analysis** – flag inhumanly regular / recorded input patterns from the log for review.
   Docs: 05, 07. Depends: T30, T33.
