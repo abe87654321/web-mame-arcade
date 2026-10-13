@@ -111,7 +111,8 @@ describe("leaderboard", () => {
       achievedAt: "2026-01-01T00:00:00.000Z",
     });
     const [sql, params] = mockQuery.mock.calls[0]!;
-    expect(sql).toContain("ORDER BY s.score DESC");
+    expect(sql).toContain("DISTINCT ON (s.user_id)");
+    expect(sql).toContain("ORDER BY best.score DESC");
     expect(params).toEqual([1, "2026-01-01T00:00:00.000Z", 50]);
   });
 });

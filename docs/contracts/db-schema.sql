@@ -42,6 +42,9 @@ CREATE TABLE scores (
   user_id     bigint NOT NULL REFERENCES users(id),
   game_id     int NOT NULL REFERENCES games(id),
   score       bigint NOT NULL,
-  verified_at timestamptz NOT NULL DEFAULT now()
+  verified_at timestamptz NOT NULL DEFAULT now(),
+  -- One verified score per (match, user): makes the verifier's score insert
+  -- idempotent under at-least-once job redelivery (T34).
+  UNIQUE (match_id, user_id)
 );
 CREATE INDEX scores_board ON scores (game_id, score DESC);

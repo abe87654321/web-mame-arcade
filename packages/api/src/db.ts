@@ -143,8 +143,9 @@ export async function upsertGame(pool: PgPool, game: NewGame): Promise<void> {
 }
 
 /**
- * Verified scores for a board, best first. `since` is an ISO timestamp or null
- * for all-time. One row per verified score; callers pick the best per user.
+ * Best verified score per user for a board, best first. `since` is an ISO
+ * timestamp or null for all-time. The best row is chosen in SQL (`DISTINCT ON`)
+ * so a `LIMIT` cannot truncate a user out of the board before deduplication.
  */
 export async function listBoard(
   pool: PgPool,
@@ -153,14 +154,20 @@ export async function listBoard(
   limit = 100,
 ): Promise<BoardEntry[]> {
   const { rows } = await pool.query(
-    `SELECT s.score, s.user_id, u.name AS user_name, s.match_id,
-            m.replay_key, s.verified_at
-       FROM scores s
-       JOIN users u ON u.id = s.user_id
-       JOIN matches m ON m.id = s.match_id
-      WHERE s.game_id = $1
-        AND ($2::timestamptz IS NULL OR s.verified_at >= $2)
-      ORDER BY s.score DESC, s.verified_at ASC
+    `SELECT best.score, best.user_id, best.user_name, best.match_id,
+            best.replay_key, best.verified_at
+       FROM (
+         SELECT DISTINCT ON (s.user_id)
+                s.score, s.user_id, u.name AS user_name, s.match_id,
+                m.replay_key, s.verified_at
+           FROM scores s
+           JOIN users u ON u.id = s.user_id
+           JOIN matches m ON m.id = s.match_id
+          WHERE s.game_id = $1
+            AND ($2::timestamptz IS NULL OR s.verified_at >= $2)
+          ORDER BY s.user_id, s.score DESC, s.verified_at ASC
+       ) best
+      ORDER BY best.score DESC, best.verified_at ASC
       LIMIT $3`,
     [gameId, since, limit],
   );

@@ -68,6 +68,8 @@ function serializeGame(game: GameRow): Record<string, unknown> {
 export function buildApp(options: AppOptions): FastifyInstance {
   const { pool, secret } = options;
   const ttlSec = options.tokenTtlSec ?? DEFAULT_TTL_SEC;
+  // Replay links point at object storage / nginx, not an API route: the default
+  // is served by the deploy layer (T42); override with WMA_LOG_BASE_URL.
   const replayBaseUrl = options.replayBaseUrl ?? "/api/replays";
   const app = Fastify({ logger: false });
 
