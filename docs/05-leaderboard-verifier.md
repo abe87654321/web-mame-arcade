@@ -22,6 +22,18 @@ score from RAM. Clients never submit a trusted score.
 5. Match → insert into `scores` (PostgreSQL) and mark the match `verified`. Mismatch → flag the match (`status = 'flagged'`).
    (The `ZADD lb:<driver>:<period>` write-through is deferred; T34 reads boards from PostgreSQL — see below.)
 
+## Anti-cheat input analysis (T36)
+After `ensureMatch` upserts the match row, the verifier worker reads the closed input log and runs a pure,
+deterministic analysis (`packages/verifier/src/anti-cheat.ts`) per player slot:
+- **`periodic_input`** — the mask column repeats on a fixed period (`p ≤ 60`, ≥ 95 % lag-`p` equality,
+  `p < N/4`, at least two distinct masks): a recorded or scripted loop.
+- **`uniform_hold`** — every press/release lasts exactly the same number of frames across ≥ 8 runs: a
+  mechanical autofire cadence.
+Matches shorter than 360 analysed frames (after the neutral input-delay prefix) are never flagged.
+Findings are **advisory**: they are written as `match_flags` rows (`db-schema.sql`) and logged as an
+`anti-cheat` event; they do not change `matches.status` or the verified score. The analysis never touches
+the emulation path and cannot break verification (a bad/missing log is logged as `anti-cheat-error`).
+
 ## API + boards (T34)
 `packages/api` (Fastify) issues the relay join JWTs and serves the catalogue and boards:
 - `POST /api/auth/register` / `POST /api/auth/login` — scrypt-hashed passwords; the JWT `sub` is the `users.id`.
