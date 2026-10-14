@@ -1,16 +1,41 @@
 # Arcade service compose. T23 adds coturn for WebRTC NAT traversal; T41 adds
-# LiveKit for the host's opt-in A/V fallback. The relay, API, nginx and verifier
+# LiveKit for the host's opt-in A/V fallback; T36 adds PostgreSQL so the API/verifier
+# migrations can be applied in local dev. The relay, API, nginx and verifier
 # services land with later tasks (T42).
 #
 # Usage:
 #   cp deploy/.env.example deploy/.env   # then edit TURN_SECRET / TURN_EXTERNAL_IP
 #   docker compose -f deploy/docker-compose.yml config
-#   docker compose -f deploy/docker-compose.yml up -d
+#   docker compose -f deploy/docker-compose.yml up -d postgres
+#
+# Apply the schema against it:
+#   WMA_PG_URL=postgres://wma:$POSTGRES_PASSWORD@localhost:5432/wma \
+#     pnpm --filter @wma/api migrate
 #
 # Host networking is used so coturn's UDP relay range (see turnserver.conf) is
 # reachable without enumerating every port. LiveKit uses explicit port mappings
 # (WS 7880, RTC/UDP 50000-50100) instead.
 services:
+  # PostgreSQL for local dev: accounts, catalogue, matches, scores and the T36
+  # anti-cheat `match_flags`. T42 replaces this with the production service
+  # (backups, monitoring); the password is required from deploy/.env.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-wma}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wma} -d ${POSTGRES_DB:-wma}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   coturn:
     image: coturn/coturn:4.6.2
     restart: unless-stopped
@@ -37,3 +62,6 @@ services:
       - "7880:7880"
       - "7881:7881"
       - "50000-50100:50000-50100/udp"
+
+volumes:
+  pgdata:

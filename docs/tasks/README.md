@@ -77,6 +77,8 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T36 Anti-cheat input analysis** – flag inhumanly regular / recorded input patterns from the log for review.
   Docs: 05, 07. Depends: T30, T33.
   Note: pure `analyzeInputLog` (periodic/uniform-hold heuristics) + advisory `match_flags` rows in the verifier; no score or status change.
+  Also added a local-dev PostgreSQL service to `deploy/docker-compose.yml` (+ `deploy/.env.example`) so the `0004_match_flags`
+  migration can be applied and verified locally; T42 still owns the production database (backups, monitoring).
 - [x] **T46 Netplay save/load continuation is not reproducible (bug)** – `e2e/save-integrity.e2e.ts` showed that
   on the real netplay seam `Core.load(save())` + same inputs did **not** reproduce the uninterrupted future.
   Fixed three root causes in `core/patches/`: the scheduler callback clock (`0007`), the Lua resume timer
