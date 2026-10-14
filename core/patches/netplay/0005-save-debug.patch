@@ -1,0 +1,28 @@
+diff --git a/src/emu/save.cpp b/src/emu/save.cpp
+index 227d1f24..8a44c19f 100644
+--- a/src/emu/save.cpp
++++ b/src/emu/save.cpp
+@@ -434,6 +434,11 @@ inline save_error save_manager::do_write(T check_space, U write_block, V start_h
+ 	dispatch_presave();
+ 
+ 	// then write all the data
++	// WMA T46: optionally map every entry to its byte offset in the buffer, so a
++	// byte diff between two save buffers names the responsible entry. Diagnostics
++	// only; no behaviour change. Enabled by the WMA_SI_DEBUG environment variable.
++	static bool const wma_si_debug = (osd_getenv("WMA_SI_DEBUG") != nullptr);
++	size_t wma_offset = HEADER_SIZE;
+ 	for (auto &entry : m_entry_list)
+ 	{
+ 		const u32 blocksize = entry->m_typesize * entry->m_typecount;
+@@ -441,6 +446,11 @@ inline save_error save_manager::do_write(T check_space, U write_block, V start_h
+ 		for (u32 b = 0; entry->m_blockcount > b; ++b, data += entry->m_stride)
+ 			if (!write_block(data, blocksize))
+ 				return STATERR_WRITE_ERROR;
++		wma_offset += size_t(entry->m_typesize) * entry->m_typecount * entry->m_blockcount;
++		if (wma_si_debug)
++			osd_printf_error("WMA_SI_ENTRY end=%zu size=%zu name=%s\n", wma_offset,
++					size_t(entry->m_typesize) * entry->m_typecount * entry->m_blockcount,
++					entry->m_name.c_str());
+ 	}
+ 	return STATERR_NONE;
+ }

@@ -6,6 +6,10 @@
  *   - every per-60-frame `hash` both tabs report is identical, and
  *   - neither tab received a `desync` from the relay.
  *
+ * T46 generalised this to every catalogue driver that can netplay
+ * (`supportsSave && netplayMode === "lockstep"`); a driver without an input
+ * fixture is skipped. Override the set with `WMA_E2E_DRIVERS=gridlee`.
+ *
  * Distinct per-slot streams model two players acting independently. Because the
  * masks are keyed on the frame (not on when an animation tick fired), the
  * per-frame input union is identical on both peers regardless of timing jitter,
@@ -14,7 +18,7 @@
  *
  * The lockstep pre-fills the first `inputDelay` frames (docs/03 "Start") with
  * mask 0, so a fixture's first non-zero mask must sit at frame >= inputDelay;
- * this fixture is zero for the first 80 frames, well clear of that window.
+ * the gridlee fixture is zero for the first 80 frames, well clear of that window.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -25,7 +29,6 @@ import { mintToken } from "./support/token";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SECRET = "dev";
-const DRIVER = "gridlee";
 /**
  * Require this many per-60-frame hash points on each tab before comparing.
  * Deliberately a hash-point count, not a target frame: under `tc netem` the
@@ -37,6 +40,8 @@ const MIN_HASHES = 4;
 interface GameEntry {
   driver: string;
   coreVersion: string;
+  supportsSave: boolean;
+  netplayMode: string;
 }
 interface Fixture {
   driver: string;
@@ -46,11 +51,15 @@ interface Fixture {
 const games = JSON.parse(
   readFileSync(resolve(here, "../packages/web/public/games.json"), "utf8"),
 ) as GameEntry[];
-const entry = games.find((g) => g.driver === DRIVER);
-const coreDir = entry
-  ? resolve(here, `../packages/web/public/static/cores/${DRIVER}/${entry.coreVersion}`)
-  : "";
-const romZip = resolve(here, `../packages/web/public/roms/${DRIVER}.zip`);
+
+/** Catalogue drivers that can netplay; overridable for a focused run. */
+const DRIVERS = (
+  process.env.WMA_E2E_DRIVERS
+    ? process.env.WMA_E2E_DRIVERS.split(",")
+    : games
+        .filter((game) => game.supportsSave && game.netplayMode === "lockstep")
+        .map((game) => game.driver)
+).map((driver) => driver.trim()).filter((driver) => driver.length > 0);
 
 /**
  * Wait until this tab has reported `min` per-60-frame hashes, or fail with what
@@ -79,82 +88,94 @@ async function awaitHashes(
   }
 }
 
-test.describe("netplay lockstep", () => {
-  test.skip(
-    entry === undefined || !existsSync(coreDir) || !existsSync(romZip),
-    `missing core/ROM for ${DRIVER}; build with core/build-wasm.sh ${DRIVER}`,
-  );
+for (const driver of DRIVERS) {
+  const entry = games.find((game) => game.driver === driver);
+  const coreDir = entry
+    ? resolve(here, `../packages/web/public/static/cores/${driver}/${entry.coreVersion}`)
+    : "";
+  // Commercial ROMs live in the gitignored repo-root roms/, not public/.
+  const romZip = resolve(here, `../roms/${driver}.zip`);
+  const fixturePath = resolve(here, `fixtures/inputs/${driver}.e2e.json`);
 
-  test("two tabs replay distinct inputs and agree on every hash", async ({ browser }) => {
-    const fixture = JSON.parse(
-      readFileSync(resolve(here, "fixtures/inputs/gridlee.e2e.json"), "utf8"),
-    ) as Fixture;
-    const room = `e2e-${Date.now().toString(36)}`;
-    const context = await browser.newContext();
+  test.describe(`netplay lockstep: ${driver}`, () => {
+    test.skip(
+      entry === undefined || !existsSync(coreDir) || !existsSync(romZip),
+      `missing core/ROM for ${driver}; build with core/build-wasm.sh ${driver}`,
+    );
+    test.skip(
+      !existsSync(fixturePath),
+      `no ${driver} input fixture; add e2e/fixtures/inputs/${driver}.e2e.json`,
+    );
 
-    const open = async (sub: string) => {
-      const page = await context.newPage();
-      page.on("console", (message) => {
-        const text = message.text();
-        if (text.includes("[netplay]") || message.type() === "error") {
-          console.log(`[${sub}]`, text);
-        }
-      });
-      await page.addInitScript(
-        (players) => {
-          (window as unknown as { __WMA_TEST_INPUT__?: unknown }).__WMA_TEST_INPUT__ = {
-            players,
-          };
-        },
-        fixture.players,
-      );
-      await page.goto(`/?token=${mintToken(SECRET, sub)}#/game/${DRIVER}/room/${room}`);
-      return page;
-    };
+    test("two tabs replay distinct inputs and agree on every hash", async ({ browser }) => {
+      const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as Fixture;
+      const room = `e2e-${driver}-${Date.now().toString(36)}`;
+      const context = await browser.newContext();
 
-    const p1 = await open("e2e-p1");
-    const p2 = await open("e2e-p2");
-    const h1 = collectHashes(p1);
-    const h2 = collectHashes(p2);
-    const d1 = desyncFrames(p1);
-    const d2 = desyncFrames(p2);
+      const open = async (sub: string) => {
+        const page = await context.newPage();
+        page.on("console", (message) => {
+          const text = message.text();
+          if (text.includes("[netplay]") || message.type() === "error") {
+            console.log(`[${sub}]`, text);
+          }
+        });
+        await page.addInitScript(
+          (players) => {
+            (window as unknown as { __WMA_TEST_INPUT__?: unknown }).__WMA_TEST_INPUT__ = {
+              players,
+            };
+          },
+          fixture.players,
+        );
+        await page.goto(`/?token=${mintToken(SECRET, sub)}#/game/${driver}/room/${room}`);
+        return page;
+      };
 
-    // Both peers are seated. The SDL canvas is `position: fixed` and wins the
-    // headless hit-test over the lobby overlay, so invoke a button's click
-    // handler directly instead of a coordinate click.
-    // Generous: a cold WASM boot under a shaped loop can be slow.
-    await expect(p1.locator(".lobby-slot")).toHaveCount(2, { timeout: 60_000 });
-    await expect(p2.locator(".lobby-slot")).toHaveCount(2, { timeout: 60_000 });
+      const p1 = await open("e2e-p1");
+      const p2 = await open("e2e-p2");
+      const h1 = collectHashes(p1);
+      const h2 = collectHashes(p2);
+      const d1 = desyncFrames(p1);
+      const d2 = desyncFrames(p2);
 
-    const press = (page: Page, selector: string): Promise<void> =>
-      page.locator(selector).evaluate((el) => (el as HTMLElement).click());
+      // Both peers are seated. The SDL canvas is `position: fixed` and wins the
+      // headless hit-test over the lobby overlay, so invoke a button's click
+      // handler directly instead of a coordinate click.
+      // Generous: a cold WASM boot under a shaped loop can be slow.
+      await expect(p1.locator(".lobby-slot")).toHaveCount(2, { timeout: 60_000 });
+      await expect(p2.locator(".lobby-slot")).toHaveCount(2, { timeout: 60_000 });
 
-    // Both players ready up (canStart ignores the host's own flag).
-    await press(p1, ".ready-toggle");
-    await press(p2, ".ready-toggle");
+      const press = (page: Page, selector: string): Promise<void> =>
+        page.locator(selector).evaluate((el) => (el as HTMLElement).click());
 
-    // Join order is a race, so do not assume p1 is host: the host is the tab
-    // (lowest slot) that carries the Start button, exactly one of the two.
-    const startButtons = async (): Promise<number> =>
-      (await p1.locator(".start-game").count()) +
-      (await p2.locator(".start-game").count());
-    await expect.poll(startButtons, { timeout: 20_000 }).toBe(1);
-    const host = (await p1.locator(".start-game").count()) > 0 ? p1 : p2;
-    await expect(host.locator(".start-game")).toBeEnabled();
-    await press(host, ".start-game");
+      // Both players ready up (canStart ignores the host's own flag).
+      await press(p1, ".ready-toggle");
+      await press(p2, ".ready-toggle");
 
-    await Promise.all([
-      awaitHashes(p1, h1, MIN_HASHES, 300_000),
-      awaitHashes(p2, h2, MIN_HASHES, 300_000),
-    ]);
+      // Join order is a race, so do not assume p1 is host: the host is the tab
+      // (lowest slot) that carries the Start button, exactly one of the two.
+      const startButtons = async (): Promise<number> =>
+        (await p1.locator(".start-game").count()) +
+        (await p2.locator(".start-game").count());
+      await expect.poll(startButtons, { timeout: 20_000 }).toBe(1);
+      const host = (await p1.locator(".start-game").count()) > 0 ? p1 : p2;
+      await expect(host.locator(".start-game")).toBeEnabled();
+      await press(host, ".start-game");
 
-    expect(d1, "p1 saw a desync").toEqual([]);
-    expect(d2, "p2 saw a desync").toEqual([]);
+      await Promise.all([
+        awaitHashes(p1, h1, MIN_HASHES, 300_000),
+        awaitHashes(p2, h2, MIN_HASHES, 300_000),
+      ]);
 
-    const common = [...h1.keys()].filter((frame) => h2.has(frame)).sort((a, b) => a - b);
-    expect(common.length, "no overlapping hash frames").toBeGreaterThanOrEqual(MIN_HASHES);
-    for (const frame of common) {
-      expect(h2.get(frame), `hash mismatch at frame ${frame}`).toBe(h1.get(frame));
-    }
+      expect(d1, "p1 saw a desync").toEqual([]);
+      expect(d2, "p2 saw a desync").toEqual([]);
+
+      const common = [...h1.keys()].filter((frame) => h2.has(frame)).sort((a, b) => a - b);
+      expect(common.length, "no overlapping hash frames").toBeGreaterThanOrEqual(MIN_HASHES);
+      for (const frame of common) {
+        expect(h2.get(frame), `hash mismatch at frame ${frame}`).toBe(h1.get(frame));
+      }
+    });
   });
-});
+}

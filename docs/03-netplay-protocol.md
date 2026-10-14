@@ -84,3 +84,34 @@ repeated desyncs ⇒ remove the driver from online play.
 
 ## Late join / reconnect
 Joiner receives the latest host state + inputs since, then fast-forwards to live.
+
+## Save/load continuation (T46 — partial)
+Everything above recovers by `core.load(save())` + continue (desync `state.snapshot`,
+viewer late-join, replay boot snapshot). That invariant was **broken**. T46 found and fixed
+one root cause in MAME's scheduler: `device_scheduler::time()` returns the unsaved
+`m_callback_timer_expire_time` while inside a callback, so loading a state from a frame
+callback (a Lua/plugin notifier) left `time()` a frame ahead of the restored `m_basetime`;
+`core/patches/netplay/0007-schedule-clock.patch` re-bases it in `postload`. Verified
+natively by `core/spike/native-save-continuation.sh` (`SI_DET=PASS`), with T02/T28 passing.
+
+A second root cause was found and fixed in the browser path:
+`lua_engine::on_machine_postload()` reset the Lua resume timer on every load, changing the
+timer's saved bytes (`m_enabled`/`m_start`). Because `netplay_hash()` hashes the whole save
+buffer, a peer that recovered via `state.snapshot` no longer hashed to the state it was
+saved from and would report a **false desync** on every recovery;
+`core/patches/netplay/0009-lua-engine-postload.patch` only re-arms the timer when there are
+waiting tasks. After it, `e2e/save-integrity.e2e.ts` reports `loadByteEqual=true` /
+`loadDiffCount=0` (the round-trip is byte-exact) and continuation passes for zero input,
+joystick/buttons and START (gridlee, native RAM and full buffer both exact).
+
+A third root cause was the **unsaved ioport live state**. MAME's save buffer does not
+include an ioport field's externally-set value / live state (`last`, `impulse`, `toggle`,
+…) nor the port's cached `digital` value; `ioport_port::read()` returns that cached value,
+which is only recomputed once per frame. After a load the CPU therefore read a stale input
+port and the first frame diverged (worst with COIN, whose edges/impulse make it visible).
+`netplay_save_state`/`load_state` now append and restore this state, so the browser seam is
+byte-exact (`forward == reload`, `fwdReloadDiffCount=0`) for gridlee and twinbee, over zero
+/ joystick-button / START inputs, at every boot/span tried.
+
+`raiden`/`raiden2` throw on `Core.save()` (empty save buffer) and remain catalogued
+`supportsSave:false` / `netplayMode:"none"`.

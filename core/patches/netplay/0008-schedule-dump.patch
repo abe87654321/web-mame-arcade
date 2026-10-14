@@ -1,0 +1,79 @@
+--- a/src/emu/schedule.h
++++ b/src/emu/schedule.h
+@@ -109,6 +109,9 @@
+ 	running_machine &machine() const noexcept { return m_machine; }
+ 	attotime time() const noexcept;
+ 	emu_timer *first_timer() const noexcept { return m_timer_list; }
++	// WMA T46 diagnostic: append a dump of the scheduler's transient state
++	// (basetime, callback timer, active/inactive timers, quanta, execute list).
++	void debug_dump(std::string &out) const;
+ 	device_execute_interface *currently_executing() const noexcept { return m_executing_device; }
+ 	bool can_save() const;
+ 
+--- a/src/emu/schedule.cpp
++++ b/src/emu/schedule.cpp
+@@ -11,6 +11,8 @@
+ #include "emu.h"
+ #include "debugger.h"
+ 
++#include <cstdio>
++
+ //**************************************************************************
+ //  DEBUGGING
+ //**************************************************************************
+@@ -338,6 +340,55 @@
+ }
+ 
+ 
++//-------------------------------------------------
++//  debug_dump - WMA T46 diagnostic dump of the
++//  scheduler's transient (unsaved) state
++//-------------------------------------------------
++
++void device_scheduler::debug_dump(std::string &out) const
++{
++	char buf[512];
++	std::snprintf(buf, sizeof(buf), "base=%d.%lld cb=%d cbtime=%d.%lld susp=%d\n",
++			m_basetime.m_seconds, (long long)m_basetime.m_attoseconds,
++			m_callback_timer ? 1 : 0,
++			m_callback_timer_expire_time.m_seconds, (long long)m_callback_timer_expire_time.m_attoseconds,
++			m_suspend_changes_pending ? 1 : 0);
++	out.append(buf);
++	int i = 0;
++	for (emu_timer *t = m_timer_list; t; t = t->m_next)
++	{
++		std::snprintf(buf, sizeof(buf), "T%d en=%d nev=%d idx=%u exp=%d.%lld %s\n", i++,
++				t->m_enabled ? 1 : 0, t->m_expire.is_never() ? 1 : 0, t->m_index,
++				t->m_expire.m_seconds, (long long)t->m_expire.m_attoseconds,
++				t->m_callback.name() ? t->m_callback.name() : "unnamed");
++		out.append(buf);
++	}
++	i = 0;
++	for (emu_timer *t = m_inactive_timers; t; t = t->m_next)
++	{
++		std::snprintf(buf, sizeof(buf), "I%d en=%d idx=%u %s\n", i++,
++				t->m_enabled ? 1 : 0, t->m_index,
++				t->m_callback.name() ? t->m_callback.name() : "unnamed");
++		out.append(buf);
++	}
++	i = 0;
++	for (quantum_slot *q = m_quantum_list.first(); q; q = q->next())
++	{
++		std::snprintf(buf, sizeof(buf), "Q%d req=%d act=%d exp=%d.%lld\n", i++,
++				int(q->m_requested), int(q->m_actual),
++				q->m_expire.m_seconds, (long long)q->m_expire.m_attoseconds);
++		out.append(buf);
++	}
++	for (device_execute_interface *e = m_execute_list; e; e = e->m_nextexec)
++	{
++		std::snprintf(buf, sizeof(buf), "E %s susp=%u eat=%d loc=%d.%lld\n",
++				e->device().tag(), e->m_suspend, e->m_eatcycles ? 1 : 0,
++				e->m_localtime.m_seconds, (long long)e->m_localtime.m_attoseconds);
++		out.append(buf);
++	}
++}
++
++
+ //-------------------------------------------------
+ //  can_save - return true if it's safe to save
+ //  (i.e., no temporary timers outstanding)

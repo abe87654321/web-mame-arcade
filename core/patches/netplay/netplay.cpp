@@ -21,9 +21,12 @@
 
 #include "netplay.h"
 
+#include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace {
@@ -42,6 +45,10 @@ bool s_arm_requested = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
+// Flat list of every bound field, and the unique ports they belong to (for the
+// T46 diagnostic dump and for carrying the live input state in snapshots).
+std::vector<ioport_field *> s_bound;
+std::vector<ioport_port *> s_ports;
 
 // Cap how far ahead of the step clock inputs may be buffered. Bounding by frame
 // distance (not by entry count) keeps the refusal identical on every peer: an
@@ -91,6 +98,8 @@ void build_bindings(running_machine &machine)
 	for (auto &slot : s_fields)
 		for (auto &bits : slot)
 			bits.clear();
+	s_bound.clear();
+	s_ports.clear();
 
 	for (auto const &port : machine.ioport().ports())
 	{
@@ -100,9 +109,29 @@ void build_bindings(running_machine &machine)
 		{
 			int const bit = bit_for_field(field);
 			if (bit >= 0)
+			{
 				s_fields[field.player()][bit].push_back(&field);
+				s_bound.push_back(&field);
+				ioport_port *p = &field.port();
+				if (std::find(s_ports.begin(), s_ports.end(), p) == s_ports.end())
+					s_ports.push_back(p);
+			}
 		}
 	}
+}
+
+// Bytes the netplay snapshot appends after MAME's save buffer to carry each bound
+// field's externally-set value and live state. None of it is in MAME's save
+// buffer, yet it seeds switch edges / impulses, so without it the first frame
+// after a load differs. Layout per field: digital(u8) value(u32) impulse(u8)
+// last(u8) toggle(u8) joydir(u8) lockout(u8) = 10 bytes.
+constexpr int LIVE_BYTES_PER_FIELD = 10;
+// Per port: digital(u32) outputvalue(u32). ioport_port::read() returns the
+// cached m_live->digital (recomputed once per frame), so it too must round-trip.
+constexpr int LIVE_BYTES_PER_PORT = 8;
+int live_state_bytes()
+{
+	return int(s_bound.size()) * LIVE_BYTES_PER_FIELD + int(s_ports.size()) * LIVE_BYTES_PER_PORT;
 }
 
 // Activate netplay once a machine exists. Safe to call before the machine has
@@ -266,7 +295,7 @@ int netplay_state_size()
 	running_machine *machine = current_machine();
 	if (machine == nullptr)
 		return 0;
-	return int(machine->save().buffer_size());
+	return int(machine->save().buffer_size()) + live_state_bytes();
 }
 
 
@@ -279,7 +308,40 @@ int netplay_save_state(uint8_t *buf)
 	running_machine *machine = current_machine();
 	if (machine == nullptr || buf == nullptr)
 		return 0;
-	return machine->save().write_buffer(buf, machine->save().buffer_size()) == STATERR_NONE ? 1 : 0;
+	size_t const size = machine->save().buffer_size();
+	if (machine->save().write_buffer(buf, size) != STATERR_NONE)
+		return 0;
+	uint8_t *out = buf + size;
+	for (ioport_field *field : s_bound)
+	{
+		ioport_field_live &live = field->live();
+		uint32_t const value = uint32_t(live.value);
+		*out++ = field->digital_value() ? 1 : 0;
+		*out++ = uint8_t(value);
+		*out++ = uint8_t(value >> 8);
+		*out++ = uint8_t(value >> 16);
+		*out++ = uint8_t(value >> 24);
+		*out++ = live.impulse;
+		*out++ = live.last ? 1 : 0;
+		*out++ = live.toggle ? 1 : 0;
+		*out++ = uint8_t(live.joydir);
+		*out++ = live.lockout ? 1 : 0;
+	}
+	for (ioport_port *port : s_ports)
+	{
+		ioport_port_live &live = port->live();
+		uint32_t const digital = uint32_t(live.digital);
+		uint32_t const outputvalue = uint32_t(live.outputvalue);
+		*out++ = uint8_t(digital);
+		*out++ = uint8_t(digital >> 8);
+		*out++ = uint8_t(digital >> 16);
+		*out++ = uint8_t(digital >> 24);
+		*out++ = uint8_t(outputvalue);
+		*out++ = uint8_t(outputvalue >> 8);
+		*out++ = uint8_t(outputvalue >> 16);
+		*out++ = uint8_t(outputvalue >> 24);
+	}
+	return 1;
 }
 
 
@@ -292,7 +354,40 @@ int netplay_load_state(uint8_t const *buf)
 	running_machine *machine = current_machine();
 	if (machine == nullptr || buf == nullptr)
 		return 0;
-	return machine->save().read_buffer(buf, machine->save().buffer_size()) == STATERR_NONE ? 1 : 0;
+	size_t const size = machine->save().buffer_size();
+	if (machine->save().read_buffer(buf, size) != STATERR_NONE)
+		return 0;
+	// read_buffer triggers postload; restore the externally-set value and live
+	// input state afterwards so the first frame after the load computes the same
+	// switch edges as the run that never stopped.
+	uint8_t const *in = buf + size;
+	for (ioport_field *field : s_bound)
+	{
+		ioport_field_live &live = field->live();
+		bool const digital = (*in++ != 0);
+		uint32_t const value = uint32_t(in[0]) | (uint32_t(in[1]) << 8) |
+				(uint32_t(in[2]) << 16) | (uint32_t(in[3]) << 24);
+		in += 4;
+		field->set_value(digital ? 1 : 0);
+		live.value = value;
+		live.impulse = *in++;
+		live.last = (*in++ != 0);
+		live.toggle = (*in++ != 0);
+		live.joydir = digital_joystick::direction_t(*in++);
+		live.lockout = (*in++ != 0);
+	}
+	for (ioport_port *port : s_ports)
+	{
+		ioport_port_live &live = port->live();
+		uint32_t const digital = uint32_t(in[0]) | (uint32_t(in[1]) << 8) |
+				(uint32_t(in[2]) << 16) | (uint32_t(in[3]) << 24);
+		uint32_t const outputvalue = uint32_t(in[4]) | (uint32_t(in[5]) << 8) |
+				(uint32_t(in[6]) << 16) | (uint32_t(in[7]) << 24);
+		in += 8;
+		live.digital = digital;
+		live.outputvalue = outputvalue;
+	}
+	return 1;
 }
 
 
@@ -361,6 +456,51 @@ uint32_t netplay_hash()
 //  Only the WASM core calls this (current_machine() is null natively); the
 //  verifier reads scores through verify.lua instead.
 //-------------------------------------------------
+
+int netplay_debug_info(uint8_t *out, int maxlen)
+{
+	running_machine *machine = current_machine();
+	if (out == nullptr || maxlen <= 0)
+		return 0;
+	if (machine == nullptr)
+		return std::snprintf(reinterpret_cast<char *>(out), size_t(maxlen), "no-machine");
+
+	attotime const now = machine->scheduler().time();
+	attotime const period = frame_period(*machine);
+	return std::snprintf(reinterpret_cast<char *>(out), size_t(maxlen),
+			"t=%d.%09lld period=%d.%09lld paused=%d evpend=%d next=%u",
+			now.m_seconds, (long long)now.m_attoseconds,
+			period.m_seconds, (long long)period.m_attoseconds,
+			machine->paused() ? 1 : 0, machine->scheduled_event_pending() ? 1 : 0,
+			s_next_frame);
+}
+
+
+int netplay_debug_state(uint8_t *out, int maxlen)
+{
+	running_machine *machine = current_machine();
+	if (out == nullptr || maxlen <= 0 || machine == nullptr)
+		return 0;
+	std::string dump;
+	machine->scheduler().debug_dump(dump);
+	// Bound ioport fields' live state (T46): last/impulse/toggle drive switch
+	// edges / impulses and are not in MAME's save buffer.
+	char fb[192];
+	for (ioport_field *f : s_bound)
+	{
+		ioport_field_live &l = f->live();
+		std::snprintf(fb, sizeof(fb), "F b=%d p=%d type=%d dig=%d last=%d imp=%d tog=%d val=%u lock=%d joydir=%d\n",
+				bit_for_field(*f), f->player(), int(f->type()), f->digital_value() ? 1 : 0,
+				l.last ? 1 : 0, l.impulse, l.toggle ? 1 : 0, unsigned(l.value),
+				l.lockout ? 1 : 0, int(l.joydir));
+		dump.append(fb);
+	}
+	size_t const n = std::min(dump.size(), size_t(maxlen - 1));
+	std::memcpy(out, dump.data(), n);
+	out[n] = 0;
+	return int(n);
+}
+
 
 int netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_t *out, int len)
 {

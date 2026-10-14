@@ -16,6 +16,11 @@ PATCHES=(
   0002-ioport.patch
   0003-save.patch
   0004-build.patch
+  0005-save-debug.patch
+  0006-schedule-debug.patch
+  0007-schedule-clock.patch
+  0008-schedule-dump.patch
+  0009-lua-engine-postload.patch
 )
 
 # src-in-netplay-dir:destination-relative-to-mame
