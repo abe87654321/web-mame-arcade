@@ -94,10 +94,20 @@ callback (a Lua/plugin notifier) left `time()` a frame ahead of the restored `m_
 `core/patches/netplay/0007-schedule-clock.patch` re-bases it in `postload`. Verified
 natively by `core/spike/native-save-continuation.sh` (`SI_DET=PASS`), with T02/T28 passing.
 
-**Still open:** the browser seam (JS-driven `Core.save`/`load`/`step` through
-`netplay_try_run_frame`) **still diverges** — `e2e/save-integrity.e2e.ts` reports
-`forward != reload` for gridlee/twinbee even though `time()` is restored and RAM is exact
-there. The clock bug does not apply on that path, so a second cause lives in the netplay
-stepping seam (`core/spike/README.md`). Treat snapshot recovery as bit-exact only on the
-native seam until T46 is finished. `raiden`/`raiden2` throw on `Core.save()` (empty save
-buffer) and are catalogued `supportsSave:false` / `netplayMode:"none"`.
+A second root cause was found and fixed in the browser path:
+`lua_engine::on_machine_postload()` reset the Lua resume timer on every load, changing the
+timer's saved bytes (`m_enabled`/`m_start`). Because `netplay_hash()` hashes the whole save
+buffer, a peer that recovered via `state.snapshot` no longer hashed to the state it was
+saved from and would report a **false desync** on every recovery;
+`core/patches/netplay/0009-lua-engine-postload.patch` only re-arms the timer when there are
+waiting tasks. After it, `e2e/save-integrity.e2e.ts` reports `loadByteEqual=true` /
+`loadDiffCount=0` (the round-trip is byte-exact) and continuation passes for zero input,
+joystick/buttons and START (gridlee, native RAM and full buffer both exact).
+
+**Still open:** with **COIN (wire bit 11, an impulse control)** in the input, the browser
+seam still diverges (`forward != reload`, ~11-21 bytes: CPU PC + watchdog timer), while the
+native seam stays byte-exact. The residual is therefore coin/impulse-specific and lives in
+the netplay gate, not in `save_manager` (`core/spike/README.md`). Treat snapshot recovery as
+bit-exact except for matches that use COIN, until T46 is finished. `raiden`/`raiden2` throw
+on `Core.save()` (empty save buffer) and are catalogued `supportsSave:false` /
+`netplayMode:"none"`.

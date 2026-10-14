@@ -74,6 +74,9 @@ regression gate.
 | raiden2 | yes | **throws** ("does not support save states") | — | NO_SAVE |
 | twincobr | no | yes | no | FAIL |
 
+(The `forward == reload` column is the original pre-fix baseline; the root causes and fixes
+are in the sections below.)
+
 ### Finding (2026-10, MAME `b67e5bc`) — tracked as T46
 
 Every driver that exposes a save buffer reloads it **consistently** (`reload ==
@@ -134,26 +137,33 @@ With the fix, the native continuation passes (`SI_DET=PASS`) for gridlee at
 `--span 1/60/120/240` and `--boot 120/300`, and the T02 determinism spike and T28
 native round-trip still pass.
 
-### Still open: the WASM/browser seam diverges for a different reason (T46)
+### Second fix: the Lua resume timer broke load hashing (0009)
 
-The same fix was rebuilt into the WASM core and published, but
-`e2e/save-integrity.e2e.ts` **still** reports `forward != reload` for gridlee (and
-twinbee). The native and browser paths are not the same seam:
+The native and browser paths are not the same seam. In the browser the e2e drives
+`Core.save`/`load`/`step` from JS, so the load is **not** inside a timer callback and the
+clock bug above does not apply (instrumenting `netplay_hash` confirmed `time()` is restored
+exactly, `afterLoad == atSave`).
 
-- In the browser the e2e drives `Core.save`/`load`/`step` from JS, so the load is
-  **not** inside a timer callback and the clock bug above does not apply. Instrumenting
-  `netplay_hash` confirmed `time()` is restored exactly across the load
-  (`afterLoad == atSave`), while RAM is also exact (`SI_RAM_AFTER_LOAD_EQ_SAVE`), yet
-  the first stepped frame diverges.
-- Tested and ruled out for the WASM path: the timer `m_index` / disabled-timer
-  linkage (the byte diff is only there), the quantum list (clearing it on load does
-  not fix it), and input switch edges (all-zero inputs still diverge).
+That path had a second, real bug: `lua_engine::on_machine_postload()` unconditionally
+called `m_timer->reset()`, changing the Lua resume timer's saved bytes
+(`m_enabled`/`m_start`) on every load. `netplay_hash()` hashes the whole save buffer, so a
+peer that recovered via `state.snapshot` did not hash to the state it was saved from and
+would report a **false desync** on every recovery. `0009-lua-engine-postload.patch` only
+re-arms the timer when there are waiting tasks. After it, `loadByteEqual=true` /
+`loadDiffCount=0` (round-trip byte-exact) and continuation passes for zero input,
+joystick/buttons and START; native is byte-exact for the whole buffer
+(`SI_SNAP_FORWARD_DIFF_COUNT=0` at every boot/span tried).
 
-So the browser divergence is in the `netplay_try_run_frame` stepping seam (the one
-difference from MAME's own run loop, which the native probe uses), not in
-`save_manager`. It needs the same "instrument the seam" treatment applied to
-`core/patches/netplay/netplay.cpp`. **T46 is not complete** until the WASM gate is
-green.
+### Still open: COIN (impulse) input still diverges on the browser seam (T46)
+
+With **COIN (wire bit 11)** in the input, `e2e/save-integrity.e2e.ts` still reports
+`forward != reload` for gridlee (~11-21 bytes: CPU PC + watchdog timer). Per-bit
+bisection: zero / bits 0-10 PASS, bit 11 (COIN, an impulse control) FAILS. Ruled out as
+the cause: the field live state (`last`/`impulse`/`toggle`/`value`/`joydir`/`lockout`,
+captured into the snapshot with no effect), the quantum list, and aligning the gate to the
+screen update point. So the browser divergence is coin/impulse-specific in the
+`netplay_try_run_frame` seam, not in `save_manager`. **T46 is not complete** until the
+browser gate is green with COIN input too.
 
 **raiden / raiden2** (`Core.save()` throws with an empty save buffer) is a
 separate, still-open anomaly; they are catalogued `supportsSave:false` /
