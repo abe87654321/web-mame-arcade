@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@wma/protocol": "workspace:*",
     "pg": "^8.16.0",
     "redis": "^4.7.0"
   },
