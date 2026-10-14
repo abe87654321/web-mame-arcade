@@ -183,19 +183,30 @@ function readInto(
   len: number,
   out: Int16Array,
   base: number,
+  minBlock: number,
+  budget: { n: number },
 ): void {
+  if (budget.n <= 0) return;
+  budget.n -= 1;
   const whole = tryRead(read, cpu, space, addr, len);
   if (whole) {
     for (let i = 0; i < len; i++) out[addr - base + i] = whole[i]!;
     return;
   }
-  if (len === 1) return; // no direct pointer
+  // Don't descend past `minBlock`: a below-block hole is skipped rather than
+  // probed byte-by-byte, so a mostly-unmapped address space (e.g. a 256 KB
+  // program window) cannot flood the page with hundreds of thousands of reads.
+  if (len <= minBlock) return;
   const half = len >> 1;
-  readInto(read, cpu, space, addr, half, out, base);
-  readInto(read, cpu, space, addr + half, len - half, out, base);
+  readInto(read, cpu, space, addr, half, out, base, minBlock, budget);
+  readInto(read, cpu, space, addr + half, len - half, out, base, minBlock, budget);
 }
 
-/** Read `[base, base+size)` of a CPU's address space; -1 marks unreadable. */
+/**
+ * Read `[base, base+size)` of a CPU's address space; -1 marks unreadable.
+ * `minBlock` bounds the bisection resolution and `maxProbes` caps total reads,
+ * so a large or sparse window stays fast (a finer read only where RAM exists).
+ */
 export function readRegion(
   win: Window,
   cpu: string,
@@ -203,13 +214,17 @@ export function readRegion(
   base: number,
   size: number,
   chunk = 0x1000,
+  minBlock = 0x40,
+  maxProbes = 60_000,
 ): Snapshot {
   const out = new Int16Array(size).fill(-1);
   const read = (win as unknown as NetplayModuleHost).Module?.netplay?.readMemory;
   if (typeof read !== "function") return { base, bytes: out };
+  const budget = { n: maxProbes };
   for (let off = 0; off < size; off += chunk) {
+    if (budget.n <= 0) break;
     const len = Math.min(chunk, size - off);
-    readInto(read, cpu, space, base + off, len, out, base);
+    readInto(read, cpu, space, base + off, len, out, base, minBlock, budget);
   }
   return { base, bytes: out };
 }
@@ -238,7 +253,7 @@ export function installCheatSearch(win: Window): void {
   const cpu = params.get("cpu") ?? ":maincpu";
   const space = params.get("space") ?? "program";
   const base = parseNum(params.get("base"), 0x0000);
-  const size = parseNum(params.get("size"), 0x40000);
+  const size = parseNum(params.get("size"), 0x10000);
   const slotDefault = parseNum(params.get("slot"), 0);
 
   const search = new CheatSearch();
