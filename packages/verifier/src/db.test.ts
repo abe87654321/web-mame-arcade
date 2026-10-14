@@ -143,3 +143,24 @@ describe("match upsert (T34)", async () => {
     );
   });
 });
+
+describe("match flags (T36)", async () => {
+  const { insertMatchFlag } = await import("./db");
+  beforeEach(() => mockQuery.mockReset());
+
+  it("inserts a flag idempotently on (match_id, reason, slot)", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await insertMatchFlag(mockPool, 99n, {
+      code: "periodic_input",
+      slot: 0,
+      detail: { period: 2, frames: 800 },
+    });
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO match_flags"),
+      [99n, "periodic_input", 0, JSON.stringify({ period: 2, frames: 800 })],
+    );
+    expect(mockQuery.mock.calls[0]![0]).toContain(
+      "ON CONFLICT (match_id, reason, slot) DO NOTHING",
+    );
+  });
+});

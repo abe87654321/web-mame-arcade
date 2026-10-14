@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { gzipSync } from "node:zlib";
+import { INPUT_LOG_VERSION, encodeInputLog, type InputLog } from "@wma/protocol";
 import type { SlotScore } from "./job";
 import type { VerifyJob } from "./job";
 import type { PgPool } from "./db";
@@ -112,6 +117,98 @@ describe("ensureMatch (T34)", () => {
     expect(query.mock.calls[1]![1]).toContain("match/room-abc/1234.json.gz");
     expect(query.mock.calls[2]![0]).toContain("INSERT INTO match_players");
     expect(query.mock.calls[2]![1]).toEqual([99n, "42", 0]);
+  });
+});
+
+describe("analyzeLog / processJob anti-cheat (T36)", () => {
+  const HASH = "a".repeat(64);
+  const dirs: string[] = [];
+
+  async function writeLog(col: number[]): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "wma-antichat-"));
+    dirs.push(dir);
+    const log: InputLog = {
+      v: INPUT_LOG_VERSION,
+      room: "room-abc",
+      meta: {
+        driver: "gridlee",
+        core_hash: HASH,
+        mame_commit: "b".repeat(40),
+        rom_hash: HASH,
+        dips: {},
+        mode: "solo",
+      },
+      start: {
+        frame: 0,
+        input_delay: 0,
+        players: [{ slot: 0, name: "alice" }],
+        start_state_key: null,
+      },
+      end: { frame: col.length - 1, scores: [] },
+      frames: col.map((mask) => [mask]),
+    };
+    const key = join("match", "room-abc", "1234.json.gz");
+    await mkdir(dirname(join(dir, key)), { recursive: true });
+    await writeFile(join(dir, key), gzipSync(encodeInputLog(log)));
+    return dir;
+  }
+
+  function makePool() {
+    const sqls: string[] = [];
+    const pool: PgPool = {
+      async query(sql) {
+        sqls.push(sql);
+        if (sql.includes("INSERT INTO games")) return { rows: [{ id: "7" }] };
+        if (sql.includes("INSERT INTO matches")) return { rows: [{ id: "99" }] };
+        return { rows: [] };
+      },
+      async end() {},
+    };
+    return { pool, sqls };
+  }
+
+  afterEach(async () => {
+    await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it("records match_flags for a periodic log", async () => {
+    const logDir = await writeLog(Array.from({ length: 800 }, (_, i) => i % 2));
+    const { pool, sqls } = makePool();
+    const opts: WorkerOptions = {
+      redisUrl: "redis://localhost",
+      mameBin: "/nonexistent/mame",
+      romDir: "/roms",
+      scoremapDir: "/scoremap",
+      logDir,
+      pgPool: pool,
+      pinnedMameCommit: "b".repeat(40),
+    };
+
+    await processJob(opts, sampleJob);
+    expect(sqls.some((sql) => sql.includes("INSERT INTO match_flags"))).toBe(true);
+  });
+
+  it("records no flags for a varied log", async () => {
+    const holds = [3, 7, 4, 11, 5, 2, 8, 6];
+    const col: number[] = [];
+    for (let i = 0; col.length < 800; i++) {
+      for (let k = 0; k < holds[i % holds.length]! && col.length < 800; k++) col.push(1);
+      for (let k = 0; k < holds[(i * 3 + 1) % holds.length]! && col.length < 800; k++) col.push(0);
+    }
+    const logDir = await writeLog(col);
+    const { pool, sqls } = makePool();
+    const opts: WorkerOptions = {
+      redisUrl: "redis://localhost",
+      mameBin: "/nonexistent/mame",
+      romDir: "/roms",
+      scoremapDir: "/scoremap",
+      logDir,
+      pgPool: pool,
+      pinnedMameCommit: "b".repeat(40),
+    };
+
+    await processJob(opts, sampleJob);
+    expect(sqls.some((sql) => sql.includes("INSERT INTO match_flags"))).toBe(false);
   });
 });
 
