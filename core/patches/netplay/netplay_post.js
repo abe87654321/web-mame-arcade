@@ -75,6 +75,18 @@ var WMA_NETPLAY = (function () {
 				Module._free(ptr);
 			}
 		},
+		state: function () {
+			var cap = 16384;
+			var ptr = Module._malloc(cap);
+			try {
+				var n = Module.cwrap('netplay_debug_state', 'number', ['number', 'number'])(ptr, cap);
+				if (n <= 0)
+					return '';
+				return new TextDecoder().decode(Module.HEAPU8.subarray(ptr, ptr + n));
+			} finally {
+				Module._free(ptr);
+			}
+		},
 		readMemory: function (cpu, space, addr, len) {
 			var size = len >>> 0;
 			if (size <= 0)

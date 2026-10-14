@@ -57,6 +57,12 @@ export class MameCore implements Core {
     return hooks?.info ? hooks.info() : "";
   }
 
+  /** T46 diagnostic: multi-line scheduler transient-state dump. */
+  debugState(): string {
+    const hooks = this.module.netplay as (NetplayHooks & { state?: () => string }) | undefined;
+    return hooks?.state ? hooks.state() : "";
+  }
+
   readScore(slot: number): number {
     // Which memory to read comes from the driver's scoremap (T32b); a driver
     // without one, or a core built before the read hook, cannot report.

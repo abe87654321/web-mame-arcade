@@ -43,6 +43,9 @@ NETPLAY_API int      netplay_read_bytes(const char *cpu, const char *space, uint
 // T46 diagnostic: write a one-line human-readable scheduler/frame-gate state into
 // `out` (NUL-terminated), returning the byte count. Read-only; never steps.
 NETPLAY_API int      netplay_debug_info(uint8_t *out, int maxlen);
+// T46 diagnostic: write a multi-line dump of the scheduler's transient (unsaved)
+// state (basetime, callback timer, timer lists, quanta, execute list).
+NETPLAY_API int      netplay_debug_state(uint8_t *out, int maxlen);
 
 // Internal hooks used by the patched emulation core (machine.cpp, ioport.cpp).
 bool netplay_input_active();

@@ -51,6 +51,8 @@ export interface NetplayHooks {
   readMemory(cpu: string, space: string, addr: number, len: number): Uint8Array;
   /** T46 diagnostic: one-line scheduler/frame-gate state; empty on older cores. */
   info?(): string;
+  /** T46 diagnostic: multi-line scheduler transient-state dump; empty on older cores. */
+  state?(): string;
 }
 
 export interface CoreModule {

@@ -91,8 +91,13 @@ interface Result {
   idle?: number;
   reload?: number;
   reload2?: number;
+  /** T46 diagnostic: bytes differing between the forward and reload save buffers. */
+  fwdReloadDiffCount?: number;
+  fwdReloadDiffOffsets?: number[];
   /** T46 diagnostic: scheduler/frame-gate samples around save/load/step. */
   trace?: string[];
+  /** T46 diagnostic: scheduler transient-state dumps keyed by sample label. */
+  states?: Record<string, string>;
 }
 
 for (const driver of DRIVERS) {
@@ -132,12 +137,18 @@ for (const driver of DRIVERS) {
           load(state: Uint8Array, frame: number): void;
           hash(): number;
           debugInfo?(): string;
+          debugState?(): string;
         }
         const core = (window as unknown as { __WMA_CORE__: SiCore }).__WMA_CORE__;
         const trace: string[] = [];
         const snap = (label: string): void => {
           const info = core.debugInfo?.();
           if (info !== undefined) trace.push(`${label} ${info}`);
+        };
+        const states: Record<string, string> = {};
+        const snapState = (label: string): void => {
+          const dump = core.debugState?.();
+          if (dump) states[label] = dump;
         };
         // Deterministic pseudo-inputs (a function of the frame only).
         const mask = (f: number): number =>
@@ -172,12 +183,14 @@ for (const driver of DRIVERS) {
         const saveStable = saveFirstDiff === -1;
         const atSave = core.hash();
         snap("atSave");
+        snapState("atSave");
         for (let frame = boot; frame < boot + span; frame++) {
           core.step(frame, inputs(frame));
-          if (frame === boot) snap("fwd-step1");
+          if (frame === boot) { snap("fwd-step1"); snapState("fwd-step1"); }
           else if (frame === boot + 1) snap("fwd-step2");
         }
         const forward = core.hash();
+        const forwardSave = core.save();
 
         // Control: hash again with no stepping in between. If this differs from
         // `forward`, something else (the app) is stepping the core concurrently.
@@ -186,6 +199,7 @@ for (const driver of DRIVERS) {
         // The host saved at its last stepped frame (boot - 1); resume at boot.
         core.load(snapshot, boot - 1);
         snap("afterLoad");
+        snapState("afterLoad");
         // Snapshot the freshly-loaded machine before any step. If this is
         // byte-equal to the snapshot we loaded, load() is a pure restore and
         // `afterLoad != atSave` is only hash/presave canonicalisation; if not,
@@ -204,10 +218,19 @@ for (const driver of DRIVERS) {
         const afterLoad = core.hash();
         for (let frame = boot; frame < boot + span; frame++) {
           core.step(frame, inputs(frame));
-          if (frame === boot) snap("rel-step1");
+          if (frame === boot) { snap("rel-step1"); snapState("rel-step1"); }
           else if (frame === boot + 1) snap("rel-step2");
         }
         const reload = core.hash();
+        const reloadSave = core.save();
+        let fwdReloadDiffCount = 0;
+        const fwdReloadDiffOffsets: number[] = [];
+        for (let i = 0; i < forwardSave.length; i++) {
+          if (forwardSave[i] !== reloadSave[i]) {
+            fwdReloadDiffCount++;
+            if (fwdReloadDiffOffsets.length < 32) fwdReloadDiffOffsets.push(i);
+          }
+        }
 
         // Second reload, same inputs: must equal the first if the load path is
         // self-consistent (isolates a non-deterministic load from a real diff).
@@ -232,7 +255,10 @@ for (const driver of DRIVERS) {
           idle,
           reload,
           reload2,
+          fwdReloadDiffCount,
+          fwdReloadDiffOffsets,
           trace,
+          states,
         } satisfies Result;
       },
       { boot: BOOT, span: SPAN, maskBits: MASK_BITS },
@@ -250,6 +276,25 @@ for (const driver of DRIVERS) {
     );
     if (verdict === "FAIL" && result.trace) {
       for (const line of result.trace) console.log(`[${driver}] TRACE ${line}`);
+    }
+    if (verdict === "FAIL" && result.states) {
+      const st = result.states;
+      const pairs: Array<[string, string]> = [
+        ["atSave", "afterLoad"],
+        ["fwd-step1", "rel-step1"],
+      ];
+      for (const [a, b] of pairs) {
+        if (st[a] === st[b]) {
+          console.log(`[${driver}] STATE ${a} == ${b}`);
+          continue;
+        }
+        const la = (st[a] ?? "").split("\n");
+        const lb = (st[b] ?? "").split("\n");
+        console.log(`[${driver}] STATE ${a} vs ${b} (lines ${la.length}/${lb.length}):`);
+        for (let i = 0; i < Math.max(la.length, lb.length); i++) {
+          if (la[i] !== lb[i]) console.log(`  L${i}: ${a}=${la[i] ?? "<none>"} | ${b}=${lb[i] ?? "<none>"}`);
+        }
+      }
     }
 
     if (!result.supported) return;

@@ -21,10 +21,12 @@
 
 #include "netplay.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace {
@@ -379,6 +381,20 @@ int netplay_debug_info(uint8_t *out, int maxlen)
 			period.m_seconds, (long long)period.m_attoseconds,
 			machine->paused() ? 1 : 0, machine->scheduled_event_pending() ? 1 : 0,
 			s_next_frame);
+}
+
+
+int netplay_debug_state(uint8_t *out, int maxlen)
+{
+	running_machine *machine = current_machine();
+	if (out == nullptr || maxlen <= 0 || machine == nullptr)
+		return 0;
+	std::string dump;
+	machine->scheduler().debug_dump(dump);
+	size_t const n = std::min(dump.size(), size_t(maxlen - 1));
+	std::memcpy(out, dump.data(), n);
+	out[n] = 0;
+	return int(n);
 }
 
 

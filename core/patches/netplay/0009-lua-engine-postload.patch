@@ -1,0 +1,18 @@
+--- a/src/frontend/mame/luaengine.cpp
++++ b/src/frontend/mame/luaengine.cpp
+@@ -796,8 +796,13 @@
+ 
+ void lua_engine::on_machine_postload()
+ {
+-	// clear waiting tasks
+-	if (m_timer)
++	// clear waiting tasks. Only re-arm the resume timer when there are actually
++	// waiting tasks to resume: resetting it unconditionally mutates the timer's
++	// saved state (m_enabled/m_start), so a state loaded from a snapshot no longer
++	// hashes to the state it was saved from. That makes netplay's whole-buffer
++	// desync hash (netplay_hash) report a false desync right after any recovery
++	// load, even though the emulated machine is bit-identical (T46).
++	if (!m_waiting_tasks.empty() && m_timer)
+ 		m_timer->reset();
+ 	std::vector<int> expired;
+ 	expired.reserve(m_waiting_tasks.size());
