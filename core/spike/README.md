@@ -96,3 +96,65 @@ T35 replay in doubt. Root cause is under investigation in **T46**
 (`docs/tasks/T46-save-load-continuation.md`); likely candidates are the
 `scheduler` presave/postload timer re-ordering, the scheduler clock after load,
 and the unsaved ioport live state.
+
+### Root cause and fix (2026-10, MAME `b67e5bc`, T46)
+
+The bug is in MAME's scheduler, and reproduces **natively** (no netplay involved):
+`core/spike/native-save-continuation.sh <driver>` boots a native binary headless
+and checks save → advance → load → advance on MAME's own
+`buffer_save`/`buffer_load`.
+
+- RAM is restored **exactly** by `buffer_load` (`SI_RAM_AFTER_LOAD_EQ_SAVE=true`),
+  yet the very next frame diverges (`forward != reload` at `--span 1`) and it
+  accumulates. So the fault is non-RAM state that drives the first timeslice.
+- The save/load byte diff (mapped to save entries with the `WMA_SI_ENTRY` log,
+  patch `0005-save-debug.patch`) lands exactly on `timer/…/m_index` — timer
+  canonicalisation, not the cause of the behavioural split (normalising the
+  disabled-but-active `screen_device::vblank_begin` out of the list at presave
+  does not fix it).
+- The decisive evidence is the scheduler clock (`WMA_SI_PRESAVE_CLOCK` /
+  `WMA_SI_POSTLOAD_CLOCK`, patch `0006-schedule-debug.patch`): at save
+  `time() == m_basetime` (2.2752 s), but **after `buffer_load` `time()` returns
+  4.5504 s** while `m_basetime` restored to 2.2752 s. `device_scheduler::time()`
+  returns the cached `m_callback_timer_expire_time` while a timer callback is
+  running; that cache is **not in the save buffer**. Saving/loading from inside a
+  callback (a Lua/plugin frame notifier, or netplay's frame gate) therefore leaves
+  `time()` a full frame ahead of the restored machine, and every device that
+  schedules relative to `time()` runs off the restored timeline.
+
+**Fix** (`0007-schedule-clock.patch`, `device_scheduler::postload`): re-base the
+callback-time cache on the restored base time —
+
+```cpp
+if (m_callback_timer != nullptr)
+    m_callback_timer_expire_time = m_basetime;
+```
+
+With the fix, the native continuation passes (`SI_DET=PASS`) for gridlee at
+`--span 1/60/120/240` and `--boot 120/300`, and the T02 determinism spike and T28
+native round-trip still pass.
+
+### Still open: the WASM/browser seam diverges for a different reason (T46)
+
+The same fix was rebuilt into the WASM core and published, but
+`e2e/save-integrity.e2e.ts` **still** reports `forward != reload` for gridlee (and
+twinbee). The native and browser paths are not the same seam:
+
+- In the browser the e2e drives `Core.save`/`load`/`step` from JS, so the load is
+  **not** inside a timer callback and the clock bug above does not apply. Instrumenting
+  `netplay_hash` confirmed `time()` is restored exactly across the load
+  (`afterLoad == atSave`), while RAM is also exact (`SI_RAM_AFTER_LOAD_EQ_SAVE`), yet
+  the first stepped frame diverges.
+- Tested and ruled out for the WASM path: the timer `m_index` / disabled-timer
+  linkage (the byte diff is only there), the quantum list (clearing it on load does
+  not fix it), and input switch edges (all-zero inputs still diverge).
+
+So the browser divergence is in the `netplay_try_run_frame` stepping seam (the one
+difference from MAME's own run loop, which the native probe uses), not in
+`save_manager`. It needs the same "instrument the seam" treatment applied to
+`core/patches/netplay/netplay.cpp`. **T46 is not complete** until the WASM gate is
+green.
+
+**raiden / raiden2** (`Core.save()` throws with an empty save buffer) is a
+separate, still-open anomaly; they are catalogued `supportsSave:false` /
+`netplayMode:"none"` until then.

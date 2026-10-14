@@ -85,11 +85,19 @@ repeated desyncs ⇒ remove the driver from online play.
 ## Late join / reconnect
 Joiner receives the latest host state + inputs since, then fast-forwards to live.
 
-## Known open issue: save/load continuation is not reproducible (T46)
-Everything above that recovers by `core.load(save())` + continue (desync `state.snapshot`,
-viewer late-join, replay boot snapshot) currently rests on an **unproven** assumption. The
-`e2e/save-integrity.e2e.ts` check shows that on the real netplay seam a reloaded snapshot does
-**not** reproduce the uninterrupted future (`forward != reload`, even with all-zero inputs at
-span 1), and `afterLoad != atSave`; `raiden`/`raiden2` `Core.save()` throws despite
-`MACHINE_SUPPORTS_SAVE`. Until T46 (`docs/tasks/T46-save-load-continuation.md`) root-causes and
-fixes this, treat snapshot-based recovery as best-effort, not bit-exact.
+## Save/load continuation (T46 — partial)
+Everything above recovers by `core.load(save())` + continue (desync `state.snapshot`,
+viewer late-join, replay boot snapshot). That invariant was **broken**. T46 found and fixed
+one root cause in MAME's scheduler: `device_scheduler::time()` returns the unsaved
+`m_callback_timer_expire_time` while inside a callback, so loading a state from a frame
+callback (a Lua/plugin notifier) left `time()` a frame ahead of the restored `m_basetime`;
+`core/patches/netplay/0007-schedule-clock.patch` re-bases it in `postload`. Verified
+natively by `core/spike/native-save-continuation.sh` (`SI_DET=PASS`), with T02/T28 passing.
+
+**Still open:** the browser seam (JS-driven `Core.save`/`load`/`step` through
+`netplay_try_run_frame`) **still diverges** — `e2e/save-integrity.e2e.ts` reports
+`forward != reload` for gridlee/twinbee even though `time()` is restored and RAM is exact
+there. The clock bug does not apply on that path, so a second cause lives in the netplay
+stepping seam (`core/spike/README.md`). Treat snapshot recovery as bit-exact only on the
+native seam until T46 is finished. `raiden`/`raiden2` throw on `Core.save()` (empty save
+buffer) and are catalogued `supportsSave:false` / `netplayMode:"none"`.
