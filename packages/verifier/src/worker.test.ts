@@ -7,7 +7,7 @@ import { INPUT_LOG_VERSION, encodeInputLog, type InputLog } from "@wma/protocol"
 import type { SlotScore } from "./job";
 import type { VerifyJob } from "./job";
 import type { PgPool } from "./db";
-import { ensureMatch, processJob, type WorkerOptions } from "./worker";
+import { analyzeLog, ensureMatch, processJob, type WorkerOptions } from "./worker";
 
 // Test the pure parsing functions from worker.ts by re-implementing them here
 // (the actual functions are not exported, so we test the logic via processJob)
@@ -186,6 +186,17 @@ describe("analyzeLog / processJob anti-cheat (T36)", () => {
 
     await processJob(opts, sampleJob);
     expect(sqls.some((sql) => sql.includes("INSERT INTO match_flags"))).toBe(true);
+  });
+
+  it("only writes match_flags — never a score or a status change (advisory)", async () => {
+    const logDir = await writeLog(Array.from({ length: 800 }, (_, i) => i % 2));
+    const { pool, sqls } = makePool();
+
+    await analyzeLog({ logDir, pgPool: pool }, sampleJob, 99n);
+
+    expect(sqls.some((sql) => sql.includes("INSERT INTO match_flags"))).toBe(true);
+    expect(sqls.some((sql) => sql.includes("INSERT INTO scores"))).toBe(false);
+    expect(sqls.some((sql) => sql.includes("UPDATE matches"))).toBe(false);
   });
 
   it("records no flags for a varied log", async () => {

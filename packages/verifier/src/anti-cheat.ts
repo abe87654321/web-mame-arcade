@@ -123,6 +123,8 @@ export function analyzeInputLog(
     const col = column(log.frames, j, delay);
     if (col.length < minFrames) continue;
 
+    // The two tests are independent on purpose: a regular on/off toggle is both
+    // periodic and uniform, and is recorded as two distinct flag reasons.
     if (distinctMasks(col).size >= 2) {
       const periodic = detectPeriod(col, maxPeriod, periodicityThreshold);
       if (periodic) {

@@ -25,10 +25,12 @@ score from RAM. Clients never submit a trusted score.
 ## Anti-cheat input analysis (T36)
 After `ensureMatch` upserts the match row, the verifier worker reads the closed input log and runs a pure,
 deterministic analysis (`packages/verifier/src/anti-cheat.ts`) per player slot:
-- **`periodic_input`** — the mask column repeats on a fixed period (`p ≤ 60`, ≥ 95 % lag-`p` equality,
-  `p < N/4`, at least two distinct masks): a recorded or scripted loop.
+- **`periodic_input`** — the mask column repeats on a fixed period (`p ≤ 60`, `p ≤ N/4`, ≥ 95 % lag-`p`
+  equality, at least two distinct masks): a recorded or scripted loop.
 - **`uniform_hold`** — every press/release lasts exactly the same number of frames across ≥ 8 runs: a
   mechanical autofire cadence.
+A column can trip both (e.g. a regular `0/1` toggle): the two reasons are recorded as distinct
+`match_flags` rows on purpose.
 Matches shorter than 360 analysed frames (after the neutral input-delay prefix) are never flagged.
 Findings are **advisory**: they are written as `match_flags` rows (`db-schema.sql`) and logged as an
 `anti-cheat` event; they do not change `matches.status` or the verified score. The analysis never touches

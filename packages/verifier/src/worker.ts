@@ -192,6 +192,11 @@ export async function processJob(
     return;
   }
 
+  // Advisory anti-cheat pass on the closed log (T36). Runs right after the
+  // match row exists and before any rejection, so every closed log is analysed
+  // and a finding survives even if the replay later fails.
+  await analyzeLog(opts, job, matchId);
+
   if (job.mameCommit !== pinnedMameCommit) {
     log?.("job-rejected", {
       room: job.room,
@@ -203,10 +208,6 @@ export async function processJob(
     await flagJob(opts, job, "mame_commit mismatch");
     return;
   }
-
-  // Advisory anti-cheat pass on the closed log; independent of the replay, so
-  // a finding is recorded even if the replay later fails (T36).
-  await analyzeLog(opts, job, matchId);
 
   log?.("job-start", {
     room: job.room,
