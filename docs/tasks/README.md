@@ -74,8 +74,9 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T34 API + leaderboards** – Fastify, auth/JWT, schema migrations, board endpoints (Redis sorted sets), replay links. Docs: 05, 06. Depends: T33.
   Note: boards are derived from PostgreSQL `scores` (ZSET write-through deferred); the verifier upserts `matches`/`match_players` from the closed log.
 - [x] **T35 Replays** – "watch from start" using the stored log. Depends: T31.
-- [ ] **T36 Anti-cheat input analysis** – flag inhumanly regular / recorded input patterns from the log for review.
+- [x] **T36 Anti-cheat input analysis** – flag inhumanly regular / recorded input patterns from the log for review.
   Docs: 05, 07. Depends: T30, T33.
+  Note: pure `analyzeInputLog` (periodic/uniform-hold heuristics) + advisory `match_flags` rows in the verifier; no score or status change.
 - [x] **T46 Netplay save/load continuation is not reproducible (bug)** – `e2e/save-integrity.e2e.ts` showed that
   on the real netplay seam `Core.load(save())` + same inputs did **not** reproduce the uninterrupted future.
   Fixed three root causes in `core/patches/`: the scheduler callback clock (`0007`), the Lua resume timer

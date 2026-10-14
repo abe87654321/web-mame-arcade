@@ -190,6 +190,24 @@ export async function upsertMatch(
   return BigInt((result.rows[0] as { id: string }).id);
 }
 
+/**
+ * Record an anti-cheat finding (T36). Advisory only: this never changes the
+ * match status or the verified score. Idempotent on `(match_id, reason, slot)`
+ * so an at-least-once job redelivery does not duplicate flags.
+ */
+export async function insertMatchFlag(
+  pool: PgPool,
+  matchId: bigint,
+  flag: { code: string; slot: number; detail: Record<string, unknown> },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO match_flags (match_id, reason, slot, detail)
+     VALUES ($1, $2, $3, $4::jsonb)
+     ON CONFLICT (match_id, reason, slot) DO NOTHING`,
+    [matchId, flag.code, flag.slot, JSON.stringify(flag.detail)],
+  );
+}
+
 /** Link seated players to a match; idempotent on (match_id, slot). */
 export async function upsertMatchPlayers(
   pool: PgPool,

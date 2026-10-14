@@ -4,7 +4,11 @@
  */
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { gunzipSync } from "node:zlib";
+import { decodeInputLog } from "@wma/protocol";
 import type { PgPool } from "./db.js";
+import { analyzeInputLog } from "./anti-cheat.js";
 import { deserializeJob, redisJobKey } from "./redis-queue.js";
 import type { SlotScore, VerifyJob } from "./job.js";
 
@@ -133,6 +137,41 @@ export async function ensureMatch(
   return matchId;
 }
 
+/**
+ * Read the closed input log, run the pure anti-cheat analysis (T36), and
+ * persist any findings as advisory `match_flags` rows. Never throws: a bad or
+ * missing log must not break verification.
+ */
+export async function analyzeLog(
+  opts: Pick<WorkerOptions, "logDir" | "pgPool" | "log">,
+  job: VerifyJob,
+  matchId: bigint,
+): Promise<void> {
+  const { logDir, log } = opts;
+  const logPath = resolve(logDir, job.replayKey);
+  try {
+    const inputLog = decodeInputLog(gunzipSync(await readFile(logPath)));
+    const report = analyzeInputLog(inputLog);
+    if (!report.suspect) return;
+
+    const { insertMatchFlag } = await import("./db.js");
+    for (const flag of report.flags) {
+      await insertMatchFlag(opts.pgPool, matchId, flag);
+    }
+    log?.("anti-cheat", {
+      room: job.room,
+      replayKey: job.replayKey,
+      flags: report.flags,
+    });
+  } catch (err) {
+    log?.("anti-cheat-error", {
+      room: job.room,
+      replayKey: job.replayKey,
+      error: String(err),
+    });
+  }
+}
+
 export async function processJob(
   opts: WorkerOptions,
   job: VerifyJob,
@@ -141,8 +180,9 @@ export async function processJob(
 
   // Persist the match identity first, so any rejection below still leaves a
   // `matches` row to flag (T34).
+  let matchId: bigint;
   try {
-    await ensureMatch(opts, job);
+    matchId = await ensureMatch(opts, job);
   } catch (err) {
     log?.("match-upsert-error", {
       room: job.room,
@@ -151,6 +191,11 @@ export async function processJob(
     });
     return;
   }
+
+  // Advisory anti-cheat pass on the closed log (T36). Runs right after the
+  // match row exists and before any rejection, so every closed log is analysed
+  // and a finding survives even if the replay later fails.
+  await analyzeLog(opts, job, matchId);
 
   if (job.mameCommit !== pinnedMameCommit) {
     log?.("job-rejected", {
