@@ -82,6 +82,34 @@ In the debugger: `wp` a write watchpoint over the likely RAM window
 commands.) Note the debugger addresses are the same CPU-space addresses the
 scoremap uses.
 
+### Option C — in-browser cheat search (no native MAME)
+
+When the native MAME UI is hard to reach (e.g. a remote/thin client), use the
+dev-only **in-browser** cheat search (T47). It drives the same WASM core the game
+runs on and reads program RAM through the core's `readMemory` hook, so it sees
+exactly the memory the score lives in.
+
+```sh
+pnpm --filter @wma/web dev
+# then open:  http://localhost:5173/?cheatsearch=1#/game/<driver>
+```
+
+A panel appears top-right. Workflow:
+
+1. Play until the score is a known value (at the start of a credit it is 0).
+2. Click **Reset (score 0)**.
+3. Play to a new known score, type it in the box, pick `len`/`format`/`endian`
+   (start with `3` / `bcd` / `little`), and click **Filter**.
+4. Repeat until one address remains; check the shown hex bytes decode to the
+   on-screen score (flip `endian` if scrambled).
+5. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.
+
+The window defaults to `:maincpu`/`program` `0x0..0x10000`. For a driver whose
+score sits higher (e.g. twinbee `0x1f580`, twincobr `0x315a2`), pass the range and
+CPU: `?cheatsearch=1&base=0x1e000&size=0x4000#/game/twinbee`. `hiscore.dat`
+(see above) is a good hint for where each game's RAM is. The tool is inert
+without `?cheatsearch=1` and is never included in a production build.
+
 ### If no stable cell exists
 
 Some games draw the score from regenerated tiles/video RAM with no numeric cell

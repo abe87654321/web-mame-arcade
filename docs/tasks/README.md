@@ -90,9 +90,10 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   (live scoreboard + verified leaderboard) for `twinbee`/`raiden`/`raiden2`/`twincobr`, following the
   T32b workflow (`core/scoremap/README.md`, cheat search). Docs: 05, contracts/scoremap. Depends: T32b, T33.
   Note: the multi-slot decode is wired (`core/verify.lua` reads every `players[]` entry; CI guard
-  `core/test/verify-lua.test.mjs`) and `core/scoremap/watch.lua` is parameterized for any driver. The four
-  scoremap JSONs still need interactive cheat-search discovery. The **verified** half of the leaderboard is
-  blocked on T48 (the replay path itself is broken).
+  `core/test/verify-lua.test.mjs`), `core/scoremap/watch.lua` is parameterized for any driver, and a dev-only
+  in-browser cheat search (`?cheatsearch=1`, `packages/web/src/cheatsearch.ts`, `core/scoremap/README.md`
+  Option C) lets discovery run without the native MAME UI. The four scoremap JSONs still need the actual
+  addresses. The **verified** half of the leaderboard is blocked on T48 (the replay path itself is broken).
 - [ ] **T48 Fix the native verifier replay path (bug)** – `core/verify.lua` (T33) was only tested against
   mocked output and fails on a real run: it passes JSON to Lua `load()`, native MAME ships no `json` module,
   and it calls the wrong APIs (`m:input()`, `m:step()`). Implement a Lua JSON decode of the closed log,
