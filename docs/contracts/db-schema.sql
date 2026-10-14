@@ -48,3 +48,15 @@ CREATE TABLE scores (
   UNIQUE (match_id, user_id)
 );
 CREATE INDEX scores_board ON scores (game_id, score DESC);
+-- Anti-cheat review flags (T36): one row per finding from the closed input log.
+-- Advisory only — a flagged match still keeps its verified score and status;
+-- reviewers read this table. UNIQUE makes redelivered analysis idempotent.
+CREATE TABLE match_flags (
+  id         bigserial PRIMARY KEY,
+  match_id   bigint NOT NULL REFERENCES matches(id),
+  reason     text NOT NULL,               -- 'periodic_input' | 'uniform_hold' | ...
+  slot       smallint NOT NULL,           -- offending player slot
+  detail     jsonb NOT NULL,              -- metric values behind the flag
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (match_id, reason, slot)
+);
