@@ -49,6 +49,8 @@ export interface NetplayHooks {
    * machine. Provided only by the T32b core build.
    */
   readMemory(cpu: string, space: string, addr: number, len: number): Uint8Array;
+  /** T46 diagnostic: one-line scheduler/frame-gate state; empty on older cores. */
+  info?(): string;
 }
 
 export interface CoreModule {

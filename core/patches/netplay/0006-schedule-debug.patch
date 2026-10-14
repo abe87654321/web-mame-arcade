@@ -1,0 +1,58 @@
+diff --git a/src/emu/schedule.cpp b/src/emu/schedule.cpp
+index a475fd9b..2bf9408e 100644
+--- a/src/emu/schedule.cpp
++++ b/src/emu/schedule.cpp
+@@ -676,6 +676,26 @@ void device_scheduler::presave()
+ 	u32 index = 0;
+ 	for (emu_timer *timer = m_timer_list; timer; timer = timer->m_next)
+ 		timer->m_index = index++;
++	// WMA T46: dump the execution order m_index is about to freeze into the save
++	// buffer, and the inactive list, to compare with postload. Diagnostics only.
++	if (osd_getenv("WMA_SI_DEBUG") != nullptr)
++	{
++		osd_printf_error("WMA_SI_PRESAVE_CLOCK cb=%d base=%d.%lld cbtime=%d.%lld t=%d.%lld\n",
++				m_callback_timer != nullptr ? 1 : 0, m_basetime.m_seconds, (long long)m_basetime.m_attoseconds,
++				m_callback_timer_expire_time.m_seconds, (long long)m_callback_timer_expire_time.m_attoseconds,
++				time().m_seconds, (long long)time().m_attoseconds);
++		u32 wma_i = 0;
++		for (emu_timer *timer = m_timer_list; timer; timer = timer->m_next)
++			osd_printf_error("WMA_SI_PRESAVE i=%u name=%s en=%d never=%d sec=%d idx=%u temp=%d\n",
++					wma_i++, timer->m_callback.name() ? timer->m_callback.name() : "unnamed",
++					timer->m_enabled ? 1 : 0, timer->m_expire.is_never() ? 1 : 0,
++					timer->m_expire.m_seconds, timer->m_index, timer->m_temporary ? 1 : 0);
++		for (emu_timer *timer = m_inactive_timers; timer; timer = timer->m_next)
++			osd_printf_error("WMA_SI_PRESAVE_INACTIVE name=%s en=%d never=%d sec=%d idx=%u temp=%d\n",
++					timer->m_callback.name() ? timer->m_callback.name() : "unnamed",
++					timer->m_enabled ? 1 : 0, timer->m_expire.is_never() ? 1 : 0,
++					timer->m_expire.m_seconds, timer->m_index, timer->m_temporary ? 1 : 0);
++	}
+ #if VERBOSE
+ 	dump_timers();
+ #endif
+@@ -734,6 +754,26 @@ void device_scheduler::postload()
+ 	m_suspend_changes_pending = true;
+ 	rebuild_execute_list();
+ 
++	// WMA T46: dump the active + inactive order postload rebuilt (WMA_SI_DEBUG).
++	if (osd_getenv("WMA_SI_DEBUG") != nullptr)
++	{
++		osd_printf_error("WMA_SI_POSTLOAD_CLOCK cb=%d base=%d.%lld cbtime=%d.%lld t=%d.%lld\n",
++				m_callback_timer != nullptr ? 1 : 0, m_basetime.m_seconds, (long long)m_basetime.m_attoseconds,
++				m_callback_timer_expire_time.m_seconds, (long long)m_callback_timer_expire_time.m_attoseconds,
++				time().m_seconds, (long long)time().m_attoseconds);
++		u32 wma_i = 0;
++		for (emu_timer *timer = m_timer_list; timer; timer = timer->m_next)
++			osd_printf_error("WMA_SI_POSTLOAD i=%u name=%s en=%d never=%d sec=%d idx=%u temp=%d\n",
++					wma_i++, timer->m_callback.name() ? timer->m_callback.name() : "unnamed",
++					timer->m_enabled ? 1 : 0, timer->m_expire.is_never() ? 1 : 0,
++					timer->m_expire.m_seconds, timer->m_index, timer->m_temporary ? 1 : 0);
++		for (emu_timer *timer = m_inactive_timers; timer; timer = timer->m_next)
++			osd_printf_error("WMA_SI_POSTLOAD_INACTIVE name=%s en=%d never=%d sec=%d idx=%u temp=%d\n",
++					timer->m_callback.name() ? timer->m_callback.name() : "unnamed",
++					timer->m_enabled ? 1 : 0, timer->m_expire.is_never() ? 1 : 0,
++					timer->m_expire.m_seconds, timer->m_index, timer->m_temporary ? 1 : 0);
++	}
++
+ 	// report the timer state after a log
+ 	LOG("After resetting/reordering timers:\n");
+ #if VERBOSE

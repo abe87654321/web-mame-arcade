@@ -1,0 +1,20 @@
+--- a/src/emu/schedule.cpp
++++ b/src/emu/schedule.cpp
+@@ -751,6 +751,17 @@
+ 		timer_list_insert<true>(timer);
+ 	}
+ 
++	// device_scheduler::time() reports the cached m_callback_timer_expire_time
++	// while a timer callback is running, and only m_basetime is part of the save
++	// buffer. If the state is loaded from inside a callback (a Lua/plugin frame
++	// notifier, or netplay's frame gate), that cache still holds the pre-load
++	// timeline's instant after m_basetime has been rewound, so time() reports a
++	// stale "now" and the first timeslice runs off the restored timeline — the
++	// reloaded machine diverges from the one that never stopped (T46). Re-base the
++	// cache on the restored m_basetime; when no callback is active this is a no-op.
++	if (m_callback_timer != nullptr)
++		m_callback_timer_expire_time = m_basetime;
++
+ 	m_suspend_changes_pending = true;
+ 	rebuild_execute_list();
+ 

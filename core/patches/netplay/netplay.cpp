@@ -22,6 +22,7 @@
 #include "netplay.h"
 
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <vector>
@@ -361,6 +362,25 @@ uint32_t netplay_hash()
 //  Only the WASM core calls this (current_machine() is null natively); the
 //  verifier reads scores through verify.lua instead.
 //-------------------------------------------------
+
+int netplay_debug_info(uint8_t *out, int maxlen)
+{
+	running_machine *machine = current_machine();
+	if (out == nullptr || maxlen <= 0)
+		return 0;
+	if (machine == nullptr)
+		return std::snprintf(reinterpret_cast<char *>(out), size_t(maxlen), "no-machine");
+
+	attotime const now = machine->scheduler().time();
+	attotime const period = frame_period(*machine);
+	return std::snprintf(reinterpret_cast<char *>(out), size_t(maxlen),
+			"t=%d.%09lld period=%d.%09lld paused=%d evpend=%d next=%u",
+			now.m_seconds, (long long)now.m_attoseconds,
+			period.m_seconds, (long long)period.m_attoseconds,
+			machine->paused() ? 1 : 0, machine->scheduled_event_pending() ? 1 : 0,
+			s_next_frame);
+}
+
 
 int netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_t *out, int len)
 {

@@ -40,6 +40,9 @@ NETPLAY_API uint32_t netplay_hash(void);
 // direct-pointer read that refuses handler-mapped addresses, so it never runs a
 // side-effecting read handler; never steps the machine. Returns bytes read, -1.
 NETPLAY_API int      netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_t *out, int len);
+// T46 diagnostic: write a one-line human-readable scheduler/frame-gate state into
+// `out` (NUL-terminated), returning the byte count. Read-only; never steps.
+NETPLAY_API int      netplay_debug_info(uint8_t *out, int maxlen);
 
 // Internal hooks used by the patched emulation core (machine.cpp, ioport.cpp).
 bool netplay_input_active();

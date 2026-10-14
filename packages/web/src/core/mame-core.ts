@@ -48,6 +48,15 @@ export class MameCore implements Core {
     return this.netplay("hash", "T20").hash();
   }
 
+  /**
+   * T46 diagnostic: a one-line dump of the scheduler clock and frame gate. Only
+   * the T46-instrumented core provides `info`; an older core returns "".
+   */
+  debugInfo(): string {
+    const hooks = this.module.netplay as (NetplayHooks & { info?: () => string }) | undefined;
+    return hooks?.info ? hooks.info() : "";
+  }
+
   readScore(slot: number): number {
     // Which memory to read comes from the driver's scoremap (T32b); a driver
     // without one, or a core built before the read hook, cannot report.
