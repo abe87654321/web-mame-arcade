@@ -45,6 +45,8 @@ bool s_arm_requested = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
+// Flat list of every bound field (for the T46 diagnostic dump).
+std::vector<ioport_field *> s_bound;
 
 // Cap how far ahead of the step clock inputs may be buffered. Bounding by frame
 // distance (not by entry count) keeps the refusal identical on every peer: an
@@ -94,6 +96,7 @@ void build_bindings(running_machine &machine)
 	for (auto &slot : s_fields)
 		for (auto &bits : slot)
 			bits.clear();
+	s_bound.clear();
 
 	for (auto const &port : machine.ioport().ports())
 	{
@@ -103,9 +106,23 @@ void build_bindings(running_machine &machine)
 		{
 			int const bit = bit_for_field(field);
 			if (bit >= 0)
+			{
 				s_fields[field.player()][bit].push_back(&field);
+				s_bound.push_back(&field);
+			}
 		}
 	}
+}
+
+// Bytes the netplay snapshot appends after MAME's save buffer to carry each bound
+// field's externally-set value and live state. None of it is in MAME's save
+// buffer, yet it seeds switch edges / impulses, so without it the first frame
+// after a load differs. Layout per field: digital(u8) value(u32) impulse(u8)
+// last(u8) toggle(u8) joydir(u8) lockout(u8) = 10 bytes.
+constexpr int LIVE_BYTES_PER_FIELD = 10;
+int live_state_bytes()
+{
+	return int(s_bound.size()) * LIVE_BYTES_PER_FIELD;
 }
 
 // Activate netplay once a machine exists. Safe to call before the machine has
@@ -269,7 +286,7 @@ int netplay_state_size()
 	running_machine *machine = current_machine();
 	if (machine == nullptr)
 		return 0;
-	return int(machine->save().buffer_size());
+	return int(machine->save().buffer_size()) + live_state_bytes();
 }
 
 
@@ -282,7 +299,26 @@ int netplay_save_state(uint8_t *buf)
 	running_machine *machine = current_machine();
 	if (machine == nullptr || buf == nullptr)
 		return 0;
-	return machine->save().write_buffer(buf, machine->save().buffer_size()) == STATERR_NONE ? 1 : 0;
+	size_t const size = machine->save().buffer_size();
+	if (machine->save().write_buffer(buf, size) != STATERR_NONE)
+		return 0;
+	uint8_t *out = buf + size;
+	for (ioport_field *field : s_bound)
+	{
+		ioport_field_live &live = field->live();
+		uint32_t const value = uint32_t(live.value);
+		*out++ = field->digital_value() ? 1 : 0;
+		*out++ = uint8_t(value);
+		*out++ = uint8_t(value >> 8);
+		*out++ = uint8_t(value >> 16);
+		*out++ = uint8_t(value >> 24);
+		*out++ = live.impulse;
+		*out++ = live.last ? 1 : 0;
+		*out++ = live.toggle ? 1 : 0;
+		*out++ = uint8_t(live.joydir);
+		*out++ = live.lockout ? 1 : 0;
+	}
+	return 1;
 }
 
 
@@ -295,7 +331,29 @@ int netplay_load_state(uint8_t const *buf)
 	running_machine *machine = current_machine();
 	if (machine == nullptr || buf == nullptr)
 		return 0;
-	return machine->save().read_buffer(buf, machine->save().buffer_size()) == STATERR_NONE ? 1 : 0;
+	size_t const size = machine->save().buffer_size();
+	if (machine->save().read_buffer(buf, size) != STATERR_NONE)
+		return 0;
+	// read_buffer triggers postload; restore the externally-set value and live
+	// input state afterwards so the first frame after the load computes the same
+	// switch edges as the run that never stopped.
+	uint8_t const *in = buf + size;
+	for (ioport_field *field : s_bound)
+	{
+		ioport_field_live &live = field->live();
+		bool const digital = (*in++ != 0);
+		uint32_t const value = uint32_t(in[0]) | (uint32_t(in[1]) << 8) |
+				(uint32_t(in[2]) << 16) | (uint32_t(in[3]) << 24);
+		in += 4;
+		field->set_value(digital ? 1 : 0);
+		live.value = value;
+		live.impulse = *in++;
+		live.last = (*in++ != 0);
+		live.toggle = (*in++ != 0);
+		live.joydir = digital_joystick::direction_t(*in++);
+		live.lockout = (*in++ != 0);
+	}
+	return 1;
 }
 
 
@@ -391,6 +449,18 @@ int netplay_debug_state(uint8_t *out, int maxlen)
 		return 0;
 	std::string dump;
 	machine->scheduler().debug_dump(dump);
+	// Bound ioport fields' live state (T46): last/impulse/toggle drive switch
+	// edges / impulses and are not in MAME's save buffer.
+	char fb[192];
+	for (ioport_field *f : s_bound)
+	{
+		ioport_field_live &l = f->live();
+		std::snprintf(fb, sizeof(fb), "F b=%d p=%d type=%d dig=%d last=%d imp=%d tog=%d val=%u lock=%d joydir=%d\n",
+				bit_for_field(*f), f->player(), int(f->type()), f->digital_value() ? 1 : 0,
+				l.last ? 1 : 0, l.impulse, l.toggle ? 1 : 0, unsigned(l.value),
+				l.lockout ? 1 : 0, int(l.joydir));
+		dump.append(fb);
+	}
 	size_t const n = std::min(dump.size(), size_t(maxlen - 1));
 	std::memcpy(out, dump.data(), n);
 	out[n] = 0;
