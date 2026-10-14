@@ -151,6 +151,14 @@ return function()
       local snap_reload = manager.machine:buffer_save()
       record("SI_RAM_RELOAD", string.format("%016x", ram_reload))
       record("SI_SNAP_FORWARD_EQ_RELOAD", first_diff(snap_forward, snap_reload) == -1 and "true" or "false")
+      -- Full-buffer diff count (native RAM hashing above is a weaker check that
+      -- ignores CPU registers and host timers).
+      local diffcount = 0
+      local n = math.min(#snap_forward, #snap_reload)
+      for i = 1, n do
+        if snap_forward:byte(i) ~= snap_reload:byte(i) then diffcount = diffcount + 1 end
+      end
+      record("SI_SNAP_FORWARD_DIFF_COUNT", diffcount)
       -- The netplay invariant is that the reloaded machine plays the same game:
       -- identical RAM at the same frame. The serialised buffer can legitimately
       -- differ in timer m_index canonicalisation, so it is reported, not gated.
