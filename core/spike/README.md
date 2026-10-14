@@ -154,16 +154,27 @@ re-arms the timer when there are waiting tasks. After it, `loadByteEqual=true` /
 joystick/buttons and START; native is byte-exact for the whole buffer
 (`SI_SNAP_FORWARD_DIFF_COUNT=0` at every boot/span tried).
 
-### Still open: COIN (impulse) input still diverges on the browser seam (T46)
+### Third fix: the unsaved ioport live state (field + port)
 
-With **COIN (wire bit 11)** in the input, `e2e/save-integrity.e2e.ts` still reports
-`forward != reload` for gridlee (~11-21 bytes: CPU PC + watchdog timer). Per-bit
-bisection: zero / bits 0-10 PASS, bit 11 (COIN, an impulse control) FAILS. Ruled out as
-the cause: the field live state (`last`/`impulse`/`toggle`/`value`/`joydir`/`lockout`,
-captured into the snapshot with no effect), the quantum list, and aligning the gate to the
-screen update point. So the browser divergence is coin/impulse-specific in the
-`netplay_try_run_frame` seam, not in `save_manager`. **T46 is not complete** until the
-browser gate is green with COIN input too.
+The browser seam still diverged for gridlee once COIN was in the input (~11-21 bytes: CPU
+PC + watchdog timer); per-bit bisection showed zero/joystick-buttons/START passed, COIN
+(wire bit 11) failed. The cause is that MAME's save buffer does not include the ioport live
+state that seeds switch edges / impulses:
+
+- each bound `ioport_field`'s externally-set value and live state
+  (`last`/`impulse`/`toggle`/`value`/`joydir`/`lockout`), and
+- each port's cached `m_live->digital`, which `ioport_port::read()` returns and which is
+  only recomputed once per frame (`ioport_port::frame_update`).
+
+`netplay_save_state`/`load_state` now append and restore both (see
+`core/patches/netplay/netplay.cpp`; `netplay_debug_state` dumps the field live state for
+diagnosis). After the fix `e2e/save-integrity.e2e.ts` reports `forward == reload`
+(`fwdReloadDiffCount=0`) for gridlee and twinbee across zero / joystick-buttons / START /
+COIN inputs and every boot/span tried; native stays byte-exact.
+
+(Twinbee's T29 golden is not recorded: the golden harness itself is intermittently
+nondeterministic for twinbee even though its `atSave` state is stable across runs — a
+separate harness/boot-race issue, tracked outside T46.)
 
 **raiden / raiden2** (`Core.save()` throws with an empty save buffer) is a
 separate, still-open anomaly; they are catalogued `supportsSave:false` /

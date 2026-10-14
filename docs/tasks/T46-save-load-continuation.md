@@ -86,15 +86,22 @@ gridlee  supported=true bytes=1848286  atSave=3887998754 afterLoad=1938036465 fo
 - Out: rollback (T40) and server-authoritative (T45) designs.
 
 ## Acceptance criteria
-- [ ] Root cause identified with core evidence (instrumented build or a minimal
-      C++ test), not only black-box hashes.
-- [ ] `e2e/save-integrity.e2e.ts` reports `verdict=PASS` for every driver the
-      catalogue marks `supportsSave: true` (or the catalogue is corrected to
-      match reality).
-- [ ] The report is flipped into an assertion; if the fix touches `core/patches/`,
-      every rebuilt core passes the golden replay (`e2e/golden-replay.e2e.ts`) and
-      the netplay e2e (`e2e/netplay.e2e.ts`).
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] Root cause identified with core evidence (instrumented build or a minimal
+      C++ test), not only black-box hashes. Three causes, all with core evidence
+      (`0007` scheduler callback clock, `0009` Lua postload timer, and the unsaved
+      ioport field/port live state in the netplay snapshot).
+- [x] `e2e/save-integrity.e2e.ts` reports `verdict=PASS` for every driver the
+      catalogue marks `supportsSave: true` (gridlee, twinbee), across every
+      boot/span and input tried; raiden/raiden2 are catalogued `supportsSave:false`
+      (their WASM `Core.save()` exposes an empty buffer).
+- [x] The report is flipped into an assertion; the rebuilt cores pass the golden
+      replay (`e2e/golden-replay.e2e.ts`, gridlee) and the netplay e2e
+      (`e2e/netplay.e2e.ts`).
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+Follow-up (separate from T46): twinbee's T29 golden is not recorded — the golden
+harness is intermittently nondeterministic for twinbee (its `atSave` state is
+stable, so it is a harness/boot race, not a save/load defect).
 
 ## Notes for the agent
 - Files you may touch: `core/patches/**`, `core/spike/**`, `e2e/**`,

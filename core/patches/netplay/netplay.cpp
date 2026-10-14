@@ -45,8 +45,10 @@ bool s_arm_requested = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
-// Flat list of every bound field (for the T46 diagnostic dump).
+// Flat list of every bound field, and the unique ports they belong to (for the
+// T46 diagnostic dump and for carrying the live input state in snapshots).
 std::vector<ioport_field *> s_bound;
+std::vector<ioport_port *> s_ports;
 
 // Cap how far ahead of the step clock inputs may be buffered. Bounding by frame
 // distance (not by entry count) keeps the refusal identical on every peer: an
@@ -97,6 +99,7 @@ void build_bindings(running_machine &machine)
 		for (auto &bits : slot)
 			bits.clear();
 	s_bound.clear();
+	s_ports.clear();
 
 	for (auto const &port : machine.ioport().ports())
 	{
@@ -109,6 +112,9 @@ void build_bindings(running_machine &machine)
 			{
 				s_fields[field.player()][bit].push_back(&field);
 				s_bound.push_back(&field);
+				ioport_port *p = &field.port();
+				if (std::find(s_ports.begin(), s_ports.end(), p) == s_ports.end())
+					s_ports.push_back(p);
 			}
 		}
 	}
@@ -120,9 +126,12 @@ void build_bindings(running_machine &machine)
 // after a load differs. Layout per field: digital(u8) value(u32) impulse(u8)
 // last(u8) toggle(u8) joydir(u8) lockout(u8) = 10 bytes.
 constexpr int LIVE_BYTES_PER_FIELD = 10;
+// Per port: digital(u32) outputvalue(u32). ioport_port::read() returns the
+// cached m_live->digital (recomputed once per frame), so it too must round-trip.
+constexpr int LIVE_BYTES_PER_PORT = 8;
 int live_state_bytes()
 {
-	return int(s_bound.size()) * LIVE_BYTES_PER_FIELD;
+	return int(s_bound.size()) * LIVE_BYTES_PER_FIELD + int(s_ports.size()) * LIVE_BYTES_PER_PORT;
 }
 
 // Activate netplay once a machine exists. Safe to call before the machine has
@@ -318,6 +327,20 @@ int netplay_save_state(uint8_t *buf)
 		*out++ = uint8_t(live.joydir);
 		*out++ = live.lockout ? 1 : 0;
 	}
+	for (ioport_port *port : s_ports)
+	{
+		ioport_port_live &live = port->live();
+		uint32_t const digital = uint32_t(live.digital);
+		uint32_t const outputvalue = uint32_t(live.outputvalue);
+		*out++ = uint8_t(digital);
+		*out++ = uint8_t(digital >> 8);
+		*out++ = uint8_t(digital >> 16);
+		*out++ = uint8_t(digital >> 24);
+		*out++ = uint8_t(outputvalue);
+		*out++ = uint8_t(outputvalue >> 8);
+		*out++ = uint8_t(outputvalue >> 16);
+		*out++ = uint8_t(outputvalue >> 24);
+	}
 	return 1;
 }
 
@@ -352,6 +375,17 @@ int netplay_load_state(uint8_t const *buf)
 		live.toggle = (*in++ != 0);
 		live.joydir = digital_joystick::direction_t(*in++);
 		live.lockout = (*in++ != 0);
+	}
+	for (ioport_port *port : s_ports)
+	{
+		ioport_port_live &live = port->live();
+		uint32_t const digital = uint32_t(in[0]) | (uint32_t(in[1]) << 8) |
+				(uint32_t(in[2]) << 16) | (uint32_t(in[3]) << 24);
+		uint32_t const outputvalue = uint32_t(in[4]) | (uint32_t(in[5]) << 8) |
+				(uint32_t(in[6]) << 16) | (uint32_t(in[7]) << 24);
+		in += 8;
+		live.digital = digital;
+		live.outputvalue = outputvalue;
 	}
 	return 1;
 }

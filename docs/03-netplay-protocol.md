@@ -104,10 +104,14 @@ waiting tasks. After it, `e2e/save-integrity.e2e.ts` reports `loadByteEqual=true
 `loadDiffCount=0` (the round-trip is byte-exact) and continuation passes for zero input,
 joystick/buttons and START (gridlee, native RAM and full buffer both exact).
 
-**Still open:** with **COIN (wire bit 11, an impulse control)** in the input, the browser
-seam still diverges (`forward != reload`, ~11-21 bytes: CPU PC + watchdog timer), while the
-native seam stays byte-exact. The residual is therefore coin/impulse-specific and lives in
-the netplay gate, not in `save_manager` (`core/spike/README.md`). Treat snapshot recovery as
-bit-exact except for matches that use COIN, until T46 is finished. `raiden`/`raiden2` throw
-on `Core.save()` (empty save buffer) and are catalogued `supportsSave:false` /
-`netplayMode:"none"`.
+A third root cause was the **unsaved ioport live state**. MAME's save buffer does not
+include an ioport field's externally-set value / live state (`last`, `impulse`, `toggle`,
+…) nor the port's cached `digital` value; `ioport_port::read()` returns that cached value,
+which is only recomputed once per frame. After a load the CPU therefore read a stale input
+port and the first frame diverged (worst with COIN, whose edges/impulse make it visible).
+`netplay_save_state`/`load_state` now append and restore this state, so the browser seam is
+byte-exact (`forward == reload`, `fwdReloadDiffCount=0`) for gridlee and twinbee, over zero
+/ joystick-button / START inputs, at every boot/span tried.
+
+`raiden`/`raiden2` throw on `Core.save()` (empty save buffer) and remain catalogued
+`supportsSave:false` / `netplayMode:"none"`.

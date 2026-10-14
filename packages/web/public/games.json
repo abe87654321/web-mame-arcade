@@ -2,7 +2,7 @@
   {
     "driver": "gridlee",
     "title": "Gridlee",
-    "coreVersion": "1b77d2dd879032e5824ab5c10b652d00c466108ab34cb4a41150dee8a4471cbc",
+    "coreVersion": "7770b7e94d99ecad988ca840efd100b97457cf1dd1a309929118dada4bfd3ec6",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e",
     "supportsSave": true,
@@ -15,7 +15,7 @@
   {
     "driver": "twinbee",
     "title": "TwinBee",
-    "coreVersion": "bed721e8686e7f57b1f7ee92d6cc2a818016406972f5ca35f9b5994593a258a4",
+    "coreVersion": "6dded98fb171dc9c4d8bfe7eea7266f5d5a60f8099e98776ac8d85eb34799710",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "2beca5f6c8fe71736b742f154e5ecb1af78dfb98d4bfefa578854ccb6bafd4a8",
     "supportsSave": true,
