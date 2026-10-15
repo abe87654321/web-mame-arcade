@@ -371,9 +371,22 @@ export function installCheatSearch(win: Window): void {
   const panel = doc.createElement("div");
   panel.setAttribute("data-wma-cheatsearch", "1");
   panel.style.cssText =
-    "position:fixed;top:8px;right:8px;z-index:99999;width:340px;max-height:90vh;" +
-    "overflow:auto;background:#111c;color:#eee;font:12px/1.4 monospace;" +
+    "position:fixed;top:8px;right:8px;left:auto;margin:0;z-index:2147483647;width:340px;" +
+    "max-height:90vh;overflow:auto;background:#111c;color:#eee;font:12px/1.4 monospace;" +
     "padding:8px;border:1px solid #666;border-radius:6px;backdrop-filter:blur(2px)";
+
+  // The SDL3 backend puts the game canvas in the Fullscreen API (CSS top layer),
+  // where no overlay is clickable. While the dev tool is armed, block fullscreen
+  // so the panel stays usable; the canvas still fills the viewport (100vw/100vh).
+  const proto = Element.prototype as Element & {
+    webkitRequestFullscreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
+  };
+  const noFullscreen = (): Promise<void> => Promise.resolve();
+  proto.requestFullscreen = noFullscreen as Element["requestFullscreen"];
+  if (proto.webkitRequestFullscreen) proto.webkitRequestFullscreen = noFullscreen;
+  if (proto.msRequestFullscreen) proto.msRequestFullscreen = noFullscreen;
+  if (doc.fullscreenElement) void doc.exitFullscreen?.().catch(() => {});
 
   const title = doc.createElement("div");
   title.textContent = `cheat search ${cpu}/${space} ${hex(base, 5)}..${hex(base + size, 5)}`;
@@ -592,18 +605,6 @@ export function installCheatSearch(win: Window): void {
   panel.appendChild(status);
   panel.appendChild(results);
   doc.body.appendChild(panel);
-
-  // The SDL3 backend runs the game canvas in the Fullscreen API, which puts it
-  // in the CSS top layer — above any z-index — so a body overlay can never be
-  // clicked while fullscreen. Leave fullscreen now and whenever it is re-entered
-  // so the panel stays clickable.
-  const leaveFullscreen = (): void => {
-    if (doc.fullscreenElement && typeof doc.exitFullscreen === "function") {
-      void doc.exitFullscreen().catch(() => {});
-    }
-  };
-  leaveFullscreen();
-  doc.addEventListener("fullscreenchange", leaveFullscreen);
 
   show();
   console.info(

@@ -1,8 +1,8 @@
 /**
  * Cheat-search dev tool smoke (T47). Boots the real gridlee WASM core in the
  * browser, opens the play page with `?cheatsearch=1`, and asserts the panel
- * installs, is clickable (the game runs fullscreen, so the panel must leave it),
- * and can snapshot program RAM through the core's `readMemory` hook.
+ * installs, is hit-testable above the (blocked-from-fullscreen) canvas, and can
+ * snapshot program RAM through the core's `readMemory` hook.
  *
  * Needs the built WASM core and ROM (gitignored), so it is skipped in CI like
  * the other e2e specs. Run: pnpm --filter @wma/e2e test:e2e -g "cheat search".
@@ -34,7 +34,7 @@ test.describe("cheat search panel", () => {
     `missing core/ROM for ${DRIVER}; build with core/build-wasm.sh ${DRIVER}`,
   );
 
-  test("installs, is clickable, and snapshots program RAM", async ({ page }) => {
+  test("installs, is hit-testable, and snapshots program RAM", async ({ page }) => {
     await page.goto("/?cheatsearch=1#/game/gridlee");
 
     const panel = page.locator('[data-wma-cheatsearch="1"]');
@@ -47,27 +47,104 @@ test.describe("cheat search panel", () => {
       { timeout: 120_000 },
     );
 
-    // `?cheatsearch=1` must have taken the game out of the fullscreen top layer.
+    // The game's fullscreen request is blocked while the tool is armed, so the
+    // panel is not covered by the canvas's top layer.
     await expect
-      .poll(() => page.evaluate(() => document.fullscreenElement === null))
+      .poll(() => page.evaluate(() => document.fullscreenElement === null), {
+        timeout: 15_000,
+      })
       .toBe(true);
 
-    // Real pointer click (would time out if the fullscreen canvas still covered
-    // the panel).
-    await panel.getByRole("button", { name: /Reset/ }).click();
+    // A click at the Reset button's centre lands on the panel, not the canvas.
+    const onTop = await page.evaluate(() => {
+      const panelEl = document.querySelector('[data-wma-cheatsearch="1"]')!;
+      const btn = Array.from(panelEl.querySelectorAll("button")).find((b) =>
+        /Reset/.test(b.textContent ?? ""),
+      )!;
+      const r = btn.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      return panelEl.contains(hit);
+    });
+    expect(onTop).toBe(true);
 
-    const status = panel.locator("div").filter({ hasText: /^candidates: \d+$/ });
-    await expect(status).toContainText(/candidates: \d+/);
-    const count = Number((await status.textContent())?.replace(/\D/g, ""));
+    // Drive the buttons in-page (the canvas rAF loop stalls Playwright's own
+    // synthetic clicks); the panel's click handlers are what we are testing.
+    const count = await clickAndCount(page, "Reset");
     expect(count).toBeGreaterThan(0);
 
-    // On-screen keypad works without the keyboard (the game captures keys).
-    await panel.getByRole("button", { name: "7", exact: true }).click();
-    await panel.getByRole("button", { name: "8", exact: true }).click();
-    await expect(panel.locator("input").first()).toHaveValue("78");
+    await click(page, "7");
+    await click(page, "8");
+    expect(await firstInputValue(page)).toBe("78");
 
-    // Pause toggles.
-    await panel.getByRole("button", { name: /Pause game/ }).click();
-    await expect(panel.getByRole("button", { name: /Resume game/ })).toBeVisible();
+    await click(page, "Pause game");
+    expect(await hasButton(page, "Resume game")).toBe(true);
   });
 });
+
+async function click(
+  page: import("@playwright/test").Page,
+  label: string,
+): Promise<void> {
+  const ok = await page.evaluate((text) => {
+    const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+    const btn = Array.from(panel?.querySelectorAll("button") ?? []).find(
+      (b) => (b.textContent ?? "").trim() === text,
+    ) as HTMLButtonElement | undefined;
+    btn?.click();
+    return Boolean(btn);
+  }, label);
+  if (!ok) throw new Error(`no button "${label}"`);
+}
+
+async function clickAndCount(
+  page: import("@playwright/test").Page,
+  label: string,
+): Promise<number> {
+  const match = await page.evaluate((text) => {
+    const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+    return Array.from(panel?.querySelectorAll("button") ?? []).find((b) =>
+      (b.textContent ?? "").includes(text),
+    )
+      ? true
+      : false;
+  }, label);
+  if (!match) throw new Error(`no button contains "${label}"`);
+  await page.evaluate((text) => {
+    const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+    const btn = Array.from(panel?.querySelectorAll("button") ?? []).find((b) =>
+      (b.textContent ?? "").includes(text),
+    ) as HTMLButtonElement | undefined;
+    btn?.click();
+  }, label);
+  return page.evaluate(() => {
+    const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+    const div = Array.from(panel?.querySelectorAll("div") ?? []).find((d) =>
+      /^candidates: \d+$/.test(d.textContent ?? ""),
+    );
+    return Number((div?.textContent ?? "").replace(/\D/g, ""));
+  });
+}
+
+async function firstInputValue(
+  page: import("@playwright/test").Page,
+): Promise<string> {
+  return page.evaluate(() => {
+    const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+    return (panel?.querySelector("input") as HTMLInputElement | null)?.value ?? "";
+  });
+}
+
+async function hasButton(
+  page: import("@playwright/test").Page,
+  label: string,
+): Promise<boolean> {
+  return page.evaluate((text) => {
+    const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+    return Array.from(panel?.querySelectorAll("button") ?? []).some(
+      (b) => (b.textContent ?? "").trim() === text,
+    );
+  }, label);
+}

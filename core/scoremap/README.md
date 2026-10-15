@@ -119,7 +119,9 @@ The window defaults to `:maincpu`/`program` `0x0..0x10000`. For a driver whose
 score sits higher (e.g. twinbee `0x1f580`, twincobr `0x315a2`), pass the range and
 CPU: `?cheatsearch=1&base=0x1e000&size=0x4000#/game/twinbee`. `hiscore.dat`
 (see above) is a good hint for where each game's RAM is. The tool is inert
-without `?cheatsearch=1` and is never included in a production build.
+without `?cheatsearch=1` and is never included in a production build. While it is
+armed the game's fullscreen request is suppressed (the canvas still fills the
+window), so the panel stays clickable.
 
 ### If no stable cell exists
 
