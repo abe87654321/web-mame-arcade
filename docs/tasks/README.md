@@ -92,8 +92,14 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Note: the multi-slot decode is wired (`core/verify.lua` reads every `players[]` entry; CI guard
   `core/test/verify-lua.test.mjs`), `core/scoremap/watch.lua` is parameterized for any driver, and a dev-only
   in-browser cheat search (`?cheatsearch=1`, `packages/web/src/cheatsearch.ts`, `core/scoremap/README.md`
-  Option C) lets discovery run without the native MAME UI. The four scoremap JSONs still need the actual
-  addresses. The **verified** half of the leaderboard is blocked on T48 (the replay path itself is broken).
+  Option C) lets discovery run without the native MAME UI. `twinbee` is done (slot 0); `twincobr` and the
+  `raiden`/`raiden2` scoremaps still need addresses. The **verified** half of the leaderboard is blocked on
+  T48 (the replay path itself is broken); raiden/raiden2 discovery is blocked on T49.
+- [ ] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
+  cores reach "running Raiden" but draw nothing (the canvas screenshot is all black) and every
+  `:maincpu`/`program` byte read in `0x00000-0x06fff` returns -1 (no direct pointer), so the score can
+  neither be seen nor searched — blocking T47's raiden/raiden2 scoremaps. Reproduce `#/game/raiden`;
+  investigate the WASM build (driver SOURCES / video wiring) or the ROM set. Docs: 02, 05.
 - [ ] **T48 Fix the native verifier replay path (bug)** – `core/verify.lua` (T33) was only tested against
   mocked output and fails on a real run: it passes JSON to Lua `load()`, native MAME ships no `json` module,
   and it calls the wrong APIs (`m:input()`, `m:step()`). Implement a Lua JSON decode of the closed log,
