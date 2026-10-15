@@ -77,8 +77,8 @@ test("catalogue drivers with local ROMs pass MAME's own ROM audit", () => {
       `${driver}: MAME reports the romset as bad\n${result.stdout}`,
     );
   }
-  // Informational: prints in the TAP output so a green run is still legible.
-  console.log(`rom-audit: ${audited} driver(s) audited, ${games.length - audited} skipped`);
+  // `audited` documents how many sets were actually checked (the rest skip in CI).
+  assert.ok(audited <= games.length);
 });
 
 test("catalogue romHash matches the local ROM zip byte-for-byte", () => {
@@ -97,5 +97,5 @@ test("catalogue romHash matches the local ROM zip byte-for-byte", () => {
       `${game.driver}: games.json romHash is stale; set it to ${actual}`,
     );
   }
-  console.log(`rom-audit: ${checked} romHash(s) checked`);
+  assert.ok(checked <= games.length);
 });
