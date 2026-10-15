@@ -104,12 +104,16 @@ A panel appears top-right. Workflow:
    `len`/`format`/`endian` (start with `3` / `bcd` / `little`), click **Filter**,
    then **Resume game**.
 4. If **Filter** leaves 0 candidates, the encoding guess is wrong: click
-   **Scan decode**, which tries every `len`×`format`×`endian` and lists the ones
-   that match with their addresses (a 4-digit score like `1050` is often `len 2`
-   BCD, and some games store the score ×10 or ×100 — try `10500` / `105000` too).
-5. Repeat until one address remains; check the shown hex bytes decode to the
+   **Scan decode**, which tries every `len`×`format`×`endian` — packed BCD/binary
+   *and* unpacked (one decimal digit per byte) — for the score and its ×10/×100
+   scalings, listing the combinations that match with their addresses.
+5. If the scan still finds nothing, the score is outside your window. Pick the
+   range from the driver's memory map (e.g. nemesis/twinbee work RAM is
+   `0x20000-0x27fff`, so `?cheatsearch=1&base=0x20000&size=0x8000`), not from the
+   `hiscore.dat` table address.
+6. Repeat until one address remains; check the shown hex bytes decode to the
    on-screen score (flip `endian` if scrambled).
-6. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.
+7. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.
 
 The window defaults to `:maincpu`/`program` `0x0..0x10000`. For a driver whose
 score sits higher (e.g. twinbee `0x1f580`, twincobr `0x315a2`), pass the range and

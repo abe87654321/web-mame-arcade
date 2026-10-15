@@ -83,6 +83,20 @@ describe("scanDecodeCombos", () => {
     expect(len3?.samples ?? []).not.toContain(0x1002);
   });
 
+  it("finds an unpacked-decimal (one digit per byte) score", () => {
+    const bytes = new Int16Array(8).fill(0);
+    // 9350 unpacked, big-endian: bytes 9 3 5 0.
+    bytes[1] = 9;
+    bytes[2] = 3;
+    bytes[3] = 5;
+    bytes[4] = 0;
+    const combos = scanDecodeCombos({ base: 0x800, bytes }, 9350, [4]);
+    const hit = combos.find(
+      (c) => c.format === "digits" && c.endian === "big" && c.count > 0,
+    );
+    expect(hit?.samples).toContain(0x801);
+  });
+
   it("skips unreadable bytes", () => {
     const bytes = new Int16Array([0x50, -1, 0x10]);
     const combos = scanDecodeCombos({ base: 0, bytes }, 1050, [2]);

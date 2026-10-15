@@ -162,18 +162,22 @@ interface NetplayModuleHost {
 /** One decode interpretation and how many addresses in a snapshot match it. */
 export interface ComboResult {
   len: number;
-  format: ScoreFormat;
+  /** `digits` = one decimal digit per byte (unpacked BCD). */
+  format: ScoreFormat | "digits";
   endian: ScoreEndian;
   count: number;
   samples: number[];
 }
 
 /**
- * Scan the whole snapshot for every `len`×`format`×`endian` interpretation that
- * decodes to `target`, returning the number of matching addresses (and a few
- * sample addresses) for each. This is how to find the score's encoding without
- * guessing: the true combination shows a small, plausible count where the
- * others show 0 (or almost everything).
+ * Scan the whole snapshot for every interpretation that decodes to `target`,
+ * returning the number of matching addresses (and a few samples) for each. This
+ * is how to find the score's encoding without guessing: the true combination
+ * shows a small, plausible count where the others show 0 (or almost everything).
+ *
+ * Interpretations tried: packed `bcd`/`binary` for len 1-4, plus unpacked
+ * decimal (`digits`, one digit per byte) — many arcade games store a score that
+ * way.
  */
 export function scanDecodeCombos(
   snap: Snapshot,
@@ -181,23 +185,40 @@ export function scanDecodeCombos(
   lens: readonly number[] = [1, 2, 3, 4],
 ): ComboResult[] {
   const out: ComboResult[] = [];
+  const window = (i: number, len: number, max: number): Uint8Array | null => {
+    const bytes = new Uint8Array(len);
+    for (let k = 0; k < len; k++) {
+      const v = snap.bytes[i + k];
+      if (v === undefined || v < 0 || v > max) return null;
+      bytes[k] = v;
+    }
+    return bytes;
+  };
+  const ordered = (bytes: Uint8Array, endian: ScoreEndian): Uint8Array =>
+    endian === "big" ? bytes : Uint8Array.from(bytes).reverse();
+
   for (const len of lens) {
+    for (const endian of ["little", "big"] as const) {
+      // Unpacked decimal: each byte is one digit (0-9).
+      const digits: number[] = [];
+      for (let i = 0; i + len <= snap.bytes.length; i++) {
+        const bytes = window(i, len, 9);
+        if (!bytes) continue;
+        const value = Number(Array.from(ordered(bytes, endian)).join(""));
+        if (value === target) {
+          digits.push(snap.base + i);
+        }
+      }
+      out.push({ len, format: "digits", endian, count: digits.length, samples: digits.slice(0, 8) });
+    }
+
     for (const format of ["bcd", "binary"] as const) {
       for (const endian of ["little", "big"] as const) {
-        const samples: number[] = [];
         let count = 0;
+        const samples: number[] = [];
         for (let i = 0; i + len <= snap.bytes.length; i++) {
-          let readable = true;
-          const bytes = new Uint8Array(len);
-          for (let k = 0; k < len; k++) {
-            const v = snap.bytes[i + k];
-            if (v === undefined || v < 0) {
-              readable = false;
-              break;
-            }
-            bytes[k] = v;
-          }
-          if (!readable) continue;
+          const bytes = window(i, len, 255);
+          if (!bytes) continue;
           let value: number;
           try {
             value = decodeScore(bytes, { len, format, endian });
@@ -446,25 +467,32 @@ export function installCheatSearch(win: Window): void {
           show();
         }),
       );
-      // Try every len/format/endian and list which ones match the score, so the
-      // encoding can be found instead of guessed (a wrong guess filters to 0).
+      // Try every len/format/endian (packed and unpacked) for the score and its
+      // common ×10/×100 scalings, listing which ones match — so the encoding can
+      // be found instead of guessed (a wrong guess filters to 0).
       r.appendChild(
         button("Scan decode", () => {
-          const target = Number.parseInt(scoreInput.value, 10);
-          if (!Number.isFinite(target)) return;
-          const hits = scanDecodeCombos(read(), target).filter((c) => c.count > 0);
-          results.textContent = hits.length
-            ? hits
-                .map(
-                  (c) =>
-                    `len ${c.len} ${c.format.padEnd(6)} ${c.endian.padEnd(6)} count=${c.count}  ` +
-                    c.samples
-                      .slice(0, 4)
-                      .map((a) => hex(a, 5))
-                      .join(" "),
-                )
-                .join("\n")
-            : `no address decodes to ${target} (try target ×10 / ×100, or widen base/size)`;
+          const base0 = Number.parseInt(scoreInput.value, 10);
+          if (!Number.isFinite(base0)) return;
+          const snap = read();
+          const lines: string[] = [];
+          for (const mul of [1, 10, 100]) {
+            const target = base0 * mul;
+            const label = mul === 1 ? "" : ` (×${mul})`;
+            for (const c of scanDecodeCombos(snap, target)) {
+              if (c.count === 0) continue;
+              lines.push(
+                `${target}${label}: len ${c.len} ${c.format.padEnd(6)} ${c.endian.padEnd(6)} count=${c.count}  ` +
+                  c.samples
+                    .slice(0, 4)
+                    .map((a) => hex(a, 5))
+                    .join(" "),
+              );
+            }
+          }
+          results.textContent = lines.length
+            ? lines.join("\n")
+            : `no address in range decodes to ${base0} (×1/×10/×100) — widen base/size or try the low RAM range`;
         }),
       );
       return r;
