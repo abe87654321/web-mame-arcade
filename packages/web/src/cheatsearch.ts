@@ -188,7 +188,7 @@ export interface ComboResult {
 export function scanDecodeCombos(
   snap: Snapshot,
   target: number,
-  lens: readonly number[] = [1, 2, 3, 4],
+  lens: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8],
 ): ComboResult[] {
   const out: ComboResult[] = [];
   const KINDS: readonly ScanFormat[] = [
