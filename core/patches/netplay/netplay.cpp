@@ -453,6 +453,8 @@ uint32_t netplay_hash()
 //  lockstep. A handler-mapped address (get_read_ptr == nullptr) is refused, so
 //  only RAM-backed regions can be a score. `cpu` is a device tag (":maincpu"),
 //  `space` an address-space name mapped to MAME's enum ("program"/"io").
+//  For a wider-than-byte space (68k/V30 16-bit) the byte is selected from the
+//  native element via the address's low bits + the space endianness (T50).
 //  Only the WASM core calls this (current_machine() is null natively); the
 //  verifier reads scores through verify.lua instead.
 //-------------------------------------------------
@@ -530,12 +532,23 @@ int netplay_read_bytes(const char *cpu, const char *space, uint32_t addr, uint8_
 		return -1;
 	address_space &as = memory->space(space_index);
 
+	// get_read_ptr() returns a pointer to the *native element* (e.g. a u16 for a
+	// 16-bit space), not to the byte: reading its first byte would always return
+	// the low byte of the word and ignore the address's low bit. Select the byte
+	// within the element exactly like MAME's own direct read (luaengine_mem.cpp
+	// direct_mem_read / debugger express.cpp), so 8- and 16-bit spaces both read
+	// the right lane without running a side-effecting handler.
+	offs_t const lowmask = as.data_width() / 8 - 1;
 	for (int i = 0; i < len; ++i)
 	{
-		uint8_t const *byte = reinterpret_cast<uint8_t const *>(as.get_read_ptr(addr + i));
-		if (byte == nullptr)
+		offs_t const a = addr + i;
+		uint8_t const *base = reinterpret_cast<uint8_t const *>(as.get_read_ptr(a & ~lowmask));
+		if (base == nullptr)
 			return -1;
-		out[i] = *byte;
+		if (as.endianness() == ENDIANNESS_BIG)
+			out[i] = base[BYTE8_XOR_BE(a) & lowmask];
+		else
+			out[i] = base[BYTE8_XOR_LE(a) & lowmask];
 	}
 	return len;
 }
