@@ -18,6 +18,7 @@
 
 #include "emu.h"
 #include "screen.h"
+#include "endianness.h"
 
 #include "netplay.h"
 
