@@ -104,8 +104,10 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   via `get_read_ptr`), rebuild the WASM cores, and prove it by re-reading the ROM and re-running the cheat
   search. Docs: 02, 05, contracts/scoremap. Depends: T32b.
   Note: fix landed in `core/patches/netplay/netplay.cpp` (byte lane via `lowmask` + `BYTE8_XOR_BE/LE`,
-  matching MAME's `direct_mem_read`; guarded by `core/test/netplay-patch.test.mjs`). Still needs a WASM
-  rebuild + republish and a re-read of the twincobr ROM to confirm before ticking.
+  matching MAME's `direct_mem_read`; guarded by `core/test/netplay-patch.test.mjs`) and the twincobr WASM
+  core was rebuilt/republished — re-reading the twincobr ROM at `0x0` now returns the correct
+  `00 03 20 00 00 02 01 94`. Confirm the cheat search finds the score, then tick. The `raiden`/`raiden2`
+  cores still need the same rebuild.
 - [ ] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
   cores reach "running Raiden" but draw nothing (the canvas screenshot is all black) and every
   `:maincpu`/`program` byte read in `0x00000-0x06fff` returns -1 (no direct pointer), so the score can
