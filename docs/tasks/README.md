@@ -103,6 +103,9 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   scoremaps (the 8-bit twinbee is unaffected). Fix the byte read for 16-bit spaces (correct lane selection
   via `get_read_ptr`), rebuild the WASM cores, and prove it by re-reading the ROM and re-running the cheat
   search. Docs: 02, 05, contracts/scoremap. Depends: T32b.
+  Note: fix landed in `core/patches/netplay/netplay.cpp` (byte lane via `lowmask` + `BYTE8_XOR_BE/LE`,
+  matching MAME's `direct_mem_read`; guarded by `core/test/netplay-patch.test.mjs`). Still needs a WASM
+  rebuild + republish and a re-read of the twincobr ROM to confirm before ticking.
 - [ ] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
   cores reach "running Raiden" but draw nothing (the canvas screenshot is all black) and every
   `:maincpu`/`program` byte read in `0x00000-0x06fff` returns -1 (no direct pointer), so the score can
