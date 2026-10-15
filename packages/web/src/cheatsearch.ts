@@ -316,6 +316,34 @@ export function installCheatSearch(win: Window): void {
     })(),
   );
 
+  // Pause the emulation so the score can be read and typed without it moving.
+  // The engine's main loop is driven by emscripten; pauseMainLoop/resumeMainLoop
+  // freeze it without touching the machine (a RAM read still works while paused).
+  const runtime = win as unknown as {
+    Module?: { pauseMainLoop?: () => void; resumeMainLoop?: () => void };
+  };
+  let paused = false;
+  panel.appendChild(
+    (() => {
+      const r = row();
+      const pauseBtn = button("Pause game", () => {
+        if (paused) {
+          runtime.Module?.resumeMainLoop?.();
+          paused = false;
+        } else {
+          runtime.Module?.pauseMainLoop?.();
+          paused = true;
+        }
+        pauseBtn.textContent = paused ? "Resume game" : "Pause game";
+      });
+      r.appendChild(pauseBtn);
+      r.appendChild(
+        doc.createTextNode("pause, read the score, then Filter"),
+      );
+      return r;
+    })(),
+  );
+
   const lenInput = doc.createElement("input");
   lenInput.value = "3";
   lenInput.style.width = "36px";
@@ -363,6 +391,28 @@ export function installCheatSearch(win: Window): void {
       return r;
     })(),
   );
+
+  const appendScore = (text: string): void => {
+    scoreInput.value += text;
+  };
+  // On-screen keypad: the game's SDL keyboard capture swallows typed keys and
+  // clipboard paste, so entering the score must not depend on them.
+  panel.appendChild(
+    (() => {
+      const r = row();
+      for (const key of ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]) {
+        r.appendChild(button(key, () => appendScore(key)));
+      }
+      r.appendChild(button("<", () => { scoreInput.value = scoreInput.value.slice(0, -1); }));
+      r.appendChild(button("C", () => { scoreInput.value = ""; }));
+      return r;
+    })(),
+  );
+
+  // Shield the panel's own keys from the game's document/window handlers.
+  for (const type of ["keydown", "keyup", "keypress"] as const) {
+    panel.addEventListener(type, (event) => event.stopPropagation());
+  }
 
   panel.appendChild(
     (() => {

@@ -98,8 +98,11 @@ A panel appears top-right. Workflow:
 
 1. Play until the score is a known value (at the start of a credit it is 0).
 2. Click **Reset (score 0)**.
-3. Play to a new known score, type it in the box, pick `len`/`format`/`endian`
-   (start with `3` / `bcd` / `little`), and click **Filter**.
+3. Play to a new known score. The game's keyboard capture eats typed keys and
+   clipboard paste, so press **Pause game**, read the score off the frozen
+   screen, enter it with the on-screen keypad (no keyboard needed), pick
+   `len`/`format`/`endian` (start with `3` / `bcd` / `little`), click **Filter**,
+   then **Resume game**.
 4. Repeat until one address remains; check the shown hex bytes decode to the
    on-screen score (flip `endian` if scrambled).
 5. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.

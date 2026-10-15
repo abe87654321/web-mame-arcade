@@ -61,5 +61,22 @@ test.describe("cheat search panel", () => {
       return Number((status?.textContent ?? "").replace(/\D/g, ""));
     });
     expect(count).toBeGreaterThan(0);
+
+    // On-screen keypad works without the keyboard, and Pause toggles.
+    const ui = await page.evaluate(() => {
+      const panel = document.querySelector('[data-wma-cheatsearch="1"]');
+      const btns = Array.from(panel?.querySelectorAll("button") ?? []);
+      const byText = (t: string): HTMLButtonElement | undefined =>
+        btns.find((b) => (b.textContent ?? "").trim() === t);
+      byText("7")?.click();
+      byText("8")?.click();
+      const score = panel?.querySelectorAll("input")[0] as HTMLInputElement;
+      const scoreVal = score.value;
+      byText("Pause game")?.click();
+      const pausedLabel = byText("Resume game")?.textContent ?? "";
+      return { scoreVal, pausedLabel };
+    });
+    expect(ui.scoreVal).toBe("78");
+    expect(ui.pausedLabel).toContain("Resume");
   });
 });
