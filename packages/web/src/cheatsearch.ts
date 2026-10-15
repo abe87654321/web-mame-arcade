@@ -573,6 +573,27 @@ export function installCheatSearch(win: Window): void {
       r.appendChild(doc.createTextNode("entry slot"));
       r.appendChild(slotInput);
       r.appendChild(
+        button("Read score", () => {
+          // Exercise the real scoremap + readScore path (incl. divisor) so the
+          // decoded value can be checked against the on-screen score.
+          const core = (
+            win as unknown as { __WMA_CORE__?: { readScore(slot: number): number } }
+          ).__WMA_CORE__;
+          const slot = parseNum(slotInput.value, 0);
+          if (!core) {
+            status.textContent = "Read score: core not ready";
+            return;
+          }
+          try {
+            const score = core.readScore(slot);
+            status.textContent = `score slot ${slot} = ${score}`;
+            console.info("[cheatsearch] readScore", slot, score);
+          } catch (error) {
+            status.textContent = `Read score failed: ${String(error)}`;
+          }
+        }),
+      );
+      r.appendChild(
         button("Print JSON entry", () => {
           const c = search.list(1)[0];
           if (!c) return;

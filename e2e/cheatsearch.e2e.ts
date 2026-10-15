@@ -81,6 +81,18 @@ test.describe("cheat search panel", () => {
 
     await click(page, "Pause game");
     expect(await hasButton(page, "Resume game")).toBe(true);
+
+    // "Read score" exercises the real scoremap + readScore path.
+    await click(page, "Read score");
+    const status = await page.evaluate(() => {
+      const el = document.querySelector('[data-wma-cheatsearch="1"]');
+      return (
+        Array.from(el?.querySelectorAll("div") ?? []).find((d) =>
+          /score slot \d+ = \d+/.test(d.textContent ?? ""),
+        )?.textContent ?? ""
+      );
+    });
+    expect(status).toMatch(/score slot 0 = \d+/);
   });
 });
 
