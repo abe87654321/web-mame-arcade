@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -15,12 +16,13 @@ import { dirname, join } from "node:path";
 // broken: the zips were raidenj-era (MAME 0.225) sets, missing 4.u023 and the
 // two raiden2 PALs that MAME 0.289 requires.
 //
-// This asserts the opposite of the bug: for every catalogue driver whose native
-// build and ROM zip are present here, `mame <driver> -verifyroms` must report
-// the set as OK. It uses the driver's own name because the catalogue's `driver`
-// is also the MAME system name (see catalogue/types.ts). CI has neither the
-// native binaries nor the gitignored roms/, so every case skips there; the
-// guard bites on a developer/publish machine, before a black-screen core ships.
+// Two checks per catalogue driver, each skipping when its inputs are absent so
+// CI (no native binaries, no gitignored ROMs) stays green while a developer's
+// machine is protected before a black-screen core ships:
+//   1. `mame <driver> -verifyroms` reports the set as OK (driver name is also
+//      the MAME system name — see packages/web/src/catalogue/types.ts);
+//   2. games.json's romHash equals the sha256 of roms/<driver>.zip
+//      (contracts/core-version.md: rom_hash is the served zip's sha256).
 //
 // Run: node --test core/test/rom-audit.test.mjs
 
@@ -41,22 +43,22 @@ function nativeBinary(driver) {
   return null;
 }
 
-test("catalogue drivers with local ROMs pass MAME's own ROM audit", () => {
-  let audited = 0;
-  for (const game of games) {
-    const { driver } = game;
-    const bin = nativeBinary(driver);
-    const zip = join(romsDir, `${driver}.zip`);
+for (const game of games) {
+  const { driver } = game;
+  const bin = nativeBinary(driver);
+  const zip = join(romsDir, `${driver}.zip`);
+
+  test(`${driver}: local ROM set satisfies the pinned MAME commit`, (t) => {
     if (bin === null || !existsSync(zip)) {
-      // Not built / no ROM here (CI): the set cannot be audited, so skip it.
-      continue;
+      t.skip(`no native build / ROM zip for ${driver} here (CI)`);
+      return;
     }
-    audited += 1;
-    const result = spawnSync(
-      bin,
-      [driver, "-rompath", romsDir, "-verifyroms"],
-      { cwd: repo, encoding: "utf8" },
-    );
+    const result = spawnSync(bin, [driver, "-rompath", romsDir, "-verifyroms"], {
+      cwd: repo,
+      encoding: "utf8",
+      // Deterministic MAME output regardless of the caller's locale.
+      env: { ...process.env, LC_ALL: "C" },
+    });
     assert.equal(
       result.error,
       undefined,
@@ -76,26 +78,18 @@ test("catalogue drivers with local ROMs pass MAME's own ROM audit", () => {
       /is bad/,
       `${driver}: MAME reports the romset as bad\n${result.stdout}`,
     );
-  }
-  // `audited` documents how many sets were actually checked (the rest skip in CI).
-  assert.ok(audited <= games.length);
-});
+  });
 
-test("catalogue romHash matches the local ROM zip byte-for-byte", () => {
-  // contracts/core-version.md: rom_hash is the sha256 of the served ROM zip.
-  // The web app ships games.json's romHash as the closed log's `rom_hash`, so a
-  // swapped zip must update the catalogue or replays claim the wrong ROM.
-  let checked = 0;
-  for (const game of games) {
-    const zip = join(romsDir, `${game.driver}.zip`);
-    if (!existsSync(zip)) continue; // ROM not present here (CI)
-    checked += 1;
+  test(`${driver}: games.json romHash matches roms/${driver}.zip`, (t) => {
+    if (!existsSync(zip)) {
+      t.skip(`no ROM zip for ${driver} here (CI)`);
+      return;
+    }
     const actual = createHash("sha256").update(readFileSync(zip)).digest("hex");
     assert.equal(
       game.romHash,
       actual,
-      `${game.driver}: games.json romHash is stale; set it to ${actual}`,
+      `${driver}: games.json romHash is stale; set it to ${actual}`,
     );
-  }
-  assert.ok(checked <= games.length);
-});
+  });
+}
