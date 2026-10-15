@@ -1,7 +1,8 @@
 /**
  * Cheat-search dev tool smoke (T47). Boots the real gridlee WASM core in the
  * browser, opens the play page with `?cheatsearch=1`, and asserts the panel
- * installs and can snapshot program RAM through the core's `readMemory` hook.
+ * installs, is clickable (the game runs fullscreen, so the panel must leave it),
+ * and can snapshot program RAM through the core's `readMemory` hook.
  *
  * Needs the built WASM core and ROM (gitignored), so it is skipped in CI like
  * the other e2e specs. Run: pnpm --filter @wma/e2e test:e2e -g "cheat search".
@@ -33,7 +34,7 @@ test.describe("cheat search panel", () => {
     `missing core/ROM for ${DRIVER}; build with core/build-wasm.sh ${DRIVER}`,
   );
 
-  test("installs and snapshots program RAM", async ({ page }) => {
+  test("installs, is clickable, and snapshots program RAM", async ({ page }) => {
     await page.goto("/?cheatsearch=1#/game/gridlee");
 
     const panel = page.locator('[data-wma-cheatsearch="1"]');
@@ -46,37 +47,27 @@ test.describe("cheat search panel", () => {
       { timeout: 120_000 },
     );
 
-    // The SDL canvas swallows Playwright's synthetic pointer events, so drive
-    // the panel in-page (the real user clicks it directly).
-    await page.waitForTimeout(2000);
-    const count = await page.evaluate(() => {
-      const panel = document.querySelector('[data-wma-cheatsearch="1"]');
-      const reset = Array.from(panel?.querySelectorAll("button") ?? []).find((b) =>
-        /Reset/.test(b.textContent ?? ""),
-      );
-      (reset as HTMLButtonElement | undefined)?.click();
-      const status = Array.from(panel?.querySelectorAll("div") ?? []).find((d) =>
-        /^candidates: \d+$/.test(d.textContent ?? ""),
-      );
-      return Number((status?.textContent ?? "").replace(/\D/g, ""));
-    });
+    // `?cheatsearch=1` must have taken the game out of the fullscreen top layer.
+    await expect
+      .poll(() => page.evaluate(() => document.fullscreenElement === null))
+      .toBe(true);
+
+    // Real pointer click (would time out if the fullscreen canvas still covered
+    // the panel).
+    await panel.getByRole("button", { name: /Reset/ }).click();
+
+    const status = panel.locator("div").filter({ hasText: /^candidates: \d+$/ });
+    await expect(status).toContainText(/candidates: \d+/);
+    const count = Number((await status.textContent())?.replace(/\D/g, ""));
     expect(count).toBeGreaterThan(0);
 
-    // On-screen keypad works without the keyboard, and Pause toggles.
-    const ui = await page.evaluate(() => {
-      const panel = document.querySelector('[data-wma-cheatsearch="1"]');
-      const btns = Array.from(panel?.querySelectorAll("button") ?? []);
-      const byText = (t: string): HTMLButtonElement | undefined =>
-        btns.find((b) => (b.textContent ?? "").trim() === t);
-      byText("7")?.click();
-      byText("8")?.click();
-      const score = panel?.querySelectorAll("input")[0] as HTMLInputElement;
-      const scoreVal = score.value;
-      byText("Pause game")?.click();
-      const pausedLabel = byText("Resume game")?.textContent ?? "";
-      return { scoreVal, pausedLabel };
-    });
-    expect(ui.scoreVal).toBe("78");
-    expect(ui.pausedLabel).toContain("Resume");
+    // On-screen keypad works without the keyboard (the game captures keys).
+    await panel.getByRole("button", { name: "7", exact: true }).click();
+    await panel.getByRole("button", { name: "8", exact: true }).click();
+    await expect(panel.locator("input").first()).toHaveValue("78");
+
+    // Pause toggles.
+    await panel.getByRole("button", { name: /Pause game/ }).click();
+    await expect(panel.getByRole("button", { name: /Resume game/ })).toBeVisible();
   });
 });

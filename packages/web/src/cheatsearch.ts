@@ -456,6 +456,18 @@ export function installCheatSearch(win: Window): void {
   panel.appendChild(results);
   doc.body.appendChild(panel);
 
+  // The SDL3 backend runs the game canvas in the Fullscreen API, which puts it
+  // in the CSS top layer — above any z-index — so a body overlay can never be
+  // clicked while fullscreen. Leave fullscreen now and whenever it is re-entered
+  // so the panel stays clickable.
+  const leaveFullscreen = (): void => {
+    if (doc.fullscreenElement && typeof doc.exitFullscreen === "function") {
+      void doc.exitFullscreen().catch(() => {});
+    }
+  };
+  leaveFullscreen();
+  doc.addEventListener("fullscreenchange", leaveFullscreen);
+
   show();
   console.info(
     `[cheatsearch] ${cpu}/${space} ${hex(base, 5)}..${hex(base + size, 5)}; ` +
