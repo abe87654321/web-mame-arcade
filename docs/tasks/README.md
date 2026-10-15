@@ -93,9 +93,9 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   `core/test/verify-lua.test.mjs`), `core/scoremap/watch.lua` is parameterized for any driver, and a dev-only
   in-browser cheat search (`?cheatsearch=1`, `packages/web/src/cheatsearch.ts`, `core/scoremap/README.md`
   Option C) lets discovery run without the native MAME UI. `twinbee` and `twincobr` are done (slot 0) — the
-  latter needed the T50 byte-lane fix and a `divisor` (it stores the score ×10). The `raiden`/`raiden2`
-  scoremaps are blocked on T49 (black screen). The **verified** half of the leaderboard is blocked on T48
-  (the replay path itself is broken).
+  latter needed the T50 byte-lane fix and a `divisor` (it stores the score ×10). T49 (raiden/raiden2 black
+  screen, bad ROM sets) is fixed, so their scoremaps are only waiting on the T50 core rebuild. The
+  **verified** half of the leaderboard is blocked on T48 (the replay path itself is broken).
 - [x] **T50 netplay_read_bytes misreads 16-bit address spaces (bug)** – `netplay_read_bytes` (T32b)
   returns each 16-bit word's **low byte for both lanes**, so every byte read of a 68k/V30 game is wrong.
   Evidence: reading twincobr's `:maincpu`/`program` ROM at `0x0` gives `03 03 00 00 02 02 94 94` where the
@@ -108,12 +108,20 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   matching MAME's `direct_mem_read`; guarded by `core/test/netplay-patch.test.mjs`) and the twincobr WASM
   core was rebuilt/republished — re-reading the twincobr ROM at `0x0` now returns the correct
   `00 03 20 00 00 02 01 94`, and RAM discovery found the twincobr score (`0x3184e`). The `raiden`/`raiden2`
-  cores still need the same rebuild (blocked by T49's black screen).
-- [ ] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
+  cores still need the same rebuild; T49 (their black screen) is fixed, so the rebuild is now unblocked.
+- [x] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
   cores reach "running Raiden" but draw nothing (the canvas screenshot is all black) and every
   `:maincpu`/`program` byte read in `0x00000-0x06fff` returns -1 (no direct pointer), so the score can
   neither be seen nor searched — blocking T47's raiden/raiden2 scoremaps. Reproduce `#/game/raiden`;
   investigate the WASM build (driver SOURCES / video wiring) or the ROM set. Docs: 02, 05.
+  Note: not a video/build bug — the local ROM zips were the wrong MAME **version**. `roms/raiden.zip`
+  was a 0.225-era `raidenj` set (missing the parent's `4.u023`; MAME #11257, 2023, renamed the sets) and
+  `roms/raiden2.zip` lacked the two PALs (`jj4b01`/`jj4b02`) 0.289 requires. MAME refused to start and
+  blocked on its ROM warning modal, so the canvas stayed black and no address space was populated
+  (`netplay_read_bytes` → -1). Fixed by replacing both with MAME 0.289 **split sets** (`verifyroms` →
+  `1 were OK`) and updating their `games.json` `romHash`. Guarded by `core/test/rom-audit.test.mjs`
+  (ROM audit + romHash ↔ zip sha256, skips in CI) and `e2e/boot.e2e.ts` (asserts the emulated clock
+  advances). Docs: 02.
 - [ ] **T48 Fix the native verifier replay path (bug)** – `core/verify.lua` (T33) was only tested against
   mocked output and fails on a real run: it passes JSON to Lua `load()`, native MAME ships no `json` module,
   and it calls the wrong APIs (`m:input()`, `m:step()`). Implement a Lua JSON decode of the closed log,
