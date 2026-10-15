@@ -14,6 +14,9 @@ const canonicalFiles = readdirSync(canonicalDir).filter((file) =>
 );
 
 test("every canonical scoremap has a byte-identical published copy", () => {
+  // `packages/web/public/static/` is a gitignored build artifact, produced by
+  // core/publish-web.sh; only compare when it exists (local dev after publish).
+  if (!existsSync(publishedDir)) return;
   for (const file of canonicalFiles) {
     const published = join(publishedDir, file);
     assert.ok(existsSync(published), `missing published copy: ${published}`);
