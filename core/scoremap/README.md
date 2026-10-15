@@ -123,6 +123,42 @@ without `?cheatsearch=1` and is never included in a production build. While it i
 armed the game's fullscreen request is suppressed (the canvas still fills the
 window), so the panel stays clickable.
 
+### 16-bit CPUs and scaled scores
+
+Two things trip up score discovery on 68k / V30 boards; check both before giving
+up on an address.
+
+**1. Byte-lane reads (T50).** `netplay_read_bytes` must select the byte within the
+native element (a 16-bit word), not read the element's first byte. Before T50 it
+returned each word's **low byte for both lanes**, so *every* value was wrong and
+nothing ever matched — e.g. twincobr's ROM at `0x0` read as `03 03 00 00 02 02 94 94`
+instead of the real interleaved `00 03 20 00 00 02 01 94`. This is fixed in
+`core/patches/netplay/netplay.cpp` (lane via `lowmask` + `BYTE8_XOR_BE/LE`, matching
+MAME's own `direct_mem_read`); **a core built before the fix (or the 8-bit twinbee
+core, which is unaffected) will never find a 16-bit score.** If a 16-bit driver's
+reads look like each byte is duplicated (`xx xx`), rebuild the core. Note ordinary
+data can also be genuinely mirrored (`xx xx` pairs) — that alone is not the bug;
+the ROM cross-check above is the reliable test.
+
+**2. Scaled scores (`divisor`).** Some games store the score **×10** (or ×100).
+The raw cell then reads one decimal digit longer than the screen, e.g. twincobr at
+`0x3184e` (3-byte BCD, big) reads `104900` while the screen shows `10490`. When the
+matched value is a clean power-of-ten multiple of the on-screen score, keep the raw
+cell and add `"divisor": 10` (docs/contracts/scoremap.md); the browser and
+`verify.lua` both divide, so the leaderboard matches the screen:
+
+```json
+{ "slot": 0, "cpu": ":maincpu", "space": "program",
+  "addr": "0x3184e", "len": 3, "format": "bcd", "endian": "big", "divisor": 10 }
+```
+
+**Discovery tips on 16-bit boards.** Use `?scorewatch=1&base=…` to log RAM while you
+play, then correlate with the on-screen score:
+- a **score** increases **irregularly** (jumps with kills); a **timer** increases at
+  a near-constant rate and often saturates — don't pick those;
+- the score cell should be **non-decreasing** across the session;
+- scaled scores always end in 0, so the raw cell is a multiple of 10/100.
+
 ### If no stable cell exists
 
 Some games draw the score from regenerated tiles/video RAM with no numeric cell
