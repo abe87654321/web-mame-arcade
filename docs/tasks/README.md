@@ -143,3 +143,18 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   encode, and LiveKit WebRTC publish; clients send inputs and watch video, so synchronization is
   absolute regardless of client tab/CPU/network. Reuses the native build and LiveKit (T41). Cost: one
   server sim + video bandwidth per match. Depends: T01, T41, T28.
+
+## Ongoing · game intake
+- [x] **T51 Onboard a newly-added game (repeatable)** – a runbook + read-only helper for whenever a new
+  `roms/<driver>.zip` appears, so publishing never ships a black-screen core (T49) or a stale `romHash`.
+  `pnpm onboard --list` shows every `roms/*.zip` with no catalogue entry, its sha256 (`romHash`) and
+  whether `core/drivers.sh` knows it; `pnpm onboard --check <driver>` reports catalogue/`drivers.sh`
+  status and, when a native build exists, runs MAME's own ROM audit (`verifyroms`). Full per-game flow:
+  (1) `pnpm onboard --list`; (2) add the driver's `SOURCES` to `core/drivers.sh` and `core/build-native.sh
+  <driver>`; (3) `pnpm onboard --check <driver>` → expect "set matches the pinned commit"; (4) add a
+  `packages/web/public/games.json` entry (name/title/`romHash`/`supportsSave`/`netplayMode`/`maxPlayers`/
+  `romLicensed`/urls); (5) `core/build-wasm.sh <driver> && core/publish-web.sh <driver>`; (6) optionally
+  discover `core/scoremap/<driver>.json` (T47 workflow); (7) `node --test core/test/rom-audit.test.mjs`
+  and `pnpm --filter @wma/e2e test:e2e -g boot`; commit. Docs: 02, 05, contracts/scoremap. Depends: T49,
+  T47. Helper: `core/onboard-game.mjs` (`core/test/onboard-game.test.mjs`).
+  Note: currently pending intake — `commando`, `geminij`, `gwar`, `jackal`, `rygar`, `tankfrce`, `tigerh`.
