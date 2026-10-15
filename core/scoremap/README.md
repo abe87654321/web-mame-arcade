@@ -103,9 +103,13 @@ A panel appears top-right. Workflow:
    screen, enter it with the on-screen keypad (no keyboard needed), pick
    `len`/`format`/`endian` (start with `3` / `bcd` / `little`), click **Filter**,
    then **Resume game**.
-4. Repeat until one address remains; check the shown hex bytes decode to the
+4. If **Filter** leaves 0 candidates, the encoding guess is wrong: click
+   **Scan decode**, which tries every `len`×`format`×`endian` and lists the ones
+   that match with their addresses (a 4-digit score like `1050` is often `len 2`
+   BCD, and some games store the score ×10 or ×100 — try `10500` / `105000` too).
+5. Repeat until one address remains; check the shown hex bytes decode to the
    on-screen score (flip `endian` if scrambled).
-5. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.
+6. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.
 
 The window defaults to `:maincpu`/`program` `0x0..0x10000`. For a driver whose
 score sits higher (e.g. twinbee `0x1f580`, twincobr `0x315a2`), pass the range and

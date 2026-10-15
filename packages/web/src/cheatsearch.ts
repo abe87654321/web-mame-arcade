@@ -154,8 +154,66 @@ export class CheatSearch {
 interface ReadMemory {
   (cpu: string, space: string, addr: number, len: number): Uint8Array;
 }
+
 interface NetplayModuleHost {
   Module?: { netplay?: { readMemory?: ReadMemory } };
+}
+
+/** One decode interpretation and how many addresses in a snapshot match it. */
+export interface ComboResult {
+  len: number;
+  format: ScoreFormat;
+  endian: ScoreEndian;
+  count: number;
+  samples: number[];
+}
+
+/**
+ * Scan the whole snapshot for every `len`×`format`×`endian` interpretation that
+ * decodes to `target`, returning the number of matching addresses (and a few
+ * sample addresses) for each. This is how to find the score's encoding without
+ * guessing: the true combination shows a small, plausible count where the
+ * others show 0 (or almost everything).
+ */
+export function scanDecodeCombos(
+  snap: Snapshot,
+  target: number,
+  lens: readonly number[] = [1, 2, 3, 4],
+): ComboResult[] {
+  const out: ComboResult[] = [];
+  for (const len of lens) {
+    for (const format of ["bcd", "binary"] as const) {
+      for (const endian of ["little", "big"] as const) {
+        const samples: number[] = [];
+        let count = 0;
+        for (let i = 0; i + len <= snap.bytes.length; i++) {
+          let readable = true;
+          const bytes = new Uint8Array(len);
+          for (let k = 0; k < len; k++) {
+            const v = snap.bytes[i + k];
+            if (v === undefined || v < 0) {
+              readable = false;
+              break;
+            }
+            bytes[k] = v;
+          }
+          if (!readable) continue;
+          let value: number;
+          try {
+            value = decodeScore(bytes, { len, format, endian });
+          } catch {
+            continue;
+          }
+          if (value === target) {
+            count += 1;
+            if (samples.length < 8) samples.push(snap.base + i);
+          }
+        }
+        out.push({ len, format, endian, count, samples });
+      }
+    }
+  }
+  return out;
 }
 
 function tryRead(
@@ -386,6 +444,27 @@ export function installCheatSearch(win: Window): void {
           });
           search.commit();
           show();
+        }),
+      );
+      // Try every len/format/endian and list which ones match the score, so the
+      // encoding can be found instead of guessed (a wrong guess filters to 0).
+      r.appendChild(
+        button("Scan decode", () => {
+          const target = Number.parseInt(scoreInput.value, 10);
+          if (!Number.isFinite(target)) return;
+          const hits = scanDecodeCombos(read(), target).filter((c) => c.count > 0);
+          results.textContent = hits.length
+            ? hits
+                .map(
+                  (c) =>
+                    `len ${c.len} ${c.format.padEnd(6)} ${c.endian.padEnd(6)} count=${c.count}  ` +
+                    c.samples
+                      .slice(0, 4)
+                      .map((a) => hex(a, 5))
+                      .join(" "),
+                )
+                .join("\n")
+            : `no address decodes to ${target} (try target ×10 / ×100, or widen base/size)`;
         }),
       );
       return r;

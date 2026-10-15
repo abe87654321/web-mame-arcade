@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CheatSearch, readRegion } from "./cheatsearch";
+import { CheatSearch, readRegion, scanDecodeCombos } from "./cheatsearch";
 
 const BCD_12345_LITTLE = [0x45, 0x23, 0x01];
 
@@ -63,8 +63,34 @@ describe("CheatSearch", () => {
   });
 });
 
-describe("readRegion", () => {
-  it("reads readable ranges and marks handler-mapped holes as -1", () => {
+describe("scanDecodeCombos", () => {
+  it("finds the len/format/endian that decodes to a 4-digit BCD score", () => {
+    const bytes = new Int16Array(8).fill(0);
+    // 1050 as 2-byte BCD little-endian: 0x50 0x10 -> "1050". The next byte is
+    // non-zero so the 3-byte window does not also decode to 1050.
+    bytes[2] = 0x50;
+    bytes[3] = 0x10;
+    bytes[4] = 0x99;
+    const combos = scanDecodeCombos({ base: 0x1000, bytes }, 1050, [2, 3]);
+    const hit = combos.find(
+      (c) => c.len === 2 && c.format === "bcd" && c.endian === "little",
+    );
+    expect(hit?.count).toBeGreaterThanOrEqual(1);
+    expect(hit?.samples).toContain(0x1002);
+
+    // The wrong length (3) does not decode the same cell to 1050.
+    const len3 = combos.find((c) => c.len === 3 && c.format === "bcd");
+    expect(len3?.samples ?? []).not.toContain(0x1002);
+  });
+
+  it("skips unreadable bytes", () => {
+    const bytes = new Int16Array([0x50, -1, 0x10]);
+    const combos = scanDecodeCombos({ base: 0, bytes }, 1050, [2]);
+    expect(combos.every((c) => c.count === 0)).toBe(true);
+  });
+});
+
+describe("readRegion", () => {  it("reads readable ranges and marks handler-mapped holes as -1", () => {
     // Only [0x100, 0x104) is readable; everything else throws (handler-mapped).
     const readMemory = (
       _cpu: string,
