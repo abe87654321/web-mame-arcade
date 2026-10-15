@@ -132,3 +132,15 @@ test("every cwrap symbol in netplay_post.js is declared by the C++ module", () =
     assert.match(decls, new RegExp(`\\b${name}\\b`), `no C++ declaration for ${name}`);
   }
 });
+
+test("netplay_read_bytes selects the byte lane for wider-than-byte spaces (T50)", () => {
+  const source = readFileSync(join(core, "patches", "netplay", "netplay.cpp"), "utf8");
+  const body = source.slice(source.indexOf("int netplay_read_bytes"));
+  // Must mask the low address bits and pick the lane by endianness, like
+  // MAME's own direct read; reading the raw get_read_ptr byte returns the low
+  // byte of every 16-bit word (the T50 bug).
+  assert.match(body, /lowmask/, "read_bytes must compute the native-element low mask");
+  assert.match(body, /get_read_ptr\(a & ~lowmask\)/, "read_bytes must align to the native element");
+  assert.match(body, /BYTE8_XOR_BE\(a\) & lowmask/, "read_bytes must pick the BE lane");
+  assert.match(body, /BYTE8_XOR_LE\(a\) & lowmask/, "read_bytes must pick the LE lane");
+});

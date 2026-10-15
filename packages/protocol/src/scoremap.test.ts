@@ -21,6 +21,16 @@ describe("scoremap schema", () => {
     expect(scoreMapEntry.parse(withEndian)).toEqual(withEndian);
   });
 
+  it("accepts an optional divisor", () => {
+    const withDivisor = { ...entry, divisor: 10 };
+    expect(scoreMapEntry.parse(withDivisor)).toEqual(withDivisor);
+  });
+
+  it("rejects a divisor below 1", () => {
+    expect(scoreMapEntry.safeParse({ ...entry, divisor: 0 }).success).toBe(false);
+    expect(scoreMapEntry.safeParse({ ...entry, divisor: 1.5 }).success).toBe(false);
+  });
+
   it("accepts an empty players list", () => {
     expect(scoreMap.safeParse({ v: 1, players: [] }).success).toBe(true);
   });

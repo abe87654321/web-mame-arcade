@@ -82,6 +82,83 @@ In the debugger: `wp` a write watchpoint over the likely RAM window
 commands.) Note the debugger addresses are the same CPU-space addresses the
 scoremap uses.
 
+### Option C — in-browser cheat search (no native MAME)
+
+When the native MAME UI is hard to reach (e.g. a remote/thin client), use the
+dev-only **in-browser** cheat search (T47). It drives the same WASM core the game
+runs on and reads program RAM through the core's `readMemory` hook, so it sees
+exactly the memory the score lives in.
+
+```sh
+pnpm --filter @wma/web dev
+# then open:  http://localhost:5173/?cheatsearch=1#/game/<driver>
+```
+
+A panel appears top-right. Workflow:
+
+1. Play until the score is a known value (at the start of a credit it is 0).
+2. Click **Reset (score 0)**.
+3. Play to a new known score. The game's keyboard capture eats typed keys and
+   clipboard paste, so press **Pause game**, read the score off the frozen
+   screen, enter it with the on-screen keypad (no keyboard needed), pick
+   `len`/`format`/`endian` (start with `3` / `bcd` / `little`), click **Filter**,
+   then **Resume game**.
+4. If **Filter** leaves 0 candidates, the encoding guess is wrong: click
+   **Scan decode**, which tries every `len`×`format`×`endian` — packed BCD/binary
+   *and* unpacked (one decimal digit per byte) — for the score and its ×10/×100
+   scalings, listing the combinations that match with their addresses.
+5. If the scan still finds nothing, the score is outside your window. Pick the
+   range from the driver's memory map (e.g. nemesis/twinbee work RAM is
+   `0x20000-0x27fff`, so `?cheatsearch=1&base=0x20000&size=0x8000`), not from the
+   `hiscore.dat` table address.
+6. Repeat until one address remains; check the shown hex bytes decode to the
+   on-screen score (flip `endian` if scrambled).
+7. **Print JSON entry** logs (and copies) the ready-to-paste `players[]` entry.
+
+The window defaults to `:maincpu`/`program` `0x0..0x10000`. For a driver whose
+score sits higher (e.g. twinbee `0x1f580`, twincobr `0x315a2`), pass the range and
+CPU: `?cheatsearch=1&base=0x1e000&size=0x4000#/game/twinbee`. `hiscore.dat`
+(see above) is a good hint for where each game's RAM is. The tool is inert
+without `?cheatsearch=1` and is never included in a production build. While it is
+armed the game's fullscreen request is suppressed (the canvas still fills the
+window), so the panel stays clickable.
+
+### 16-bit CPUs and scaled scores
+
+Two things trip up score discovery on 68k / V30 boards; check both before giving
+up on an address.
+
+**1. Byte-lane reads (T50).** `netplay_read_bytes` must select the byte within the
+native element (a 16-bit word), not read the element's first byte. Before T50 it
+returned each word's **low byte for both lanes**, so *every* value was wrong and
+nothing ever matched — e.g. twincobr's ROM at `0x0` read as `03 03 00 00 02 02 94 94`
+instead of the real interleaved `00 03 20 00 00 02 01 94`. This is fixed in
+`core/patches/netplay/netplay.cpp` (lane via `lowmask` + `BYTE8_XOR_BE/LE`, matching
+MAME's own `direct_mem_read`); **a core built before the fix (or the 8-bit twinbee
+core, which is unaffected) will never find a 16-bit score.** If a 16-bit driver's
+reads look like each byte is duplicated (`xx xx`), rebuild the core. Note ordinary
+data can also be genuinely mirrored (`xx xx` pairs) — that alone is not the bug;
+the ROM cross-check above is the reliable test.
+
+**2. Scaled scores (`divisor`).** Some games store the score **×10** (or ×100).
+The raw cell then reads one decimal digit longer than the screen, e.g. twincobr at
+`0x3184e` (3-byte BCD, big) reads `104900` while the screen shows `10490`. When the
+matched value is a clean power-of-ten multiple of the on-screen score, keep the raw
+cell and add `"divisor": 10` (docs/contracts/scoremap.md); the browser and
+`verify.lua` both divide, so the leaderboard matches the screen:
+
+```json
+{ "slot": 0, "cpu": ":maincpu", "space": "program",
+  "addr": "0x3184e", "len": 3, "format": "bcd", "endian": "big", "divisor": 10 }
+```
+
+**Discovery tips on 16-bit boards.** Use `?scorewatch=1&base=…` to log RAM while you
+play, then correlate with the on-screen score:
+- a **score** increases **irregularly** (jumps with kills); a **timer** increases at
+  a near-constant rate and often saturates — don't pick those;
+- the score cell should be **non-decreasing** across the session;
+- scaled scores always end in 0, so the raw cell is a multiple of 10/100.
+
 ### If no stable cell exists
 
 Some games draw the score from regenerated tiles/video RAM with no numeric cell

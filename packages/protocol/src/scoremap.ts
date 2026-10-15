@@ -27,6 +27,11 @@ export const scoreMapEntry = z.strictObject({
   format: z.enum(["bcd", "binary"]),
   /** Byte order; defaults to little-endian (docs/contracts/scoremap.md). */
   endian: z.enum(["little", "big"]).optional(),
+  /**
+   * Divide the decoded value by this (default 1). Some games store the score
+   * scaled (e.g. ×10); the divisor recovers the on-screen score.
+   */
+  divisor: z.number().int().min(1).optional(),
 });
 
 export const scoreMap = z

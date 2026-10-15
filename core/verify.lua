@@ -6,7 +6,8 @@
 --
 -- Required env vars:
 --   VERIFY_LOG_PATH   Path to the gzip(JSON) input log artifact.
---   VERIFY_SCOREMAP  Path to the driver's scoremap JSON file (optional).
+--   VERIFY_SCOREMAP  Path to the driver's scoremap JSON file (optional; every
+--                    player slot in it is read and printed).
 --
 -- Reads the closed input log, feeds each frame's inputs into MAME, then
 -- reads the score from RAM at the last frame and prints:
@@ -59,31 +60,34 @@ local function find_players_array(obj, accumulator, depth)
     return accumulator
 end
 
+-- Parse the scoremap `players` array. Each entry carries its own
+-- slot/cpu/space/addr/len/format/endian (docs/contracts/scoremap.md); a map with
+-- several slots (T47) yields one table per player rather than just the first.
 local function parse_scoremap(text)
+    local version = tonumber(text:match('"v"%s*:%s*(%d+)')) or 1
     local players = {}
-    local version = nil
-    for word in text:gmatch('"(%w+)"%s*:%s*') do
-        if word == "v" or word == "version" then
-            local num = text:match('"v"%s*:%s*(%d+)')
-            if num then version = tonumber(num) end
+    local body = text:match('"players"%s*:%s*%[(.-)%]')
+    if not body then
+        return { version = version, players = players }
+    end
+    for entry in body:gmatch("%b{}") do
+        local addr_hex = entry:match('"addr"%s*:%s*"0x([0-9a-fA-F]+)"')
+        local len_val = entry:match('"len"%s*:%s*(%d+)')
+        local fmt = entry:match('"format"%s*:%s*"([^"]+)"')
+        if addr_hex and len_val and fmt then
+            players[#players + 1] = {
+                slot = tonumber(entry:match('"slot"%s*:%s*(%d+)')) or 0,
+                cpu = entry:match('"cpu"%s*:%s*"([^"]+)"') or ":maincpu",
+                space = entry:match('"space"%s*:%s*"([^"]+)"') or "program",
+                addr = tonumber(addr_hex, 16),
+                len = tonumber(len_val),
+                format = fmt,
+                endian = entry:match('"endian"%s*:%s*"([^"]+)"') or "little",
+                divisor = tonumber(entry:match('"divisor"%s*:%s*(%d+)')) or 1,
+            }
         end
     end
-    local addr_hex = text:match('"addr"%s*:%s*"0x([0-9a-fA-F]+)"')
-    local len_val = text:match('"len"%s*:%s*(%d+)')
-    local fmt = text:match('"format"%s*:%s*"([^"]+)"')
-    local endian_val = text:match('"endian"%s*:%s*"([^"]+)"')
-    local slot_val = text:match('"slot"%s*:%s*(%d+)')
-    if not addr_hex or not len_val or not fmt then
-        return nil
-    end
-    return {
-        version = version or 1,
-        addr = tonumber(addr_hex, 16),
-        len = tonumber(len_val),
-        format = fmt,
-        endian = endian_val or "little",
-        slot = tonumber(slot_val) or 0,
-    }
+    return { version = version, players = players }
 end
 
 local function parse_log(text)
@@ -125,12 +129,30 @@ local function decode_binary(bytes, endian)
 end
 
 local function decode_score(bytes, scoremap)
+    local value, err
     if scoremap.format == "bcd" then
-        return decode_bcd(bytes, scoremap.endian)
+        value, err = decode_bcd(bytes, scoremap.endian)
     elseif scoremap.format == "binary" then
-        return decode_binary(bytes, scoremap.endian)
+        value, err = decode_binary(bytes, scoremap.endian)
+    else
+        return nil, "unknown format"
     end
-    return nil, "unknown format"
+    if value == nil then return nil, err end
+    -- Some games store the score scaled (e.g. ×10); divisor recovers the
+    -- on-screen score (docs/contracts/scoremap.md).
+    local d = scoremap.divisor or 1
+    if d > 1 then value = math.floor(value / d) end
+    return value
+end
+
+-- A scoremap may only point at RAM-backed addresses (docs/contracts/scoremap.md):
+-- a direct read has no side effects, unlike an address-space handler. Returns nil
+-- when no direct pointer exists so the caller reports it instead of running a
+-- handler that could mutate machine state.
+local function read_direct_byte(space, addr)
+    local ok, value = pcall(function() return space:read_direct_u8(addr) end)
+    if ok and value ~= nil then return value & 0xff end
+    return nil
 end
 
 -- ─── Input application ────────────────────────────────────────────────────────
@@ -208,22 +230,25 @@ local log = assert(parse_log(json_text))
 
 print("VERIFY log: driver=" .. log.meta.driver ..
       " frames=" .. tostring(#log.frames) ..
-      " end_frame=" .. tostring(log.end.frame))
+      " end_frame=" .. tostring(log["end"].frame))
 
 -- Load scoremap if available.
 local scoremap = nil
 if SCOREMAP_PATH ~= "" then
     local ok, err = pcall(function()
         local sc = assert(read_file(SCOREMAP_PATH))
-        scoremap = assert(parse_scoremap(sc))
-        print("VERIFY scoremap: slot=" .. tostring(scoremap.slot) ..
-              " addr=0x" .. string.format("%x", scoremap.addr) ..
-              " len=" .. tostring(scoremap.len) ..
-              " format=" .. scoremap.format ..
-              " endian=" .. scoremap.endian)
+        local parsed = assert(parse_scoremap(sc))
+        scoremap = parsed
+        print("VERIFY scoremap: " .. tostring(#parsed.players) .. " player slot(s)")
+        for _, p in ipairs(parsed.players) do
+            print(string.format(
+                "VERIFY scoremap: slot=%d %s/%s addr=0x%x len=%d format=%s endian=%s",
+                p.slot, p.cpu, p.space, p.addr, p.len, p.format, p.endian))
+        end
     end)
     if not ok then
         print("WARNING: could not load scoremap " .. SCOREMAP_PATH .. ": " .. tostring(err))
+        scoremap = nil
     end
 end
 
@@ -245,8 +270,11 @@ end
 
 -- Read scores from RAM.
 local slots_to_read = {}
-if scoremap then
-    slots_to_read[#slots_to_read + 1] = scoremap
+if scoremap and #scoremap.players > 0 then
+    -- One entry per seated slot (T47); each carries its own cpu/space/address.
+    for _, p in ipairs(scoremap.players) do
+        slots_to_read[#slots_to_read + 1] = p
+    end
 else
     -- No scoremap: read every slot present in start.players.
     for _, p in ipairs(log.start.players) do
@@ -257,15 +285,28 @@ end
 for _, entry in ipairs(slots_to_read) do
     local slot = entry.slot
     if entry.addr then
+        local entry_cpu = m.devices[entry.cpu or ":maincpu"] or cpu
+        local entry_space = entry_cpu.spaces[entry.space or "program"] or mem
         local bytes = {}
+        local missing = false
         for i = 0, entry.len - 1 do
-            bytes[i + 1] = mem:read_u8(entry.addr + i)
+            local byte = read_direct_byte(entry_space, entry.addr + i)
+            if byte == nil then
+                missing = true
+                break
+            end
+            bytes[i + 1] = byte
         end
-        local score, err = decode_score(bytes, entry)
-        if score then
-            print("SCORE " .. tostring(slot) .. " " .. tostring(score))
+        if missing then
+            print("SCORE " .. tostring(slot) .. " ERROR no direct pointer at 0x" ..
+                string.format("%x", entry.addr))
         else
-            print("SCORE " .. tostring(slot) .. " ERROR " .. tostring(err))
+            local score, err = decode_score(bytes, entry)
+            if score then
+                print("SCORE " .. tostring(slot) .. " " .. tostring(score))
+            else
+                print("SCORE " .. tostring(slot) .. " ERROR " .. tostring(err))
+            end
         end
     else
         print("SCORE " .. tostring(slot) .. " 0  (no scoremap)")
