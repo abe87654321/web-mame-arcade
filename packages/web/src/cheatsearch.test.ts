@@ -97,6 +97,34 @@ describe("scanDecodeCombos", () => {
     expect(hit?.samples).toContain(0x801);
   });
 
+  it("finds an ASCII ('0'-'9') score", () => {
+    const bytes = new Int16Array(8).fill(0);
+    // "5450" ascii at offset 2.
+    bytes[2] = 0x35;
+    bytes[3] = 0x34;
+    bytes[4] = 0x35;
+    bytes[5] = 0x30;
+    const combos = scanDecodeCombos({ base: 0x30000, bytes }, 5450, [4]);
+    const hit = combos.find(
+      (c) => c.format === "ascii" && c.endian === "big" && c.count > 0,
+    );
+    expect(hit?.samples).toContain(0x30002);
+  });
+
+  it("finds a one-digit-per-16-bit-word score", () => {
+    const bytes = new Int16Array(10).fill(0);
+    // "5450" as 16-bit words (big-endian) starting at offset 1: low byte digit.
+    bytes[1] = 5;
+    bytes[3] = 4;
+    bytes[5] = 5;
+    bytes[7] = 0;
+    const combos = scanDecodeCombos({ base: 0x30000, bytes }, 5450, [4]);
+    const hit = combos.find(
+      (c) => c.format === "digits16" && c.endian === "big" && c.count > 0,
+    );
+    expect(hit?.samples).toContain(0x30001);
+  });
+
   it("skips unreadable bytes", () => {
     const bytes = new Int16Array([0x50, -1, 0x10]);
     const combos = scanDecodeCombos({ base: 0, bytes }, 1050, [2]);

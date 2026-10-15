@@ -162,8 +162,12 @@ interface NetplayModuleHost {
 /** One decode interpretation and how many addresses in a snapshot match it. */
 export interface ComboResult {
   len: number;
-  /** `digits` = one decimal digit per byte (unpacked BCD). */
-  format: ScoreFormat | "digits";
+  /**
+   * `digits` = one decimal digit per byte; `ascii` = character digits
+   * ('0'-'9'); `digits16` = one digit per 16-bit word (high byte 0) — all common
+   * on 68000-era boards.
+   */
+  format: ScoreFormat | "digits" | "ascii" | "digits16";
   endian: ScoreEndian;
   count: number;
   samples: number[];
@@ -175,9 +179,9 @@ export interface ComboResult {
  * is how to find the score's encoding without guessing: the true combination
  * shows a small, plausible count where the others show 0 (or almost everything).
  *
- * Interpretations tried: packed `bcd`/`binary` for len 1-4, plus unpacked
- * decimal (`digits`, one digit per byte) — many arcade games store a score that
- * way.
+ * Interpretations tried for len 1-4: packed `bcd`/`binary`; unpacked decimal
+ * (`digits`, one digit per byte); `ascii` (`'0'`-`'9'`); and `digits16` (one
+ * digit per 16-bit word), each little- and big-endian.
  */
 export function scanDecodeCombos(
   snap: Snapshot,
@@ -185,31 +189,43 @@ export function scanDecodeCombos(
   lens: readonly number[] = [1, 2, 3, 4],
 ): ComboResult[] {
   const out: ComboResult[] = [];
-  const window = (i: number, len: number, max: number): Uint8Array | null => {
-    const bytes = new Uint8Array(len);
-    for (let k = 0; k < len; k++) {
-      const v = snap.bytes[i + k];
-      if (v === undefined || v < 0 || v > max) return null;
-      bytes[k] = v;
+
+  const scanDigits = (
+    kind: "digits" | "ascii" | "digits16",
+    len: number,
+    endian: ScoreEndian,
+  ): ComboResult => {
+    const stride = kind === "digits16" ? 2 : 1;
+    const lo = kind === "ascii" ? 0x30 : 0x00;
+    const hi = kind === "ascii" ? 0x39 : 0x09;
+    const samples: number[] = [];
+    let count = 0;
+    for (let i = 0; i + (len - 1) * stride < snap.bytes.length; i++) {
+      const digits: number[] = [];
+      let ok = true;
+      for (let k = 0; k < len; k++) {
+        const v = snap.bytes[i + k * stride];
+        if (v === undefined || v < lo || v > hi) {
+          ok = false;
+          break;
+        }
+        digits.push(v - lo);
+      }
+      if (!ok) continue;
+      const value = Number((endian === "big" ? digits : digits.reverse()).join(""));
+      if (value === target) {
+        count += 1;
+        if (samples.length < 8) samples.push(snap.base + i);
+      }
     }
-    return bytes;
+    return { len, format: kind, endian, count, samples };
   };
-  const ordered = (bytes: Uint8Array, endian: ScoreEndian): Uint8Array =>
-    endian === "big" ? bytes : Uint8Array.from(bytes).reverse();
 
   for (const len of lens) {
     for (const endian of ["little", "big"] as const) {
-      // Unpacked decimal: each byte is one digit (0-9).
-      const digits: number[] = [];
-      for (let i = 0; i + len <= snap.bytes.length; i++) {
-        const bytes = window(i, len, 9);
-        if (!bytes) continue;
-        const value = Number(Array.from(ordered(bytes, endian)).join(""));
-        if (value === target) {
-          digits.push(snap.base + i);
-        }
-      }
-      out.push({ len, format: "digits", endian, count: digits.length, samples: digits.slice(0, 8) });
+      out.push(scanDigits("digits", len, endian));
+      out.push(scanDigits("ascii", len, endian));
+      out.push(scanDigits("digits16", len, endian));
     }
 
     for (const format of ["bcd", "binary"] as const) {
@@ -217,8 +233,17 @@ export function scanDecodeCombos(
         let count = 0;
         const samples: number[] = [];
         for (let i = 0; i + len <= snap.bytes.length; i++) {
-          const bytes = window(i, len, 255);
-          if (!bytes) continue;
+          const bytes = new Uint8Array(len);
+          let ok = true;
+          for (let k = 0; k < len; k++) {
+            const v = snap.bytes[i + k];
+            if (v === undefined || v < 0) {
+              ok = false;
+              break;
+            }
+            bytes[k] = v;
+          }
+          if (!ok) continue;
           let value: number;
           try {
             value = decodeScore(bytes, { len, format, endian });
