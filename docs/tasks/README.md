@@ -94,7 +94,15 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   in-browser cheat search (`?cheatsearch=1`, `packages/web/src/cheatsearch.ts`, `core/scoremap/README.md`
   Option C) lets discovery run without the native MAME UI. `twinbee` is done (slot 0); `twincobr` and the
   `raiden`/`raiden2` scoremaps still need addresses. The **verified** half of the leaderboard is blocked on
-  T48 (the replay path itself is broken); raiden/raiden2 discovery is blocked on T49.
+  T48 (the replay path itself is broken); twincobr/raiden/raiden2 discovery is blocked on T50.
+- [ ] **T50 netplay_read_bytes misreads 16-bit address spaces (bug)** – `netplay_read_bytes` (T32b)
+  returns each 16-bit word's **low byte for both lanes**, so every byte read of a 68k/V30 game is wrong.
+  Evidence: reading twincobr's `:maincpu`/`program` ROM at `0x0` gives `03 03 00 00 02 02 94 94` where the
+  real interleaved ROM is `00 03 20 00 00 02 01 94` (the low byte duplicated); the same mirroring appears in
+  RAM. This is why no score value ever matched for twincobr and blocks T47's twincobr/raiden/raiden2
+  scoremaps (the 8-bit twinbee is unaffected). Fix the byte read for 16-bit spaces (correct lane selection
+  via `get_read_ptr`), rebuild the WASM cores, and prove it by re-reading the ROM and re-running the cheat
+  search. Docs: 02, 05, contracts/scoremap. Depends: T32b.
 - [ ] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
   cores reach "running Raiden" but draw nothing (the canvas screenshot is all black) and every
   `:maincpu`/`program` byte read in `0x00000-0x06fff` returns -1 (no direct pointer), so the score can
