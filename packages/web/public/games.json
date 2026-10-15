@@ -28,9 +28,9 @@
   {
     "driver": "raiden",
     "title": "Raiden",
-    "coreVersion": "635b2006fd11ad795c0c82e5ee7d1be46fbba46b9cef26bf6a2c7fbb65566294",
+    "coreVersion": "8789dcfe7525b79bbf2bb0f2605a9ad4769ec1a23716c5696214150306e71759",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
-    "romHash": "455da1b5befdb5cace483edd63bf44ffd45dfb9eed631d9589dabaef54dd2588",
+    "romHash": "88d477dd0cba42aa441b81c9b137926f145357d6c55ab73c3affa4db3d32e8a8",
     "supportsSave": false,
     "netplayMode": "none",
     "maxPlayers": 2,
@@ -41,9 +41,9 @@
   {
     "driver": "raiden2",
     "title": "Raiden II",
-    "coreVersion": "0f8ec6672e0e5b22a840288e0be75e44e622cfdf1494a5954c149355b3b15ada",
+    "coreVersion": "00297b6fbc7f6cbba1b91c8c746b41747164d02d31323add097e1543d9005c42",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
-    "romHash": "3cdbd3b03c3fc64d6bcedc5c52b10c8a2b288ab7e4e526f157f02479e975c878",
+    "romHash": "7186bc00bb7fb6aea90e8892db29e87f1d02ce5c3acefd77a3239a0ca9d4dfc4",
     "supportsSave": false,
     "netplayMode": "none",
     "maxPlayers": 2,

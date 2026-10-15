@@ -40,6 +40,29 @@ dev only (docs/07). After a build, `core/publish-web.sh <driver>` copies the cor
 `packages/web/public/static/cores/<driver>/<core_hash>/` and points that `<driver>`'s
 `games.json` entry (which must already exist) at the new `coreVersion`.
 
+### ROM sets are pinned to the MAME commit (T49)
+A ROM zip is only valid for the MAME version it was dumped for; MAME renames, re-splits
+and adds dumps over time, so a set that runs on one release can be rejected by the pinned
+one. When the set does not match, MAME refuses to start and blocks on the "ROMs are
+incorrect / Press any key" modal: the browser canvas stays **black**, the address spaces
+are never populated (`netplay_read_bytes` returns `-1`), and `play-controller` still shows
+`running <title>` because it prints the status before the machine is up. Always check a
+local set against the pin before building:
+
+```bash
+./mame/<driver> <driver> -rompath roms -verifyroms   # expect: 1 romsets found, 1 were OK
+```
+
+`core/test/rom-audit.test.mjs` (part of `pnpm test`) runs this for every catalogue driver
+whose native build and `roms/<driver>.zip` are present, and also asserts `games.json`'s
+`romHash` equals the zip's sha256 (a swapped set must update the catalogue). CI has neither
+binaries nor ROMs, so those cases skip there. `e2e/boot.e2e.ts` checks the symptom in the
+browser instead: it requires the emulated clock from `Core.debugInfo()` to advance.
+
+First hit by `raiden`/`raiden2`, which shipped MAME 0.225-era zips: `raiden.zip` was the
+`raidenj` set (missing the parent's `4.u023`), and `raiden2.zip` lacked the two PALs
+(`jj4b01`/`jj4b02`) that 0.289 now requires. Both were replaced with 0.289 split sets.
+
 ## Pinned versions (never use "latest")
 The machine-readable source of truth is `core/versions.json`; this table mirrors it and a test
 (`core/test/version-pins.test.mjs`) keeps the two equal.
