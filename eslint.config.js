@@ -25,4 +25,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   { languageOptions: { ecmaVersion: 2022, sourceType: "module" } },
+  {
+    // Node tooling under core/ (build/spike scripts and their node:test suites)
+    // runs on Node, so the Node globals are available there.
+    files: ["core/**/*.mjs"],
+    languageOptions: {
+      globals: { console: "readonly", process: "readonly", Buffer: "readonly" },
+    },
+  },
 );
