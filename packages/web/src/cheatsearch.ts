@@ -159,15 +159,17 @@ interface NetplayModuleHost {
   Module?: { netplay?: { readMemory?: ReadMemory } };
 }
 
+export type ScanFormat = ScoreFormat | "digits" | "ascii" | "digits16" | "ascii16";
+
 /** One decode interpretation and how many addresses in a snapshot match it. */
 export interface ComboResult {
   len: number;
   /**
    * `digits` = one decimal digit per byte; `ascii` = character digits
-   * ('0'-'9'); `digits16` = one digit per 16-bit word (high byte 0) — all common
-   * on 68000-era boards.
+   * ('0'-'9'); `digits16`/`ascii16` = one digit/char per 16-bit word (high byte
+   * 0) — all common on 68000-era boards.
    */
-  format: ScoreFormat | "digits" | "ascii" | "digits16";
+  format: ScanFormat;
   endian: ScoreEndian;
   count: number;
   samples: number[];
@@ -180,8 +182,8 @@ export interface ComboResult {
  * shows a small, plausible count where the others show 0 (or almost everything).
  *
  * Interpretations tried for len 1-4: packed `bcd`/`binary`; unpacked decimal
- * (`digits`, one digit per byte); `ascii` (`'0'`-`'9'`); and `digits16` (one
- * digit per 16-bit word), each little- and big-endian.
+ * (`digits`, one digit per byte); `ascii` (`'0'`-`'9'`); and one digit/char per
+ * 16-bit word (`digits16`/`ascii16`), each little- and big-endian.
  */
 export function scanDecodeCombos(
   snap: Snapshot,
@@ -189,15 +191,18 @@ export function scanDecodeCombos(
   lens: readonly number[] = [1, 2, 3, 4],
 ): ComboResult[] {
   const out: ComboResult[] = [];
+  const KINDS: readonly ScanFormat[] = [
+    "digits",
+    "ascii",
+    "digits16",
+    "ascii16",
+  ];
 
-  const scanDigits = (
-    kind: "digits" | "ascii" | "digits16",
-    len: number,
-    endian: ScoreEndian,
-  ): ComboResult => {
-    const stride = kind === "digits16" ? 2 : 1;
-    const lo = kind === "ascii" ? 0x30 : 0x00;
-    const hi = kind === "ascii" ? 0x39 : 0x09;
+  const scanDigits = (kind: ScanFormat, len: number, endian: ScoreEndian): ComboResult => {
+    const stride = kind.endsWith("16") ? 2 : 1;
+    const ascii = kind.startsWith("ascii");
+    const lo = ascii ? 0x30 : 0x00;
+    const hi = ascii ? 0x39 : 0x09;
     const samples: number[] = [];
     let count = 0;
     for (let i = 0; i + (len - 1) * stride < snap.bytes.length; i++) {
@@ -223,9 +228,9 @@ export function scanDecodeCombos(
 
   for (const len of lens) {
     for (const endian of ["little", "big"] as const) {
-      out.push(scanDigits("digits", len, endian));
-      out.push(scanDigits("ascii", len, endian));
-      out.push(scanDigits("digits16", len, endian));
+      for (const kind of KINDS) {
+        out.push(scanDigits(kind, len, endian));
+      }
     }
 
     for (const format of ["bcd", "binary"] as const) {
@@ -507,7 +512,7 @@ export function installCheatSearch(win: Window): void {
             for (const c of scanDecodeCombos(snap, target)) {
               if (c.count === 0) continue;
               lines.push(
-                `${target}${label}: len ${c.len} ${c.format.padEnd(6)} ${c.endian.padEnd(6)} count=${c.count}  ` +
+                `${target}${label}: len ${c.len} ${c.format.padEnd(8)} ${c.endian.padEnd(6)} count=${c.count}  ` +
                   c.samples
                     .slice(0, 4)
                     .map((a) => hex(a, 5))
