@@ -94,8 +94,8 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   in-browser cheat search (`?cheatsearch=1`, `packages/web/src/cheatsearch.ts`, `core/scoremap/README.md`
   Option C) lets discovery run without the native MAME UI. `twinbee` and `twincobr` are done (slot 0) — the
   latter needed the T50 byte-lane fix and a `divisor` (it stores the score ×10). T49 (raiden/raiden2 black
-  screen, bad ROM sets) is fixed, so their scoremaps are only waiting on the T50 core rebuild. The
-  **verified** half of the leaderboard is blocked on T48 (the replay path itself is broken).
+  screen, bad ROM sets) is fixed and the T50 core rebuild has landed, so their scoremaps can now be
+  discovered. The **verified** half of the leaderboard is blocked on T48 (the replay path itself is broken).
 - [x] **T50 netplay_read_bytes misreads 16-bit address spaces (bug)** – `netplay_read_bytes` (T32b)
   returns each 16-bit word's **low byte for both lanes**, so every byte read of a 68k/V30 game is wrong.
   Evidence: reading twincobr's `:maincpu`/`program` ROM at `0x0` gives `03 03 00 00 02 02 94 94` where the
