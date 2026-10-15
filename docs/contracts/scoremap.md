@@ -25,6 +25,7 @@ verifier reads on replay (docs/05).
       "len": 3,                             // 1-8 bytes
       "format": "bcd",                      // "bcd" | "binary"
       "endian": "little"                    // optional; default "little"
+      "divisor": 10                         // optional; default 1 (see below)
     }
   ]
 }
@@ -34,6 +35,10 @@ verifier reads on replay (docs/05).
   score (the browser skips it; the log's `end.scores` defaults it to 0).
 - `space` maps to MAME's address-space enum: `program` → `AS_PROGRAM`,
   `io` → `AS_IO`.
+- `divisor` (optional, ≥1): the decoded value is divided by it (integer
+  division). Some games store the score **scaled** — e.g. twinbee/cobra keep the
+  score ×10 — so a `divisor` of 10 recovers the on-screen score. Omitting it
+  means 1 (no scaling).
 
 ## Decoding
 

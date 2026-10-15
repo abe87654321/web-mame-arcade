@@ -54,6 +54,14 @@ describe("decodeScore", () => {
     expect(decodeScore(new Uint8Array([0, 0, 0]), entry({ format: "bcd" }))).toBe(0);
   });
 
+  it("divides a scaled score by divisor (twinbee/cobra store ×10)", () => {
+    // BCD big "104900" -> 104900, /10 -> 10490 (the on-screen score).
+    const bytes = new Uint8Array([0x10, 0x49, 0x00]);
+    expect(
+      decodeScore(bytes, entry({ format: "bcd", endian: "big", len: 3, divisor: 10 })),
+    ).toBe(10490);
+  });
+
   it("rejects a byte length that differs from the entry", () => {
     expect(() => decodeScore(new Uint8Array([0x45, 0x23]), entry({ len: 3 }))).toThrow(
       /length/,

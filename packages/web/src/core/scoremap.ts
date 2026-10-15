@@ -46,7 +46,7 @@ function toSafeNumber(value: bigint): number {
  */
 export function decodeScore(
   bytes: Uint8Array,
-  entry: Pick<ScoreMapEntry, "format" | "endian" | "len">,
+  entry: Pick<ScoreMapEntry, "format" | "endian" | "len" | "divisor">,
 ): number {
   if (bytes.length !== entry.len) {
     throw new Error(
@@ -57,22 +57,28 @@ export function decodeScore(
   // stored least-significant byte first, so reverse it.
   const ordered = entry.endian === "big" ? bytes : Uint8Array.from(bytes).reverse();
 
-  if (entry.format === "binary") {
-    let value = 0n;
-    for (const byte of ordered) value = value * 256n + BigInt(byte);
-    return toSafeNumber(value);
-  }
-
-  let digits = "";
-  for (const byte of ordered) {
-    const high = byte >> 4;
-    const low = byte & 0x0f;
-    if (high > 9 || low > 9) {
-      throw new Error(`scoremap: invalid BCD byte 0x${byte.toString(16)}`);
+  const value = ((): bigint => {
+    if (entry.format === "binary") {
+      let v = 0n;
+      for (const byte of ordered) v = v * 256n + BigInt(byte);
+      return v;
     }
-    digits += `${high}${low}`;
-  }
-  return toSafeNumber(BigInt(digits));
+    let digits = "";
+    for (const byte of ordered) {
+      const high = byte >> 4;
+      const low = byte & 0x0f;
+      if (high > 9 || low > 9) {
+        throw new Error(`scoremap: invalid BCD byte 0x${byte.toString(16)}`);
+      }
+      digits += `${high}${low}`;
+    }
+    return BigInt(digits);
+  })();
+
+  // Some games store the score scaled (e.g. ×10); `divisor` recovers the
+  // on-screen score (docs/contracts/scoremap.md).
+  const scaled = entry.divisor && entry.divisor > 1 ? value / BigInt(entry.divisor) : value;
+  return toSafeNumber(scaled);
 }
 
 /**

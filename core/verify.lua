@@ -83,6 +83,7 @@ local function parse_scoremap(text)
                 len = tonumber(len_val),
                 format = fmt,
                 endian = entry:match('"endian"%s*:%s*"([^"]+)"') or "little",
+                divisor = tonumber(entry:match('"divisor"%s*:%s*(%d+)')) or 1,
             }
         end
     end
@@ -128,12 +129,20 @@ local function decode_binary(bytes, endian)
 end
 
 local function decode_score(bytes, scoremap)
+    local value, err
     if scoremap.format == "bcd" then
-        return decode_bcd(bytes, scoremap.endian)
+        value, err = decode_bcd(bytes, scoremap.endian)
     elseif scoremap.format == "binary" then
-        return decode_binary(bytes, scoremap.endian)
+        value, err = decode_binary(bytes, scoremap.endian)
+    else
+        return nil, "unknown format"
     end
-    return nil, "unknown format"
+    if value == nil then return nil, err end
+    -- Some games store the score scaled (e.g. ×10); divisor recovers the
+    -- on-screen score (docs/contracts/scoremap.md).
+    local d = scoremap.divisor or 1
+    if d > 1 then value = math.floor(value / d) end
+    return value
 end
 
 -- A scoremap may only point at RAM-backed addresses (docs/contracts/scoremap.md):
