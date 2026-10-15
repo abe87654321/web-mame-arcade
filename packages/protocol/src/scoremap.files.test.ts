@@ -7,8 +7,12 @@ import { parseScoreMap } from "./scoremap";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const scoremapDir = join(repoRoot, "core", "scoremap");
 
-/** T47: the local-dev drivers that must ship a scoremap. */
-const REQUIRED_DRIVERS = ["twinbee", "raiden", "raiden2", "twincobr"] as const;
+/**
+ * T47: the local-dev drivers that must ship a scoremap. `raiden`/`raiden2` are
+ * not listed yet — their WASM cores render a black screen (T49), so their
+ * scoremaps are blocked and tracked there.
+ */
+const REQUIRED_DRIVERS = ["twinbee", "twincobr"] as const;
 
 /**
  * Guards the committed data files (not just the schema): every
