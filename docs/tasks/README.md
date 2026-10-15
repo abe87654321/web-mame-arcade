@@ -107,8 +107,9 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Note: fix landed in `core/patches/netplay/netplay.cpp` (byte lane via `lowmask` + `BYTE8_XOR_BE/LE`,
   matching MAME's `direct_mem_read`; guarded by `core/test/netplay-patch.test.mjs`) and the twincobr WASM
   core was rebuilt/republished — re-reading the twincobr ROM at `0x0` now returns the correct
-  `00 03 20 00 00 02 01 94`, and RAM discovery found the twincobr score (`0x3184e`). The `raiden`/`raiden2`
-  cores still need the same rebuild; T49 (their black screen) is fixed, so the rebuild is now unblocked.
+  `00 03 20 00 00 02 01 94`, and RAM discovery found the twincobr score (`0x3184e`). Once T49 fixed their ROM
+  sets, the `raiden`/`raiden2` cores were rebuilt/republished too; reading raiden's `:maincpu`/`program` at
+  `0xa0000` now returns the correct interleaved `00 00 00 02 12 02 24 02` (was the duplicated low byte).
 - [x] **T49 raiden/raiden2 WASM cores render a black screen (bug)** – in the browser the `raiden`/`raiden2`
   cores reach "running Raiden" but draw nothing (the canvas screenshot is all black) and every
   `:maincpu`/`program` byte read in `0x00000-0x06fff` returns -1 (no direct pointer), so the score can
