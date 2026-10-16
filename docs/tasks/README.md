@@ -161,8 +161,10 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   `supportsSave:true` + `netplayMode:"lockstep"` by default; (5) `core/build-wasm.sh <driver> &&
   core/publish-web.sh <driver>`; (6) **prove netplay**: `e2e/save-integrity.e2e.ts` must report
   `verdict=PASS` (forward == reload) for the driver before it ships as lockstep (twincobr is the
-  counter-example: `savestate="unsupported"` and the gate FAILs, so it is `none`); (7) optionally
-  discover `core/scoremap/<driver>.json` (T47 workflow); (8) `node --test core/test/rom-audit.test.mjs`
+  counter-example: `savestate="unsupported"` and the gate FAILs, so it is `none`); (7) add an input
+  fixture `e2e/fixtures/inputs/<driver>.e2e.json` so the two-tab lockstep e2e exercises it, and run
+  `WMA_E2E_DRIVERS=<driver> pnpm --filter @wma/e2e test:e2e -g "netplay lockstep"`; (8) optionally
+  discover `core/scoremap/<driver>.json` (T47 workflow); (9) `node --test core/test/rom-audit.test.mjs`
   and `pnpm --filter @wma/e2e test:e2e -g boot`; commit. Docs: 02, 03, 05, contracts/scoremap. Depends:
   T49, T46 (save-integrity gate), T47. Helper: `core/onboard-game.mjs`
   (`core/test/onboard-game.test.mjs`).
