@@ -147,5 +147,24 @@
         "name": "gemini.zip"
       }
     ]
+  },
+  {
+    "driver": "tigerh",
+    "title": "Tiger-Heli",
+    "coreVersion": "fe8e3b2f8a2d66d1b505d3b3378e6b32855485665abe1fe5dab307167cf7d1b3",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "259fb2b8b09b5308653a8b8d618d8e678cfbb6bcf6735ea3956d815bd627650f",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/tigerh",
+    "romZipUrl": "/roms/tigerh.zip",
+    "extraRomZips": [
+      {
+        "url": "/roms/m68705p5.zip",
+        "name": "m68705p5.zip"
+      }
+    ]
   }
 ]

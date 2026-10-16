@@ -129,6 +129,7 @@ describe("committed catalogue (packages/web/public/games.json)", () => {
       "tankfrce",
       "gwar",
       "geminij",
+      "tigerh",
     ]);
   });
 
@@ -157,9 +158,12 @@ describe("committed catalogue (packages/web/public/games.json)", () => {
     }
   });
 
-  it("geminij mounts its parent set (a split clone)", () => {
+  it("geminij mounts its parent set and tigerh its device ROM", () => {
     expect(findGame(games, "geminij")?.extraRomZips).toEqual([
       { url: "/roms/gemini.zip", name: "gemini.zip" },
+    ]);
+    expect(findGame(games, "tigerh")?.extraRomZips).toEqual([
+      { url: "/roms/m68705p5.zip", name: "m68705p5.zip" },
     ]);
   });
 });

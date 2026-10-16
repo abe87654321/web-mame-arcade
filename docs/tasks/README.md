@@ -168,12 +168,12 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   and `pnpm --filter @wma/e2e test:e2e -g boot`; commit. Docs: 02, 03, 05, contracts/scoremap. Depends:
   T49, T46 (save-integrity gate), T47. Helper: `core/onboard-game.mjs`
   (`core/test/onboard-game.test.mjs`).
-  Note: onboarded `commando`, `jackal`, `rygar`, `tankfrce` (lockstep; ROM + save-integrity OK),
-  `geminij` (lockstep; split clone, catalogue `extraRomZips` mounts the parent `gemini.zip`), and
-  `gwar` (solo-only: MAME omits `MACHINE_SUPPORTS_SAVE`). Still BLOCKED on ROM content: `tigerh`
-  needs the `m68705p5` **bios/device** zip (its `bootstrap.bin`); a clone/device set that MAME looks
-  up by name must be added as an `extraRomZips` entry. Netplay reliability of the new lockstep
-  drivers is tracked by T53.
+  Note: onboarded all seven — `commando`, `jackal`, `rygar`, `tankfrce`, `geminij` (split clone;
+  `extraRomZips` mounts the parent `gemini.zip`) and `tigerh` (device ROM; `extraRomZips` mounts
+  `m68705p5.zip`) as lockstep (ROM + save-integrity OK), plus `gwar` solo-only (MAME omits
+  `MACHINE_SUPPORTS_SAVE`). The `extraRomZips` catalogue field (parent set / bios·device ROM mounted
+  by name under `-rompath`) is the general fix for clones and MCU-bearing drivers. Netplay reliability
+  of the new lockstep drivers is tracked by T53.
 - [ ] **T53 Cross-peer lockstep is intermittent (reliability, bug)** – the two-tab `e2e/netplay.e2e.ts`
   is flaky even for the reference driver: one run had `gridlee`/`jackal` pass while `commando`/`rygar`/
   `tankfrce`/`gwar` FAILED with repeated `desync` at frames 60/120/180/240, and `raiden` failed once then
