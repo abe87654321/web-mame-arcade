@@ -168,7 +168,21 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   and `pnpm --filter @wma/e2e test:e2e -g boot`; commit. Docs: 02, 03, 05, contracts/scoremap. Depends:
   T49, T46 (save-integrity gate), T47. Helper: `core/onboard-game.mjs`
   (`core/test/onboard-game.test.mjs`).
-  Note: currently pending intake — `commando`, `geminij`, `gwar`, `jackal`, `rygar`, `tankfrce`, `tigerh`.
+  Note: onboarded `commando`, `jackal`, `rygar`, `tankfrce` (lockstep; ROM + save-integrity OK) and
+  `gwar` (solo-only: MAME omits `MACHINE_SUPPORTS_SAVE`). Still BLOCKED on ROM content:
+  `geminij` is a **split clone** missing the parent `gemini` ROMs (needs a merged set), and `tigerh`
+  is missing the `m68705p5` device ROM `bootstrap.bin`. Netplay reliability of the new lockstep
+  drivers is tracked by T53.
+- [ ] **T53 Cross-peer lockstep is intermittent (reliability, bug)** – the two-tab `e2e/netplay.e2e.ts`
+  is flaky even for the reference driver: one run had `gridlee`/`jackal` pass while `commando`/`rygar`/
+  `tankfrce`/`gwar` FAILED with repeated `desync` at frames 60/120/180/240, and `raiden` failed once then
+  passed on rerun. A direct two-core probe (two pages, identical `core.step` inputs, compare `hash()`)
+  gave **non-correlating** results (`gridlee`/`commando` equal, `jackal`/`rygar` diverge), so this is a
+  cross-peer **frame-0/arming alignment race** in the delay-lockstep, not a per-driver emulation bug
+  (`e2e/save-integrity.e2e.ts` PASSes for every one of them single-instance). Impact: constant
+  `stall-escalate` resyncs → stutter, and it does not scale to >2 players. Fix path: a deterministic
+  start barrier (all peers pinned to a common frame 0 before the gate opens) and **rollback** (T40);
+  re-run the two-tab e2e as the gate. Docs: 03, 04. Depends: T24, T25, T29, T40.
 - [x] **T49 follow-up · raiden/raiden2 netplay re-enabled** – the T46 "raiden/raiden2 `Core.save()`
   throws" finding was a downstream symptom of the bad ROMs (T49): MAME never started, so
   `netplay_state_size()` returned 0. With the corrected 0.289 sets, `Core.save()` returns 330 KB / 1.3 MB
