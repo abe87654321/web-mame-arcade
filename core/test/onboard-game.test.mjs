@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import {
   catalogueDrivers,
   driversShIncludes,
+  parseSavestate,
   parseVerifyroms,
   pendingDrivers,
   sha256File,
@@ -49,6 +50,13 @@ test("parseVerifyroms distinguishes a good set from a bad one", () => {
     parseVerifyroms("romset raiden is bad\n1 romsets found, 0 were OK."),
     { ok: false, bad: true },
   );
+});
+
+test("parseSavestate reads MAME's netplay capability flag", () => {
+  assert.equal(parseSavestate('<machine name="raiden"><driver savestate="supported"/></machine>'), "supported");
+  assert.equal(parseSavestate('<driver savestate="unsupported"/>'), "unsupported");
+  assert.equal(parseSavestate("<machine/>"), undefined);
+  assert.equal(parseSavestate(""), undefined);
 });
 
 test("sha256File equals the streaming sha256 of the bytes", () => {

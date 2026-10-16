@@ -10,11 +10,15 @@
  * front of the steps documented in docs/tasks (T51). The full per-game flow is:
  *   1. node core/onboard-game.mjs --list
  *   2. add the driver's SOURCES to core/drivers.sh, then core/build-native.sh <driver>
- *   3. node core/onboard-game.mjs --check <driver>     (expects "romset is good")
- *   4. add a packages/web/public/games.json entry (romHash from step 1/3)
+ *   3. node core/onboard-game.mjs --check <driver>     (romset OK + netplay mode)
+ *   4. add a packages/web/public/games.json entry (romHash from step 1/3;
+ *      supportsSave/netplayMode from step 3 — every game must netplay unless
+ *      MAME says savestate="unsupported")
  *   5. core/build-wasm.sh <driver> && core/publish-web.sh <driver>
- *   6. (optional) discover core/scoremap/<driver>.json   (T47 workflow)
- *   7. node --test core/test/rom-audit.test.mjs && pnpm --filter @wma/e2e test:e2e -g boot
+ *   6. prove netplay with e2e/save-integrity.e2e.ts (forward == reload); only a
+ *      PASS justifies netplayMode "lockstep"
+ *   7. (optional) discover core/scoremap/<driver>.json   (T47 workflow)
+ *   8. node --test core/test/rom-audit.test.mjs && pnpm --filter @wma/e2e test:e2e -g boot
  *
  * Usage: node core/onboard-game.mjs [--list | --check <driver> | --help]
  */
@@ -55,6 +59,16 @@ export function driversShIncludes(text, driver) {
 /** Interpret `mame <driver> -verifyroms` output (it exits 0 even when bad). */
 export function parseVerifyroms(stdout) {
   return { ok: /1 were OK\./.test(stdout), bad: /is bad/.test(stdout) };
+}
+
+/**
+ * Netplay capability from `mame <driver> -listxml`: MAME's `savestate`
+ * attribute mirrors MACHINE_SUPPORTS_SAVE, which the lockstep design needs
+ * (docs/03). "unsupported" means no save state, so the game is solo-only.
+ */
+export function parseSavestate(listXml) {
+  const match = /savestate="(supported|unsupported|preliminary)"/.exec(listXml ?? "");
+  return match ? match[1] : undefined;
 }
 
 function loadGames() {
@@ -122,16 +136,37 @@ function cmdCheck(driver) {
   const bin = nativeBinary(driver);
   if (bin === null) {
     console.log("native:      not built — run core/build-native.sh " + driver);
+    console.log("netplay:     unknown (needs a native build to read savestate support)");
+    return;
+  }
+  const env = { ...process.env, LC_ALL: "C" };
+  const result = spawnSync(bin, [driver, "-rompath", romsDir, "-verifyroms"], {
+    cwd: repo,
+    encoding: "utf8",
+    env,
+  });
+  const { ok, bad } = parseVerifyroms(result.stdout ?? "");
+  console.log(`native:      ${bin}`);
+  console.log(`rom check:   ${ok && !bad ? "OK (set matches the pinned commit)" : "BAD — re-fetch a set matching core/versions.json"}`);
+  if (!ok || bad) process.exitCode = 1;
+
+  // MAME's own savestate flag → the netplay mode the catalogue should use.
+  const xml = spawnSync(bin, [driver, "-listxml"], {
+    cwd: repo,
+    encoding: "utf8",
+    env,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  const save = parseSavestate(xml.stdout ?? "");
+  if (save === "supported") {
+    console.log(
+      "netplay:     lockstep (save state supported) — must still PASS " +
+        "e2e/save-integrity.e2e.ts before shipping",
+    );
+  } else if (save) {
+    console.log(`netplay:     solo only (save state ${save}) — netplayMode "none"`);
   } else {
-    const result = spawnSync(bin, [driver, "-rompath", romsDir, "-verifyroms"], {
-      cwd: repo,
-      encoding: "utf8",
-      env: { ...process.env, LC_ALL: "C" },
-    });
-    const { ok, bad } = parseVerifyroms(result.stdout ?? "");
-    console.log(`native:      ${bin}`);
-    console.log(`rom check:   ${ok && !bad ? "OK (set matches the pinned commit)" : "BAD — re-fetch a set matching core/versions.json"}`);
-    if (!ok || bad) process.exitCode = 1;
+    console.log("netplay:     unknown (could not read savestate from -listxml)");
   }
 }
 
