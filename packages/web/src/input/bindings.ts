@@ -69,10 +69,24 @@ export function playerBindings(
 
 /** Standard-mapping gamepad defaults (Xbox/PS layout). */
 export const DEFAULT_GAMEPAD_BINDINGS: PlayerBindings = playerBindings({
-  up: [{ kind: "gamepadAxis", axis: 1, dir: "-" }],
-  down: [{ kind: "gamepadAxis", axis: 1, dir: "+" }],
-  left: [{ kind: "gamepadAxis", axis: 0, dir: "-" }],
-  right: [{ kind: "gamepadAxis", axis: 0, dir: "+" }],
+  // Left stick (axes 0/1) OR the D-pad (buttons 12-15), so a pad that reports
+  // the D-pad as buttons rather than the stick still steers.
+  up: [
+    { kind: "gamepadAxis", axis: 1, dir: "-" },
+    { kind: "gamepadButton", index: 12 },
+  ],
+  down: [
+    { kind: "gamepadAxis", axis: 1, dir: "+" },
+    { kind: "gamepadButton", index: 13 },
+  ],
+  left: [
+    { kind: "gamepadAxis", axis: 0, dir: "-" },
+    { kind: "gamepadButton", index: 14 },
+  ],
+  right: [
+    { kind: "gamepadAxis", axis: 0, dir: "+" },
+    { kind: "gamepadButton", index: 15 },
+  ],
   b1: [{ kind: "gamepadButton", index: 0 }],
   b2: [{ kind: "gamepadButton", index: 1 }],
   b3: [{ kind: "gamepadButton", index: 2 }],

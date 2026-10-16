@@ -56,7 +56,7 @@ describe("playerMaskFromPad buttons", () => {
 
   it("ignores an unbound button index", () => {
     expect(
-      playerMaskFromPad(DEFAULT_GAMEPAD_BINDINGS, withButton(15), createAxisState()),
+      playerMaskFromPad(DEFAULT_GAMEPAD_BINDINGS, withButton(7), createAxisState()),
     ).toBe(0);
   });
 
