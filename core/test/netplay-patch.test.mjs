@@ -133,6 +133,22 @@ test("every cwrap symbol in netplay_post.js is declared by the C++ module", () =
   }
 });
 
+test("netplay derives the start/coin player from the IPT type (T54)", () => {
+  const source = readFileSync(join(core, "patches", "netplay", "netplay.cpp"), "utf8");
+  // Some drivers declare START2/COIN2 without PORT_PLAYER, so field.player()
+  // stays 0; the binding must read the player from the IPT type range, and both
+  // the bit map and the per-player bucket must use that derived player.
+  assert.match(source, /int wire_player\(ioport_field &field\)/);
+  assert.match(source, /type >= IPT_START1 && type <= IPT_START10/);
+  assert.match(source, /type >= IPT_COIN1 && type <= IPT_COIN12/);
+  const bind = source.slice(
+    source.indexOf("void build_bindings"),
+    source.indexOf("Bytes the netplay snapshot"),
+  );
+  assert.match(bind, /int const player = wire_player\(field\)/);
+  assert.match(bind, /s_fields\[player\]\[bit\]/);
+});
+
 test("netplay_read_bytes selects the byte lane for wider-than-byte spaces (T50)", () => {
   const source = readFileSync(join(core, "patches", "netplay", "netplay.cpp"), "utf8");
   const body = source.slice(source.indexOf("int netplay_read_bytes"));
