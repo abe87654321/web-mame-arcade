@@ -128,5 +128,24 @@
     "romLicensed": false,
     "coreBaseUrl": "/static/cores/gwar",
     "romZipUrl": "/roms/gwar.zip"
+  },
+  {
+    "driver": "geminij",
+    "title": "Gemini Wing",
+    "coreVersion": "7af6c087a9b8e7552894b20d6785b18d0069dff645d7acdf687176df61beb391",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "be6ad4887cccb75ec6ebd6d696154bace41a23488a37ef01cec17ad46c51a8e7",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/geminij",
+    "romZipUrl": "/roms/geminij.zip",
+    "extraRomZips": [
+      {
+        "url": "/roms/gemini.zip",
+        "name": "gemini.zip"
+      }
+    ]
   }
 ]

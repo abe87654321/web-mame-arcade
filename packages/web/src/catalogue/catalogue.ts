@@ -1,4 +1,4 @@
-import type { GameEntry, NetplayMode } from "./types";
+import type { GameEntry, NetplayMode, RomZipRef } from "./types";
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const HEX40 = /^[0-9a-f]{40}$/;
@@ -18,6 +18,19 @@ function asNonEmptyString(value: unknown, field: string): string {
 function asBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") fail(`bad ${field}`);
   return value;
+}
+
+function parseExtraRomZips(value: unknown): RomZipRef[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) fail("bad extraRomZips");
+  return value.map((ref, i) => {
+    if (typeof ref !== "object" || ref === null) fail(`bad extraRomZips[${i}]`);
+    const r = ref as Record<string, unknown>;
+    return {
+      url: asNonEmptyString(r.url, `extraRomZips[${i}].url`),
+      name: asNonEmptyString(r.name, `extraRomZips[${i}].name`),
+    };
+  });
 }
 
 function parseEntry(value: unknown): GameEntry {
@@ -44,6 +57,7 @@ function parseEntry(value: unknown): GameEntry {
   const romLicensed = asBoolean(e.romLicensed, "romLicensed");
   const coreBaseUrl = asNonEmptyString(e.coreBaseUrl, "coreBaseUrl");
   const romZipUrl = asNonEmptyString(e.romZipUrl, "romZipUrl");
+  const extraRomZips = parseExtraRomZips(e.extraRomZips);
 
   return {
     driver,
@@ -57,6 +71,7 @@ function parseEntry(value: unknown): GameEntry {
     romLicensed,
     coreBaseUrl,
     romZipUrl,
+    ...(extraRomZips ? { extraRomZips } : {}),
   };
 }
 

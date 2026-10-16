@@ -89,6 +89,21 @@ describe("parseCatalogue", () => {
   it("rejects duplicate drivers so lookups stay unambiguous", () => {
     expect(() => parseCatalogue([valid(), valid()])).toThrow(/duplicate/);
   });
+
+  it("accepts and preserves extraRomZips (parent/device ROMs)", () => {
+    const extra = [{ url: "/roms/gemini.zip", name: "gemini.zip" }];
+    const parsed = parseCatalogue([valid({ extraRomZips: extra })]);
+    expect(parsed[0]?.extraRomZips).toEqual(extra);
+  });
+
+  it("rejects a malformed extraRomZips entry", () => {
+    expect(() => parseCatalogue([valid({ extraRomZips: "gemini.zip" })])).toThrow(
+      /extraRomZips/,
+    );
+    expect(() =>
+      parseCatalogue([valid({ extraRomZips: [{ url: "" }] })]),
+    ).toThrow(/extraRomZips\[0\]\.url/);
+  });
 });
 
 describe("committed catalogue (packages/web/public/games.json)", () => {
@@ -113,6 +128,7 @@ describe("committed catalogue (packages/web/public/games.json)", () => {
       "rygar",
       "tankfrce",
       "gwar",
+      "geminij",
     ]);
   });
 
@@ -139,6 +155,12 @@ describe("committed catalogue (packages/web/public/games.json)", () => {
       expect(entry?.supportsSave).toBe(false);
       expect(entry?.netplayMode).toBe("none");
     }
+  });
+
+  it("geminij mounts its parent set (a split clone)", () => {
+    expect(findGame(games, "geminij")?.extraRomZips).toEqual([
+      { url: "/roms/gemini.zip", name: "gemini.zip" },
+    ]);
   });
 });
 

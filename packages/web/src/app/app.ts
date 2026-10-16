@@ -709,6 +709,7 @@ function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<
   return loadBrowserCore({
     coreBaseUrl: coreDirUrl(entry),
     romZipUrl: entry.romZipUrl,
+    ...(entry.extraRomZips ? { extraRomZips: entry.extraRomZips } : {}),
     driver: entry.driver,
     args: buildMameArgs({ driver: entry.driver, romPath, sessionPath }),
     romPath,
