@@ -63,5 +63,70 @@
     "romLicensed": false,
     "coreBaseUrl": "/static/cores/twincobr",
     "romZipUrl": "/roms/twincobr.zip"
+  },
+  {
+    "driver": "commando",
+    "title": "Commando",
+    "coreVersion": "8fc71d72a0d33e1ec097f47edee83a948a0262aab2b695536f222531dcd8f19d",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "ba945a5f16371a61de226a6a5d8903fb10a46ccb5139bc30bf0517ae50649393",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/commando",
+    "romZipUrl": "/roms/commando.zip"
+  },
+  {
+    "driver": "jackal",
+    "title": "Jackal",
+    "coreVersion": "123a46071767d2c6df07ff3529bd98f8a111239341c315af390c3d602292aae1",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "702e154c35ee94de3a1ce7cec8101f605913b9d0b2140d74941fc28dd6fed91b",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/jackal",
+    "romZipUrl": "/roms/jackal.zip"
+  },
+  {
+    "driver": "rygar",
+    "title": "Rygar",
+    "coreVersion": "7af6c087a9b8e7552894b20d6785b18d0069dff645d7acdf687176df61beb391",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "880dc3d7d3bea4683e9da12429041af265d504d17662a076cf7b0e53c109dc0a",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/rygar",
+    "romZipUrl": "/roms/rygar.zip"
+  },
+  {
+    "driver": "tankfrce",
+    "title": "Tank Force",
+    "coreVersion": "1a85d69ec1fe8665a97fc129dffd4ca41d007d555f736415c0259da6a7825a7f",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "0f9193d4b81eb0d32b4314c49fb535086f6c0c4382309a5b2cd43a8ae6407eda",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/tankfrce",
+    "romZipUrl": "/roms/tankfrce.zip"
+  },
+  {
+    "driver": "gwar",
+    "title": "Guerrilla War",
+    "coreVersion": "ab73ac9673df2d3d2da775532fdd94103294d04b0f33b659b4053a6ad1fe33e4",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "890a4902fe35754860b256e8ff481439cb6cc6434525a3bbdf487e2b8b4672c4",
+    "supportsSave": false,
+    "netplayMode": "none",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/gwar",
+    "romZipUrl": "/roms/gwar.zip"
   }
 ]

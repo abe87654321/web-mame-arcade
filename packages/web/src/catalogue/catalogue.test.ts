@@ -108,20 +108,37 @@ describe("committed catalogue (packages/web/public/games.json)", () => {
       "raiden",
       "raiden2",
       "twincobr",
+      "commando",
+      "jackal",
+      "rygar",
+      "tankfrce",
+      "gwar",
     ]);
   });
 
   it("marks the commercial ROMs unlicensed for local-dev only", () => {
-    for (const driver of ["twinbee", "raiden", "raiden2", "twincobr"]) {
+    for (const driver of [
+      "twinbee",
+      "raiden",
+      "raiden2",
+      "twincobr",
+      "commando",
+      "jackal",
+      "rygar",
+      "tankfrce",
+      "gwar",
+    ]) {
       expect(findGame(games, driver)?.romLicensed).toBe(false);
     }
     expect(findGame(games, "gridlee")?.romLicensed).toBe(true);
   });
 
-  it("catalogues twincobr as solo-only (no MACHINE_SUPPORTS_SAVE)", () => {
-    const twinCobra = findGame(games, "twincobr");
-    expect(twinCobra?.supportsSave).toBe(false);
-    expect(twinCobra?.netplayMode).toBe("none");
+  it("catalogues twincobr and gwar as solo-only (no MACHINE_SUPPORTS_SAVE)", () => {
+    for (const driver of ["twincobr", "gwar"]) {
+      const entry = findGame(games, driver);
+      expect(entry?.supportsSave).toBe(false);
+      expect(entry?.netplayMode).toBe("none");
+    }
   });
 });
 
