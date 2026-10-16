@@ -143,3 +143,32 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   encode, and LiveKit WebRTC publish; clients send inputs and watch video, so synchronization is
   absolute regardless of client tab/CPU/network. Reuses the native build and LiveKit (T41). Cost: one
   server sim + video bandwidth per match. Depends: T01, T41, T28.
+
+## Ongoing · game intake
+- [x] **T51 Onboard a newly-added game (repeatable)** – a runbook + read-only helper for whenever a new
+  `roms/<driver>.zip` appears, so publishing never ships a black-screen core (T49), a stale `romHash`, or
+  a game wrongly marked solo-only. **Every game in this arcade is meant to be played by 2+ players over
+  the network**, so `netplayMode` starts at `"lockstep"` and may only fall back to `"none"` on recorded
+  evidence (MAME says `savestate="unsupported"`, or `e2e/save-integrity.e2e.ts` fails).
+  `pnpm onboard --list` shows every `roms/*.zip` with no catalogue entry, its sha256 (`romHash`) and
+  whether `core/drivers.sh` knows it; `pnpm onboard --check <driver>` reports catalogue/`drivers.sh`
+  status and, when a native build exists, runs MAME's own ROM audit (`verifyroms`) plus MAME's
+  `savestate` netplay flag (`-listxml`). Full per-game flow:
+  (1) `pnpm onboard --list`; (2) add the driver's `SOURCES` to `core/drivers.sh` and
+  `core/build-native.sh <driver>`; (3) `pnpm onboard --check <driver>` → expect "set matches the pinned
+  commit" and read the recommended netplay mode; (4) add a `packages/web/public/games.json` entry
+  (name/title/`romHash`/`supportsSave`/`netplayMode`/`maxPlayers`/`romLicensed`/urls) —
+  `supportsSave:true` + `netplayMode:"lockstep"` by default; (5) `core/build-wasm.sh <driver> &&
+  core/publish-web.sh <driver>`; (6) **prove netplay**: `e2e/save-integrity.e2e.ts` must report
+  `verdict=PASS` (forward == reload) for the driver before it ships as lockstep (twincobr is the
+  counter-example: `savestate="unsupported"` and the gate FAILs, so it is `none`); (7) optionally
+  discover `core/scoremap/<driver>.json` (T47 workflow); (8) `node --test core/test/rom-audit.test.mjs`
+  and `pnpm --filter @wma/e2e test:e2e -g boot`; commit. Docs: 02, 03, 05, contracts/scoremap. Depends:
+  T49, T46 (save-integrity gate), T47. Helper: `core/onboard-game.mjs`
+  (`core/test/onboard-game.test.mjs`).
+  Note: currently pending intake — `commando`, `geminij`, `gwar`, `jackal`, `rygar`, `tankfrce`, `tigerh`.
+- [x] **T49 follow-up · raiden/raiden2 netplay re-enabled** – the T46 "raiden/raiden2 `Core.save()`
+  throws" finding was a downstream symptom of the bad ROMs (T49): MAME never started, so
+  `netplay_state_size()` returned 0. With the corrected 0.289 sets, `Core.save()` returns 330 KB / 1.3 MB
+  and `e2e/save-integrity.e2e.ts` reports `verdict=PASS` (forward == reload == reload2, loadByteEqual) for
+  both, so the catalogue flips them to `supportsSave:true` / `netplayMode:"lockstep"`. Docs: 02, 03.

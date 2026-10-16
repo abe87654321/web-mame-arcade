@@ -10,9 +10,10 @@
 # mapping explicit.
 #
 # twincobr is SOLO-ONLY: its GAME flags omit MACHINE_SUPPORTS_SAVE (toaplan/
-# twincobr.cpp), so it has no save state and cannot netplay or replay
-# (AGENTS.md: out of scope for v1). It is built and catalogued with
-# netplayMode "none" for offline play/verification only.
+# twincobr.cpp), and e2e/save-integrity.e2e.ts confirms the save/load
+# continuation diverges (verdict=FAIL, forward != reload). It is built and
+# catalogued with netplayMode "none" for offline play/verification only.
+# Every other driver here is netplay "lockstep" (prove with save-integrity).
 declare -A DRIVER_SOURCES=(
   [gridlee]="src/mame/bally/gridlee.cpp,src/mame/bally/gridlee_a.cpp,src/mame/bally/gridlee_v.cpp"
   [twinbee]="src/mame/konami/nemesis.cpp,src/mame/konami/nemesis_v.cpp"

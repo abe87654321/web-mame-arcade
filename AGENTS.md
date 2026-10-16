@@ -19,6 +19,7 @@ Ubuntu server verifies every leaderboard score by replaying the match in native 
 - Install: `pnpm install`
 - Test all: `pnpm test` · one package: `pnpm --filter <pkg> test`
 - Lint/types: `pnpm lint && pnpm typecheck`
+- Game intake: `pnpm onboard --list` · `pnpm onboard --check <driver>` (T51)
 - WASM core: `core/build-wasm.sh <driver>`   (slow; ask the human to run it if it exceeds 10 min)
 - Native core: `core/build-native.sh <driver>`
 - Local stack: `docker compose -f deploy/docker-compose.yml up`
