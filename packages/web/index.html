@@ -66,6 +66,54 @@
         right: 16px;
         z-index: 10;
       }
+      /* Controls panel (T12): assign keyboard/gamepads per player, rebind keys. */
+      .controls-host {
+        position: fixed;
+        left: 16px;
+        bottom: 16px;
+        z-index: 10;
+      }
+      .controls-toggle {
+        font: 14px/1.45 var(--font-body);
+        background: var(--surface);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        box-shadow: var(--elev-control);
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+      .controls-body {
+        display: none;
+      }
+      .controls-body.open {
+        display: block;
+        margin-top: 8px;
+        width: 340px;
+        max-width: calc(100vw - 32px);
+        max-height: 60vh;
+        overflow: auto;
+        box-sizing: border-box;
+        background: var(--surface);
+        color: var(--fg);
+        font: 13px/1.45 var(--font-mono);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        box-shadow: var(--elev-raised);
+        padding: 8px;
+      }
+      .controls-body .player {
+        border-top: 1px solid var(--border-soft);
+        padding: 6px 0;
+      }
+      .controls-body h2 {
+        font-size: 13px;
+        margin: 4px 0;
+      }
+      .controls-body .assign button,
+      .controls-body .binding button {
+        margin: 1px 0 1px 4px;
+      }
       .lobby {
         width: 340px;
         max-width: calc(100vw - 32px);

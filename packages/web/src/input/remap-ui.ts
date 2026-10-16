@@ -71,7 +71,7 @@ export interface RemapUi {
   setDevice(slot: number, device: InputDevice | null): void;
   assignKeyboard(slot: number): void;
   resetSlot(slot: number): void;
-  connectGamepad(index: number): void;
+  connectGamepad(index: number, preferredSlot?: number): void;
   disconnectGamepad(index: number): void;
   view(): ViewNode;
 }
@@ -203,7 +203,7 @@ export function createRemapUi(
       overrides = resetSlot(overrides, slot);
       commit();
     },
-    connectGamepad: (index) => {
+    connectGamepad: (index, preferredSlot) => {
       if (pads.includes(index)) return;
       pads = [...pads, index];
       const resolved = config();
@@ -211,9 +211,19 @@ export function createRemapUi(
         (d) => d?.kind === "gamepad" && d.index === index,
       );
       if (!known) {
-        const free = resolved.devices.indexOf(null);
-        if (free !== -1) {
-          overrides = setDevice(overrides, free, {
+        // A caller-provided slot (e.g. P1 for a fresh joystick) wins unless it
+        // already holds a different gamepad; otherwise fill the lowest free one.
+        const preferredOk =
+          preferredSlot !== undefined &&
+          preferredSlot >= 0 &&
+          preferredSlot < PLAYER_SLOTS &&
+          resolved.devices[preferredSlot]?.kind !== "gamepad";
+        const slot =
+          preferredOk && preferredSlot !== undefined
+            ? preferredSlot
+            : resolved.devices.indexOf(null);
+        if (slot !== -1) {
+          overrides = setDevice(overrides, slot, {
             kind: "gamepad",
             index,
           });

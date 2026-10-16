@@ -27,6 +27,11 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T11 Core wrapper** – `web/src/core/` typed `Core` interface (load, step, save, load, hash, readScore) around the
   stock WASM build; ROM zip mounted into FS. Docs: 02. Depends: T10.
 - [x] **T12 Input layer** – keyboard + Gamepad API → 16-bit mask per contract; remapping UI. Docs: contracts/input-packet. Depends: T11.
+  Note: the remapping UI was only a module until T52 wired it into the app (`input/setup.ts`): the play
+  page now has a **Controls** panel, gamepads hot-plug and persist per browser, and a freshly connected
+  pad takes **P1** while P1 is still the default keyboard (otherwise the lowest free slot). P2–P4 are
+  gamepads; there is no keyboard binding for P2 because one device serves one slot, and in netplay each
+  player is a separate browser/token (not a key).
 - [x] **T13 Game page + catalogue** – game list from a static JSON, play page, Nginx dev config with COOP/COEP. Depends: T11.
 
 ## Phase 2 · Two-player lockstep
