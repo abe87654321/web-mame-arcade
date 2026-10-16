@@ -276,6 +276,14 @@ export function createRemapUi(
         tag: "div",
         className: "remap",
         children: [
+          {
+            tag: "p",
+            className: "help",
+            text:
+              "Online, each browser is one player. Insert a coin: key 5 or pad " +
+              "button 8 (Select/Back); start: key 1 or pad button 9 (Start). A pad " +
+              "without a Select button cannot coin up — rebind 'coin' below.",
+          },
           { tag: "p", className: "status", text: status },
           ...captureNode,
           ...conflictNodes,
