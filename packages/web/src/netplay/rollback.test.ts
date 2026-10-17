@@ -208,6 +208,31 @@ describe("createRollback", () => {
     expect(escalations).toEqual([2]);
   });
 
+  it("never predicts past a gap in a peer's confirmed inputs", () => {
+    const core = fakeMachine();
+    const rollback = createRollback(deps(core, { inputDelay: 0, window: 2 }));
+
+    // Frames 0 and 2 arrive, frame 1 is lost. The contiguous prefix is 0, so
+    // the loop may only run to frame 2 and must wait rather than predict past
+    // the gap (which would make the late frame uncorrectable).
+    rollback.onBytes(packet(1, 0, [1]));
+    rollback.onBytes(packet(1, 2, [2]));
+    for (let i = 0; i < 10; i++) rollback.tick(0x01);
+
+    expect(core.steps.map((step) => step.frame)).toEqual([0, 1, 2]);
+    expect(rollback.frame()).toBe(3);
+
+    // The lost frame arrives while it can still be corrected.
+    rollback.onBytes(packet(1, 1, [9]));
+    for (let i = 0; i < 4; i++) rollback.tick(0x02);
+
+    const corrected = core.steps.find(
+      (step, index) => step.frame === 1 && index > 2,
+    );
+    expect(corrected?.inputs).toEqual([0x01, 9, 0, 0]);
+    expect(rollback.frame()).toBeGreaterThan(3);
+  });
+
   it("keeps the input delay window neutral", () => {
     const core = fakeMachine();
     const rollback = createRollback(deps(core, { inputDelay: 2 }));

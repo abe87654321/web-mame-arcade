@@ -134,6 +134,10 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   const table = createFrameTable(players);
   const history = new Map<number, FrameInputs>();
   const ring: Snapshot[] = [];
+  // Newest frame with no gaps, per player. `lastBefore` may jump over a lost
+  // frame; prediction must never outrun a gap or the late frame becomes
+  // uncorrectable (desync under packet loss).
+  const confirmedThrough = new Map<number, number>();
   const pendingHashes = new Map<number, number>();
   const dirty = new Set<number>();
   /** Masks for consecutive local frames ending at scheduleHead-1 (packet window). */
@@ -145,11 +149,14 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   let scheduleHead = startFrame + inputDelay;
   // The delay frames are neutral on every peer, so the first real input lands D
   // frames after the start without anyone inventing a mask.
+  for (const player of players) confirmedThrough.set(player, startFrame - 1);
   for (let frame = startFrame; frame < scheduleHead; frame++) {
     table.set(mySlot, frame, 0);
     frames.push(0);
     ownMasks.set(frame, 0);
   }
+  // Our neutral delay frames are confirmed (we authored them).
+  confirmedThrough.set(mySlot, scheduleHead - 1);
 
   let boot: Uint8Array;
   try {
@@ -265,20 +272,32 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     }
   }
 
-  /** Newest confirmed frame for `player` before `frame`; `startFrame - 1` if none. */
-  function lastConfirmedFrame(player: number, frame: number): number {
-    const floor = Math.max(startFrame - 1, frame - 1 - window);
-    for (let candidate = frame - 1; candidate >= floor; candidate--) {
-      if (table.has(player, candidate)) return candidate;
-    }
-    return startFrame - 1;
+  /** Extend `player`'s contiguous confirmed prefix after a new frame lands. */
+  function advanceConfirmed(player: number): void {
+    let frame = confirmedThrough.get(player) ?? startFrame - 1;
+    while (table.has(player, frame + 1)) frame += 1;
+    confirmedThrough.set(player, frame);
   }
 
-  /** True once every peer is confirmed or within the prediction window. */
+  /** True when every input up to and including `frame` is confirmed. */
+  function confirmedThroughFrame(frame: number): boolean {
+    for (const player of players) {
+      if ((confirmedThrough.get(player) ?? startFrame - 1) < frame) return false;
+    }
+    return true;
+  }
+
+  /**
+   * True once every peer is confirmed or within the prediction window. The
+   * bound uses the contiguous prefix, so a lost frame is corrected before the
+   * loop can predict past the ring and make it unrecoverable.
+   */
   function canStep(frame: number): boolean {
     for (const player of players) {
       if (table.has(player, frame)) continue;
-      if (frame - lastConfirmedFrame(player, frame) > window) return false;
+      if (frame - (confirmedThrough.get(player) ?? startFrame - 1) > window) {
+        return false;
+      }
     }
     return true;
   }
@@ -324,9 +343,10 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     if (!deps.onHash) return;
     const framesToSend = [...pendingHashes.keys()].sort((a, b) => a - b);
     for (const frame of framesToSend) {
-      // Final once no snapshot for frame - 1 is retained: the earliest
-      // rewind target is `current - window`.
+      // Final once no snapshot for frame - 1 is retained and every input up to
+      // the frame is confirmed (a gap may still be correctable).
       if (frame > current - window - 1) break;
+      if (!confirmedThroughFrame(frame)) continue;
       deps.onHash(frame, pendingHashes.get(frame)!);
       pendingHashes.delete(frame);
     }
@@ -411,6 +431,7 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
         if (table.set(mySlot, scheduleHead, mask)) {
           frames.push(mask);
           ownMasks.set(scheduleHead, mask);
+          advanceConfirmed(mySlot);
         }
         scheduleHead += 1;
         if (scheduleHead % OWN_HISTORY_FRAMES === 0) {
@@ -461,6 +482,7 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
         const packet = applyPacket(table, bytes, mySlot);
         if (packet.player !== mySlot) {
           packet.inputs.forEach((_value, i) => dirty.add(packet.firstFrame + i));
+          advanceConfirmed(packet.player);
         }
       } catch {
         // Malformed or foreign-version packets are dropped.
@@ -485,10 +507,12 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
       dirty.clear();
       frames.length = 0;
       scheduleHead = current;
+      for (const player of players) confirmedThrough.set(player, frame);
       if (own.length > 0) {
         own.forEach((mask, i) => table.set(mySlot, current + i, mask));
         scheduleHead = current + own.length;
         frames.push(...own.slice(-MAX_FRAMES));
+        advanceConfirmed(mySlot);
       }
       ring.splice(0, ring.length, { frame, state: state ?? core.save() });
       waitSince = null;
