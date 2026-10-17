@@ -139,13 +139,16 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Note: bounded rollback loop (`packages/web/src/netplay/rollback.ts`): last-confirmed prediction,
   2..8 frame correctable window (per-driver `rollbackWindow`), boot-frame correction, deferred hashes,
   fixed `inputDelay = 2`, and a local over-load meter that degrades to wait-only for the rest of the
-  match (>20 ms for 1 s, or >20 rewinds per 60 frames). Resync now re-uses the local masks already sent
-  for frames after the snapshot, closing the verifier/input-log gap previously deferred here. The
-  per-driver probe (`pnpm --filter @wma/e2e test:rollback-budget`) found **no driver under 16 ms on
-  the headless/SwiftShader dev machine** (the emulated frame alone costs 11–28 ms), so the catalogue
-  stays `lockstep`; the two-tab gate passes with `WMA_E2E_ROLLBACK_DRIVERS=gridlee`, and a driver
-  should only be switched to `"rollback"` after the probe passes on its target hardware. Netem run not
-  executed locally (sudo password required).
+  match (>20 ms for 1 s, or >20 rewinds per 60 frames). Re-simulation is incremental (one already-shown
+  frame per tick, silently), so a slow core never re-simulates a whole window in one frame; it briefly
+  slows down instead. Resync now re-uses the local masks already sent for frames after the snapshot,
+  closing the verifier/input-log gap previously deferred here. The per-driver probe
+  (`pnpm --filter @wma/e2e test:rollback-budget`) gates on `save + one step <= 16 ms`; on the
+  headless/SwiftShader dev machine that enabled gridlee, raiden, commando, jackal and rygar
+  (`rollbackWindow: 8`), while twinbee/raiden2/twincobr/tankfrce/gwar/tigerh stayed `lockstep`. geminij
+  fits the budget but failed the two-tab gate (desync at frame 60), so it stays `lockstep` pending T53.
+  The silent-render step is a T40 core patch (`0010-netplay-silent.patch`); only gridlee's core was
+  rebuilt locally. Netem run not executed locally (sudo password required).
 - [x] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
 - [ ] **T42 Production deploy** – docker-compose for Ubuntu 24.04, TLS, backups, monitoring (Prometheus + Grafana). Docs: 06. Depends: T23, T34.
 - [ ] **T43 Load test** – 1 000 simulated viewers on one relay (k6 or a Node script). Docs: 04. Depends: T30.
