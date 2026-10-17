@@ -105,6 +105,10 @@ const DEGRADE_EMA_TICKS = 60;
 const DEGRADE_FRAME_WINDOW = 60;
 /** Rewinds within one frame window that indicate a storm. */
 const DEGRADE_ROLLBACKS = 20;
+/** Ticks ignored before the over-load EMA starts (WASM/JIT warm-up). */
+const DEGRADE_WARMUP_TICKS = 120;
+/** Per-tick samples above this are one-off browser/JIT hitches, not load. */
+const DEGRADE_MAX_SAMPLE_MS = 100;
 /** How many already-sent local masks a resync keeps for the input log (T40). */
 const OWN_HISTORY_FRAMES = 600;
 
@@ -193,14 +197,26 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
    * runs, never the inputs it ends up with, so this cannot affect determinism.
    */
   function meter(startedAt: number, stepped: number): void {
-    const cost = Math.max(0, perfNow() - startedAt);
-    stats.emaCostMs =
-      emaTicks === 0 ? cost : stats.emaCostMs * 0.95 + cost * 0.05;
     emaTicks += 1;
     framesSinceCheck += stepped;
+    // Ignore the warm-up: the first frames after boot compile WASM paths and
+    // would otherwise poison the EMA into an immediate false degradation.
+    if (emaTicks > DEGRADE_WARMUP_TICKS) {
+      const cost = Math.min(
+        DEGRADE_MAX_SAMPLE_MS,
+        Math.max(0, perfNow() - startedAt),
+      );
+      const measured = emaTicks - DEGRADE_WARMUP_TICKS;
+      stats.emaCostMs =
+        measured === 1 ? cost : stats.emaCostMs * 0.95 + cost * 0.05;
+    }
     rollbacksSinceCheck += stats.rollbacks - rollbacksAtLastCheck;
     rollbacksAtLastCheck = stats.rollbacks;
-    if (!stats.degraded && emaTicks >= DEGRADE_EMA_TICKS && stats.emaCostMs > DEGRADE_EMA_MS) {
+    if (
+      !stats.degraded &&
+      emaTicks >= DEGRADE_WARMUP_TICKS + DEGRADE_EMA_TICKS &&
+      stats.emaCostMs > DEGRADE_EMA_MS
+    ) {
       degrade("slow");
     }
     if (framesSinceCheck >= DEGRADE_FRAME_WINDOW) {

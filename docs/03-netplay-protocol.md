@@ -94,8 +94,10 @@ frame in one browser tick. Enabled per game with `netplayMode: "rollback"`.
   so reporting a predicted hash early could hide the comparison or raise a false `desync`.
 - **Overload.** A local, wall-clock-only meter stops prediction for the rest of the match when the
   measured per-tick rollback cost stays above 20 ms for one second, or after more than 20 rewinds in
-  60 frames. Degraded rollback waits for real inputs (like lockstep) but keeps the window/ring so
-  predictions made before degradation can still be corrected. The clock never reaches `core.step`.
+  60 frames. The first 120 ticks are a warm-up (WASM/JIT compilation), and one-off samples above
+  100 ms are treated as browser hitches, so a fast machine is not degraded by its first frames.
+  Degraded rollback waits for real inputs (like lockstep) but keeps the window/ring so predictions
+  made before degradation can still be corrected. The clock never reaches `core.step`.
 - **Fallback.** If the core cannot save (empty/throwing state) or the ring would exceed the memory
   budget, the client runs wait-based lockstep for that match. Mixed peers are safe: rollback only
   changes when a frame runs, not the inputs it ends up with.
