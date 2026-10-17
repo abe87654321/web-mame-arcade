@@ -80,10 +80,15 @@ frame in one browser tick. Enabled per game with `netplayMode: "rollback"`.
   boot state, and never runs more than `window` frames ahead of the slowest confirmed peer. That bound
   guarantees every late packet is still recoverable; when it is reached the loop stalls (and falls
   into the T29 `input.request` / snapshot recovery) instead of predicting past the ring.
-- **Budget.** Each driver is measured by `pnpm --filter @wma/e2e test:rollback-budget`: the largest
-  window `w` with `saveMs + w * stepMs <= 16 ms` is written into `games.json` (`rollbackWindow`). A
-  driver with no fitting window stays `lockstep`. The probe is machine-specific; record results in
-  `core/spike/README.md`.
+- **Incremental replay.** A correction re-simulates **one already-shown frame per animation tick**
+  (silently, without redrawing it), not the whole window in one tick. The tick budget is therefore
+  `save + one step`, independent of the window; a correction needs up to `window` ticks and briefly
+  slows the local game instead of blowing the frame budget. The corrected current frame is rendered
+  once when catch-up finishes.
+- **Budget.** Each driver is measured by `pnpm --filter @wma/e2e test:rollback-budget`: it passes when
+  `saveMs + min(stepMs, silentStepMs) <= 16 ms`, and the window is then written to `games.json`
+  (`rollbackWindow`). A driver with no fitting tick stays `lockstep`. The probe is machine-specific;
+  record results in `core/spike/README.md`.
 - **Hashes.** A frame's hash is reported only after it can no longer be corrected
   (`frame <= current - window - 1`). The relay drops hashes older than its current comparison frame,
   so reporting a predicted hash early could hide the comparison or raise a false `desync`.

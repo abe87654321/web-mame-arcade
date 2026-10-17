@@ -10,6 +10,9 @@
  * - A frame can be corrected only while its predecessor's snapshot is still in
  *   the ring, so the loop never runs more than `window` frames ahead of the
  *   slowest confirmed peer. This keeps every late packet recoverable.
+ * - Re-simulation is incremental: at most one already-shown frame per animation
+ *   tick. A slow core therefore never exceeds the frame budget with a burst of
+ *   rewinds; it briefly slows down until the correction is caught up.
  * - Hashes are reported only for frames that can no longer be corrected. The
  *   relay drops stale frames (`frame < hashFrame`), so a predicted hash for a
  *   still-correctable frame could trigger a false desync.
@@ -23,7 +26,7 @@ import type { LockstepStatus, NetplayLoop } from "./lockstep";
 
 export interface RollbackDeps {
   /** The loop owns the frame clock; snapshots make corrections possible. */
-  core: Pick<Core, "step" | "save" | "load">;
+  core: Pick<Core, "step" | "save" | "load" | "setSilent" | "renderNow">;
   mySlot: number;
   players: readonly number[];
   /** Local input delay D in frames; the host announces it in `game.start`. */
@@ -164,6 +167,10 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   let waitSince: number | null = null;
   let lastEscalateAt: number | null = null;
   let paused = false;
+  /** Last frame to re-simulate after a rewind, or null when not catching up. */
+  let catchUp: number | null = null;
+  /** True while the driver's draw is suppressed across catch-up ticks. */
+  let renderSuppressed = false;
   const stats: RollbackStats = {
     rollbacks: 0,
     predictions: 0,
@@ -337,22 +344,34 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     return earliest;
   }
 
-  /** Rewind to `frame - 1` and re-simulate through the last stepped frame. */
+  function suppressRender(on: boolean): void {
+    if (on === renderSuppressed) return;
+    renderSuppressed = on;
+    core.setSilent?.(on);
+    if (!on) core.renderNow?.();
+  }
+
+  /** Rewind to `frame - 1`; the replay continues one frame per tick. */
   function rewindTo(frame: number): void {
     const target = frame - 1;
     const point = ring.find((snapshot) => snapshot.frame === target);
     if (!point) return;
-    const lastStepped = current - 1;
+    // If a correction is already in flight, its target is the last frame the
+    // original (pre-correction) timeline reached.
+    const lastStepped = catchUp !== null ? Math.max(catchUp, current - 1) : current - 1;
+    // Frames the player already saw do not need to be redrawn; the corrected
+    // current frame is rendered once catch-up finishes (T40).
+    suppressRender(true);
     core.load(point.state, point.frame);
     current = frame;
-    // Drop snapshots and hashes from the abandoned timeline; the replay below
-    // rebuilds them from `frame` on.
+    catchUp = lastStepped;
+    // Drop snapshots and hashes from the abandoned timeline; the incremental
+    // replay rebuilds them from `frame` on.
     while (ring.length > 0 && ring[ring.length - 1]!.frame >= target) ring.pop();
     ring.push(point);
     for (const pending of [...pendingHashes.keys()]) {
       if (pending >= frame) pendingHashes.delete(pending);
     }
-    for (let at = frame; at <= lastStepped; at++) stepFrame(at);
     stats.rollbacks += 1;
   }
 
@@ -400,6 +419,20 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
         }
       }
 
+      if (catchUp !== null) {
+        // Re-simulate exactly one already-shown frame, then yield to the next
+        // animation tick. This keeps a slow core under its frame budget.
+        stepFrame(current);
+        if (current > catchUp) {
+          catchUp = null;
+          suppressRender(false);
+        }
+        flushHashes();
+        meter(startedAt, current - frameBefore);
+        updateStatus(true);
+        return;
+      }
+
       while (current < scheduleHead && readyToStep(current)) stepFrame(current);
       flushHashes();
       meter(startedAt, current - frameBefore);
@@ -419,6 +452,8 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     },
 
     resync(frame: number, state?: Uint8Array): void {
+      catchUp = null;
+      suppressRender(false);
       // Keep the local masks for frames after the snapshot: they were already
       // sent and the relay log holds them first-wins (T40).
       const own: number[] = [];

@@ -13,6 +13,8 @@ function fakeMachine() {
   const steps: { frame: number; inputs: FrameInputs }[] = [];
   const loads: number[] = [];
   const stepHashes = new Map<number, number>();
+  const silentCalls: boolean[] = [];
+  let renders = 0;
   let state = 0n;
   let lastFrame = -1;
   const MASK = (1n << 64n) - 1n;
@@ -25,6 +27,14 @@ function fakeMachine() {
     steps,
     loads,
     stepHashes,
+    silentCalls,
+    renders: () => renders,
+    setSilent(on: boolean) {
+      silentCalls.push(on);
+    },
+    renderNow() {
+      renders += 1;
+    },
     step(frame: number, inputs: FrameInputs) {
       if (frame !== lastFrame + 1) {
         throw new Error(`step ${frame} after ${lastFrame}`);
@@ -100,17 +110,24 @@ describe("createRollback", () => {
     rollback.tick(0x02);
     // The peer's real frame 0 is 7, not the predicted 0.
     rollback.onBytes(packet(1, 0, [7]));
+    // The correction is spread over two ticks: frame 0, then frame 1.
     rollback.tick(0x03);
+    rollback.tick(0x04);
+    rollback.tick(0x05);
 
     expect(core.loads).toEqual([-1]);
-    const replay = core.steps.slice(-3);
+    const replay = core.steps.slice(-5);
     expect(replay).toEqual([
       { frame: 0, inputs: [0x01, 7, 0, 0] },
       { frame: 1, inputs: [0x02, 7, 0, 0] },
       { frame: 2, inputs: [0x03, 7, 0, 0] },
+      { frame: 3, inputs: [0x04, 7, 0, 0] },
+      { frame: 4, inputs: [0x05, 7, 0, 0] },
     ]);
-    expect(rollback.frame()).toBe(3);
+    expect(rollback.frame()).toBe(5);
     expect(rollback.stats().rollbacks).toBe(1);
+    expect(core.silentCalls).toEqual([true, false]);
+    expect(core.renders()).toBe(1);
   });
 
   it("does not roll back when the late mask equals the prediction", () => {
@@ -145,8 +162,11 @@ describe("createRollback", () => {
     for (let i = local.length - 3; i < local.length; i++) {
       slowLoop.onBytes(packet(1, i, [peer[i]!]));
     }
-    fastLoop.tick(0);
-    slowLoop.tick(0);
+    // Let incremental catch-up finish on both loops.
+    for (let i = 0; i < 20; i++) {
+      fastLoop.tick(0);
+      slowLoop.tick(0);
+    }
 
     expect(slow.lastFrame()).toBe(fast.lastFrame());
     expect(slow.state()).toBe(fast.state());
@@ -241,13 +261,11 @@ describe("createRollback", () => {
     rollback.onBytes(packet(1, 0, [7])); // forces a rewind/rebuild of frame 2
     // Confirm the following frames so the loop can advance past the window.
     rollback.onBytes(packet(1, 1, [0, 0, 0, 0, 0]));
-    rollback.tick(0x04);
-    rollback.tick(0x05);
-    rollback.tick(0x06);
+    for (let i = 0; i < 8; i++) rollback.tick(0x04 + i);
 
-    expect(hashes).toHaveLength(1);
-    expect(hashes[0]?.frame).toBe(2);
-    expect(hashes[0]?.crc32).toBe(core.stepHashes.get(2));
+    const frame2 = hashes.filter((hash) => hash.frame === 2);
+    expect(frame2).toHaveLength(1);
+    expect(frame2[0]?.crc32).toBe(core.stepHashes.get(2));
   });
 
   it("can correct frame 0 from the boot snapshot", () => {
@@ -259,7 +277,10 @@ describe("createRollback", () => {
     rollback.tick(0x02);
 
     expect(core.loads).toEqual([-1]);
-    expect(core.steps.at(-1)).toEqual({ frame: 1, inputs: [0x02, 5, 0, 0] });
+    expect(core.steps.at(-1)).toEqual({ frame: 0, inputs: [0x01, 5, 0, 0] });
+    // The next tick finishes catch-up and restores rendering.
+    rollback.tick(0x03);
+    expect(core.silentCalls).toEqual([true, false]);
   });
 
   it("refuses to start when the state cannot be snapshotted", () => {
@@ -296,7 +317,9 @@ describe("createRollback", () => {
     rollback.resume();
     rollback.tick(0x03);
     expect(core.loads).toEqual([-1]);
-    expect(rollback.frame()).toBe(2);
+    expect(rollback.frame()).toBe(1);
+    rollback.tick(0x04);
+    expect(rollback.frame()).toBe(3);
   });
 
   it("keeps already-sent local inputs across a resync", () => {
