@@ -25,7 +25,10 @@ export class MameCore implements Core {
         if (typeof np.setFrame !== "function") {
           throw new CoreCapabilityError("load", "T25 (core rebuild)");
         }
-        np.setFrame(frame);
+        // Rollback saves the boot state labelled `startFrame - 1`; the native
+        // hook takes a uint32 and resumes at `frame + 1`, so 0xffffffff wraps
+        // to frame 0 (T40).
+        np.setFrame(frame >>> 0);
       }
       return;
     }
@@ -46,6 +49,14 @@ export class MameCore implements Core {
 
   hash(): StateHash {
     return this.netplay("hash", "T20").hash();
+  }
+
+  setSilent(on: boolean): void {
+    this.module.netplay?.setSilent?.(on);
+  }
+
+  renderNow(): void {
+    this.module.netplay?.renderNow?.();
   }
 
   /**

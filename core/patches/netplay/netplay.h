@@ -36,6 +36,12 @@ NETPLAY_API int      netplay_save_state(uint8_t *buf);
 NETPLAY_API int      netplay_load_state(const uint8_t *buf);
 NETPLAY_API void     netplay_set_frame(uint32_t frame);
 NETPLAY_API uint32_t netplay_hash(void);
+// T40 rollback: suppress driver video rendering while re-simulating frames the
+// player already saw, and force a render of the corrected current frame when the
+// re-simulation finishes. Rendering is read-only; suppressing it never changes
+// machine state.
+NETPLAY_API void     netplay_set_silent(int on);
+NETPLAY_API void     netplay_render_now(void);
 // T32b: read `len` bytes of RAM from a CPU's address space (score reads). A
 // direct-pointer read that refuses handler-mapped addresses, so it never runs a
 // side-effecting read handler; never steps the machine. Returns bytes read, -1.
@@ -49,6 +55,8 @@ NETPLAY_API int      netplay_debug_state(uint8_t *out, int maxlen);
 
 // Internal hooks used by the patched emulation core (machine.cpp, ioport.cpp).
 bool netplay_input_active();
+bool netplay_is_silent();
+void netplay_present_frame();
 uint32_t netplay_next_frame();
 bool netplay_try_run_frame(running_machine &machine, uint32_t frame);
 

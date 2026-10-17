@@ -17,3 +17,20 @@
 | Mixed core versions in a room | Room locked to one core hash |
 | ROM rights unclear | Online catalogue limited; option A for the rest |
 | Upstream MAME changes main loop | Small isolated patch; pin each game to a tested commit |
+| WASM frame cost / main-thread contention | T54 decision spike: profile the tick, then choose main-thread isolation (Worker/OffscreenCanvas/AudioWorklet), a T45 server-authoritative pilot, or neither. Do not trade T53 correctness for unmeasured optimization. |
+
+## T54 · Netplay performance strategy (open decision)
+
+The measured WASM frame cost (10–15 ms on the headless dev machine) and the remaining 3–6 ms of
+non-core tick overhead mean two different investments are possible:
+
+- **Worker isolation** (Option 3): removes main-thread contention, but does not reduce the emulated
+  frame cost. 4–8 person-weeks, no server cost.
+- **Server-authoritative native emulation + video** (T45/Option 4): absolute sync and weak-client
+  support, but felt latency becomes `RTT + 40–100 ms` and the server pays for one simulation + video
+  bandwidth per match. 6–10 person-weeks plus operations.
+
+T54 is a timeboxed profiling + decision task; it does not implement either option. Its output is a
+go/no-go memo with measured numbers and cost assumptions, recorded in
+`docs/tasks/T54-netplay-performance-strategy.md` and this roadmap. Trigger a follow-up only when a
+decision criterion is met (ranked/cross-region/weak clients, or non-core tick overhead > 5–8 ms).

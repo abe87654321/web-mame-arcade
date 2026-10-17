@@ -30,6 +30,11 @@ export interface GameEntry {
   romHash: string;
   supportsSave: boolean;
   netplayMode: NetplayMode;
+  /**
+   * Correctable-frame window for rollback, 2..8 (T40). Smaller windows cost
+   * less CPU per correction; omitted means 8.
+   */
+  rollbackWindow?: number;
   maxPlayers: number;
   romLicensed: boolean;
   /** Directory URL holding manifest.json and mame<driver>.{js,wasm}. */

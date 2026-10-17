@@ -7,8 +7,13 @@
  *   - neither tab received a `desync` from the relay.
  *
  * T46 generalised this to every catalogue driver that can netplay
- * (`supportsSave && netplayMode === "lockstep"`); a driver without an input
- * fixture is skipped. Override the set with `WMA_E2E_DRIVERS=gridlee`.
+ * (`supportsSave && netplayMode !== "none"`); a driver without an input fixture
+ * is skipped. Override the lockstep set with `WMA_E2E_DRIVERS=gridlee`.
+ *
+ * T40 adds the same gate for rollback. Catalogue rollback drivers run
+ * automatically; a driver that has not passed the per-driver budget can still
+ * be exercised with `WMA_E2E_ROLLBACK_DRIVERS=gridlee` (sets the DEV-only
+ * `window.__WMA_TEST_ROLLBACK__` hook).
  *
  * Distinct per-slot streams model two players acting independently. Because the
  * masks are keyed on the frame (not on when an animation tick fired), the
@@ -20,6 +25,7 @@
  * mask 0, so a fixture's first non-zero mask must sit at frame >= inputDelay;
  * the gridlee fixture is zero for the first 80 frames, well clear of that window.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,14 +58,29 @@ const games = JSON.parse(
   readFileSync(resolve(here, "../packages/web/public/games.json"), "utf8"),
 ) as GameEntry[];
 
+function list(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((driver) => driver.trim())
+    .filter((driver) => driver.length > 0);
+}
+
+const FORCED_ROLLBACK = new Set(list(process.env.WMA_E2E_ROLLBACK_DRIVERS));
 /** Catalogue drivers that can netplay; overridable for a focused run. */
-const DRIVERS = (
+const LOCKSTEP_DRIVERS = (
   process.env.WMA_E2E_DRIVERS
-    ? process.env.WMA_E2E_DRIVERS.split(",")
+    ? list(process.env.WMA_E2E_DRIVERS)
     : games
         .filter((game) => game.supportsSave && game.netplayMode === "lockstep")
         .map((game) => game.driver)
-).map((driver) => driver.trim()).filter((driver) => driver.length > 0);
+).filter((driver) => !FORCED_ROLLBACK.has(driver));
+
+const ROLLBACK_DRIVERS = [
+  ...new Set([
+    ...games.filter((game) => game.netplayMode === "rollback").map((game) => game.driver),
+    ...FORCED_ROLLBACK,
+  ]),
+];
 
 /**
  * Wait until this tab has reported `min` per-60-frame hashes, or fail with what
@@ -67,6 +88,26 @@ const DRIVERS = (
  * diagnosable rather than a bare timeout. Polling both tabs concurrently keeps
  * the total bounded by one timeout.
  */
+/** Hash of the composited canvas pixels; changes only when video is presented. */
+async function canvasSignature(page: Page): Promise<string> {
+  const png = await page.locator("#canvas").screenshot();
+  return createHash("sha1").update(png).digest("hex");
+}
+
+/**
+ * Sample the canvas for a while and return how many distinct frames were
+ * presented. Catches "audio keeps playing but video froze" (T40): the emulated
+ * state and hashes advance, yet the OSD never commits a new texture.
+ */
+async function distinctCanvasFrames(page: Page): Promise<number> {
+  const seen = new Set<string>();
+  for (let i = 0; i < 5; i++) {
+    seen.add(await canvasSignature(page));
+    await page.waitForTimeout(1500);
+  }
+  return seen.size;
+}
+
 async function awaitHashes(
   page: Page,
   hashes: Map<number, number>,
@@ -88,7 +129,10 @@ async function awaitHashes(
   }
 }
 
-for (const driver of DRIVERS) {
+function defineNetplaySuite(
+  driver: string,
+  mode: "lockstep" | "rollback",
+): void {
   const entry = games.find((game) => game.driver === driver);
   const coreDir = entry
     ? resolve(here, `../packages/web/public/static/cores/${driver}/${entry.coreVersion}`)
@@ -96,8 +140,9 @@ for (const driver of DRIVERS) {
   // Commercial ROMs live in the gitignored repo-root roms/, not public/.
   const romZip = resolve(here, `../roms/${driver}.zip`);
   const fixturePath = resolve(here, `fixtures/inputs/${driver}.e2e.json`);
+  const forceRollback = FORCED_ROLLBACK.has(driver);
 
-  test.describe(`netplay lockstep: ${driver}`, () => {
+  test.describe(`netplay ${mode}: ${driver}`, () => {
     test.skip(
       entry === undefined || !existsSync(coreDir) || !existsSync(romZip),
       `missing core/ROM for ${driver}; build with core/build-wasm.sh ${driver}`,
@@ -121,12 +166,15 @@ for (const driver of DRIVERS) {
           }
         });
         await page.addInitScript(
-          (players) => {
-            (window as unknown as { __WMA_TEST_INPUT__?: unknown }).__WMA_TEST_INPUT__ = {
-              players,
+          ({ players, force }) => {
+            const win = window as unknown as {
+              __WMA_TEST_INPUT__?: unknown;
+              __WMA_TEST_ROLLBACK__?: unknown;
             };
+            win.__WMA_TEST_INPUT__ = { players };
+            if (force) win.__WMA_TEST_ROLLBACK__ = true;
           },
-          fixture.players,
+          { players: fixture.players, force: forceRollback || mode === "rollback" },
         );
         await page.goto(`/?token=${mintToken(SECRET, sub)}#/game/${driver}/room/${room}`);
         return page;
@@ -171,6 +219,16 @@ for (const driver of DRIVERS) {
       expect(d1, "p1 saw a desync").toEqual([]);
       expect(d2, "p2 saw a desync").toEqual([]);
 
+      // Audio can keep playing while the canvas freezes if a stepped frame is
+      // never presented (rollback predicts without waiting). Both peers must
+      // show distinct frames over time, not just advance their hash stream.
+      const [frames1, frames2] = await Promise.all([
+        distinctCanvasFrames(p1),
+        distinctCanvasFrames(p2),
+      ]);
+      expect(frames1, "p1 canvas did not update").toBeGreaterThan(1);
+      expect(frames2, "p2 canvas did not update").toBeGreaterThan(1);
+
       const common = [...h1.keys()].filter((frame) => h2.has(frame)).sort((a, b) => a - b);
       expect(common.length, "no overlapping hash frames").toBeGreaterThanOrEqual(MIN_HASHES);
       for (const frame of common) {
@@ -179,3 +237,6 @@ for (const driver of DRIVERS) {
     });
   });
 }
+
+for (const driver of LOCKSTEP_DRIVERS) defineNetplaySuite(driver, "lockstep");
+for (const driver of ROLLBACK_DRIVERS) defineNetplaySuite(driver, "rollback");

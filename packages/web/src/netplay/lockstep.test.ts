@@ -330,6 +330,37 @@ describe("createLockstep", () => {
     expect(core.steps.at(-1)).toEqual({ frame: 101, inputs: [0x01, 0, 0, 0] });
   });
 
+  it("keeps already-sent local inputs across a resync", () => {
+    const core = fakeCore();
+    const sent: Uint8Array[] = [];
+    const lockstep = createLockstep({
+      core,
+      mySlot: 0,
+      players: [0],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: (packet) => sent.push(packet),
+      now: () => 0,
+    });
+
+    for (let i = 0; i < 5; i++) lockstep.tick(0x10 + i);
+    expect(lockstep.frame()).toBe(5);
+
+    // The snapshot is at frame 2; frames 3 and 4 were already sent to the relay
+    // and must be replayed verbatim, not re-sampled from the device.
+    lockstep.resync(2);
+    expect(lockstep.frame()).toBe(3);
+    expect(lockstep.scheduledFrame()).toBe(5);
+
+    lockstep.tick(0x99);
+    expect(core.steps.slice(-3)).toEqual([
+      { frame: 3, inputs: [0x13, 0, 0, 0] },
+      { frame: 4, inputs: [0x14, 0, 0, 0] },
+      { frame: 5, inputs: [0x99, 0, 0, 0] },
+    ]);
+    expect(decodeInput(sent.at(-1)!).inputs).toEqual([0x13, 0x14, 0x99]);
+  });
+
   it("keeps two peers aligned after a resync to the same frame", () => {
     const coreA = fakeCore();
     const coreB = fakeCore();
@@ -624,7 +655,10 @@ const GOLDEN_TRACE: { frame: number; inputs: FrameInputs }[] = [
   { frame: 6, inputs: G0(0x05, 0x15) },
   { frame: 7, inputs: G0(0x06, 0x16) },
   { frame: 8, inputs: G0(0x07, 0x17) },
-  { frame: 9, inputs: G0(0x09, 0x19) },
+  // Frame 9 re-uses the local mask 0x08 that was already sent before the
+  // resync; the relay log holds it first-wins (T40).
+  { frame: 9, inputs: G0(0x08, 0x18) },
+  { frame: 10, inputs: G0(0x09, 0x19) },
 ];
 
 function encodePeer(player: number, frame: number, inputs: number[]): Uint8Array {

@@ -63,7 +63,11 @@ export interface LockstepDeps {
   maxLookahead?: number;
 }
 
-export interface Lockstep {
+/**
+ * The loop surface shared by delay-based lockstep and rollback (T40). Both own
+ * the frame clock and drive `core.step`; the match only depends on this shape.
+ */
+export interface NetplayLoop {
   /**
    * One animation tick: schedule the freshly sampled local mask for this
    * browser's own slot, send, and advance every ready frame.
@@ -74,8 +78,10 @@ export interface Lockstep {
   /**
    * Resume after the machine was restored to the state at `frame` (desync
    * recovery, T25). Drops the stepped history and continues from `frame + 1`.
+   * `state` is the restored snapshot when the caller already holds it (T40);
+   * lockstep ignores it.
    */
-  resync(frame: number): void;
+  resync(frame: number, state?: Uint8Array): void;
   /** The next frame to simulate. */
   frame(): number;
   /**
@@ -98,10 +104,15 @@ export interface Lockstep {
   paused(): boolean;
 }
 
+/** Delay-based lockstep loop (T24): waits for every input before stepping. */
+export type Lockstep = NetplayLoop;
+
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_MAX_LOOKAHEAD = 256;
 const DEFAULT_HASH_INTERVAL = 60;
 const DEFAULT_STALL_ESCALATE_MS = 6000;
+/** How many already-sent local masks a resync keeps for the input log (T40). */
+const OWN_HISTORY_FRAMES = 600;
 
 export function createLockstep(deps: LockstepDeps): Lockstep {
   const { core, mySlot, players, inputDelay, startFrame, sendInput, now } = deps;
@@ -116,12 +127,16 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
   // Masks for consecutive frames ending at scheduleHead-1; trimmed to the last
   // MAX_FRAMES because only that many are ever sent.
   const frames: number[] = [];
+  // Every local mask that was sent, so a resync can replay the values the relay
+  // already recorded first-wins (T40). Bounded to recent history below.
+  const ownMasks = new Map<number, number>();
 
   // The delay frames are neutral on every peer, so the first real input lands
   // D frames after the start without anyone inventing a mask.
   for (let frame = startFrame; frame < scheduleHead; frame++) {
     table.set(mySlot, frame, 0);
     frames.push(0);
+    ownMasks.set(frame, 0);
   }
 
   let status: LockstepStatus = "running";
@@ -184,6 +199,17 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
     }
   }
 
+  /** Contiguous own masks in [from, scheduleHead) that were already sent. */
+  function ownScheduleFrom(from: number): number[] {
+    const masks: number[] = [];
+    for (let at = from; at < scheduleHead; at++) {
+      const mask = ownMasks.get(at);
+      if (mask === undefined) break;
+      masks.push(mask);
+    }
+    return masks;
+  }
+
   return {
     tick(localMask: number): void {
       // Paused (T29): schedule nothing, send nothing, step nothing. Inbound
@@ -196,8 +222,19 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
         // Only record/send the mask when the table accepted it, so the packet's
         // frame history always matches what will actually be stepped here
         // (first-wins means a resync or duplicate can make `set` return false).
-        if (table.set(mySlot, scheduleHead, mask)) frames.push(mask);
+        if (table.set(mySlot, scheduleHead, mask)) {
+          frames.push(mask);
+          ownMasks.set(scheduleHead, mask);
+        }
         scheduleHead += 1;
+        // Snapshots only lag by a few seconds; keep enough sent masks to cover
+        // one, without retaining the whole match.
+        if (scheduleHead % OWN_HISTORY_FRAMES === 0) {
+          const floor = scheduleHead - OWN_HISTORY_FRAMES;
+          for (const own of ownMasks.keys()) {
+            if (own < floor) ownMasks.delete(own);
+          }
+        }
       }
 
       if (frames.length > 0) {
@@ -233,19 +270,23 @@ export function createLockstep(deps: LockstepDeps): Lockstep {
     },
 
     resync(frame: number): void {
+      // Frames after the snapshot were already sent to the relay and recorded
+      // first-wins in the input log. Keep those local masks instead of
+      // re-sampling the device: a verifier replay must see the same inputs
+      // (T40, closes the docs/03 resync limitation).
+      const own = ownScheduleFrom(frame + 1);
       // The core was just restored to the state at `frame`; continue from the
-      // next one with a clean input window. Every staged frame — including
-      // already-buffered future inputs from the pre-snapshot timeline — is
-      // dropped so nothing stale is stepped and the packet history restarts,
-      // which also re-aligns peers that were an uneven number of frames ahead
-      // (T25). NOTE: our own post-snapshot masks are re-sampled here, so if the
-      // relay's first-wins input log already holds a different value for one of
-      // those frames, a verifier replay could diverge; reconciling that is the
-      // input-log/rollback work (T30/T33/T40), not this task.
+      // next one. Remote inputs staged for the pre-snapshot timeline are
+      // dropped so nothing stale is stepped (T25).
       current = frame + 1;
       table.clear(current);
       scheduleHead = current;
       frames.length = 0;
+      if (own.length > 0) {
+        own.forEach((mask, i) => table.set(mySlot, current + i, mask));
+        scheduleHead = current + own.length;
+        frames.push(...own.slice(-MAX_FRAMES));
+      }
       waitSince = null;
       lastEscalateAt = null;
       if (status === "waiting") {

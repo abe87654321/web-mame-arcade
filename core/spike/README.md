@@ -179,3 +179,57 @@ separate harness/boot-race issue, tracked outside T46.)
 **raiden / raiden2** (`Core.save()` throws with an empty save buffer) is a
 separate, still-open anomaly; they are catalogued `supportsSave:false` /
 `netplayMode:"none"` until then.
+
+## T40 rollback budget probe
+
+`e2e/rollback-budget.e2e.ts` boots each catalogue driver's frozen netplay core and measures
+`save()`, `step()` and `load()` on the WASM build, plus a presentation-suppressed step (rollback
+still draws the re-simulated frame because screen state is saved/hashed, but skips OSD presentation
+until catch-up finishes). Replay is incremental (one already-shown frame per animation tick), so the
+gate is the steady tick cost `saveMs + min(stepMs, silentStepMs) ≤ 16 ms`; the correctable window is
+then `rollbackWindow`. A driver without a fitting tick stays `lockstep`.
+
+```sh
+pnpm --filter @wma/e2e test:rollback-budget   # needs built cores + ROMs
+```
+
+Each run prints one line per driver:
+
+```text
+ROLLBACK-BUDGET {"driver":"gridlee","bytes":...,"saveMs":...,"loadMs":...,
+                 "stepMs":...,"silentStepMs":...,"tickMs":...,"correction8Ms":...,
+                 "suggestedWindow":...,"verdict":"PASS|FAIL"}
+```
+
+`tickMs` is the steady cost of one normal (or one corrected) frame; `correction8Ms` is the wall
+time an 8-frame catch-up needs (spread over up to 8 ticks). The probe is machine-specific (JIT,
+CPU, browser); record the table for the machine that produced the enabled catalogue entries.
+
+### Result (2026-10, headless Chromium + SwiftShader, incremental replay)
+
+Warmed with 60 frames before measuring. `tickMs = saveMs + min(step, silentStep)` is the steady
+per-tick cost; the gate is `tickMs ≤ 16 ms`. Even the emulated frame alone costs 10-22 ms in this
+environment, so only the drivers just under the line pass and the rest stay `lockstep`.
+
+| Driver | State bytes | save ms | step ms | silent step ms | tick ms | verdict | mode |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| gridlee | 1 848 362 | 2.52 | 13.30 | 15.97 | 15.81 | PASS* | lockstep |
+| twinbee | 18 917 002 | 26.48 | 15.27 | 15.09 | 41.57 | FAIL | lockstep |
+| raiden | 330 511 | 1.08 | 14.65 | 15.87 | 15.73 | PASS | rollback |
+| raiden2 | 1 284 471 | 2.16 | 21.24 | 43.78 | 23.41 | FAIL | lockstep |
+| twincobr | 292 905 | 1.08 | 15.98 | 44.51 | 17.06 | FAIL | none |
+| commando | 4 081 958 | 5.22 | 10.32 | 15.72 | 15.54 | PASS* | lockstep |
+| jackal | 494 255 | 1.03 | 14.62 | 15.78 | 15.65 | PASS* | lockstep |
+| rygar | 1 862 400 | 2.74 | 12.95 | 15.94 | 15.68 | PASS* | lockstep |
+| tankfrce | 14 514 719 | 16.75 | 15.42 | 14.90 | 31.65 | FAIL | lockstep |
+| gwar | 489 407 | 4.37 | 17.86 | 15.70 | 20.07 | FAIL | none |
+| geminij | 1 798 400 | 2.38 | 13.44 | 15.93 | 15.81 | PASS* | lockstep |
+| tigerh | 4 549 752 | 5.98 | 16.66 | 16.42 | 22.40 | FAIL | lockstep |
+
+The PASS margins are tight on this headless/SwiftShader machine; the local over-load meter degrades
+a match to wait-only if a tick costs more than 20 ms for a second. Re-run the probe on the target
+hardware before widening the enabled set.
+
+\* Fits the CPU budget but failed the two-tab gate (geminij/commando without netem or under
+`tc netem "100ms 1%"`; gridlee/jackal/rygar under netem), so they stay `lockstep` until T53's
+start/arming race is fixed. The enabled set after the netem gate is **raiden**.

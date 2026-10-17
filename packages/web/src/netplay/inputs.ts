@@ -24,6 +24,18 @@ export interface FrameTable {
   ready(frame: number): boolean;
   /** Record a player's mask for a frame; first write wins. */
   set(player: number, frame: number, mask: number): boolean;
+  /** True when `player`'s mask for `frame` is confirmed (not predicted). */
+  has(player: number, frame: number): boolean;
+  /**
+   * `player`'s confirmed mask for `frame`, or undefined when absent. Unlike
+   * `get`, this distinguishes "no input yet" from a real mask of 0 (T40).
+   */
+  at(player: number, frame: number): number | undefined;
+  /**
+   * The newest confirmed mask for `player` strictly before `frame`, or
+   * undefined when none. Rollback predicts from this value (T40).
+   */
+  lastBefore(player: number, frame: number): number | undefined;
   /** Combined four-slot tuple for a frame; missing slots read as 0. */
   get(frame: number): FrameInputs;
   /** Highest frame seen from `player`, or -1. */
@@ -59,6 +71,32 @@ export function createFrameTable(slots: readonly number[]): FrameTable {
       const current = ack.get(player) ?? -1;
       if (frame > current) ack.set(player, frame);
       return true;
+    },
+
+    has(player: number, frame: number): boolean {
+      if (!required.has(player)) return false;
+      const value = known.get(frame)?.[player];
+      return value !== undefined && value !== UNKNOWN;
+    },
+
+    at(player: number, frame: number): number | undefined {
+      if (!required.has(player)) return undefined;
+      const value = known.get(frame)?.[player];
+      return value === undefined || value === UNKNOWN ? undefined : value;
+    },
+
+    lastBefore(player: number, frame: number): number | undefined {
+      if (!required.has(player)) return undefined;
+      let bestFrame = -1;
+      let best: number | undefined;
+      for (const [atFrame, entry] of known) {
+        if (atFrame >= frame || atFrame <= bestFrame) continue;
+        const value = entry[player];
+        if (value === undefined || value === UNKNOWN) continue;
+        bestFrame = atFrame;
+        best = value;
+      }
+      return best;
     },
 
     get(frame: number): FrameInputs {

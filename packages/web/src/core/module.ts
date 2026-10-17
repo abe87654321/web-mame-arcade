@@ -42,6 +42,10 @@ export interface NetplayHooks {
   setFrame(frame: number): void;
   hash(): number;
   step(frame: number): void;
+  /** T40: suppress rendering while rollback re-simulates already-shown frames. */
+  setSilent?(on: boolean): void;
+  /** T40: draw the corrected current frame after a silent re-simulation. */
+  renderNow?(): void;
   /**
    * Read `len` bytes of emulated memory from a CPU device's address space
    * (T32b score reads): `cpu` is a device tag (":maincpu"), `space` a MAME

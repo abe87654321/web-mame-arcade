@@ -11,7 +11,7 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: "**/spike.e2e.ts",
+  testMatch: ["**/spike.e2e.ts", "**/rollback-budget.e2e.ts"],
   timeout: 600_000,
   fullyParallel: false,
   workers: 1,

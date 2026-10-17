@@ -11,12 +11,16 @@
 # Usage:
 #   pnpm --filter @wma/e2e test:e2e:netem            # all default profiles
 #   bash netem.sh "50ms 0%"                          # one profile (delay loss)
+#   bash netem.sh "100ms 1%" -g "netplay rollback"   # extra Playwright args
 set -euo pipefail
 cd "$(dirname "$0")"
 
 profiles=("50ms 1%" "100ms 1%" "150ms 1%")
+extra=()
 if [ "$#" -gt 0 ]; then
-  profiles=("$*")
+  profiles=("$1")
+  shift
+  extra=("$@")
 fi
 
 cleanup() { sudo tc qdisc del dev lo root 2>/dev/null || true; }
@@ -35,7 +39,7 @@ for profile in "${profiles[@]}"; do
   # IPv6 candidates (if any) too; ignore if the kernel u32 ip6 selector differs.
   sudo tc filter add dev lo protocol ipv6 parent 1:0 prio 3 u32 match ip6 protocol 17 0xff flowid 1:3 || true
 
-  if pnpm exec playwright test; then
+  if pnpm exec playwright test "${extra[@]}"; then
     echo "== PASS (delay=$delay loss=$loss) =="
   else
     rc=1

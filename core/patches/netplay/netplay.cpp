@@ -18,6 +18,7 @@
 
 #include "emu.h"
 #include "screen.h"
+#include "video.h"
 #include "endianness.h"
 
 #include "netplay.h"
@@ -43,6 +44,11 @@ bool s_active = false;
 // Set by netplay_enable() even before the machine exists, so a netplay build
 // can be armed at load and activated on the first main-loop tick (docs/03).
 bool s_arm_requested = false;
+// T40: while true, the main loop skips OSD presentation for frames that
+// rollback is re-simulating (the player has already seen them). The driver's
+// draw still runs, because screen partial-update state is part of the save
+// buffer (and therefore the cross-peer hash).
+bool s_silent = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
@@ -204,6 +210,64 @@ bool netplay_input_active()
 	if (!s_active && s_arm_requested)
 		try_activate();
 	return s_active;
+}
+
+
+//-------------------------------------------------
+//  netplay_is_silent - true while rollback is
+//  re-simulating frames the player already saw
+//-------------------------------------------------
+
+bool netplay_is_silent()
+{
+	return s_silent;
+}
+
+
+//-------------------------------------------------
+//  netplay_set_silent - suppress/restore rendering
+//  during a rollback re-simulation (T40)
+//-------------------------------------------------
+
+void netplay_set_silent(int on)
+{
+	s_silent = on != 0;
+}
+
+
+//-------------------------------------------------
+//  netplay_present_frame - commit textures + OSD
+//  for the current frame
+//
+//  Presentation only: unlike video_manager::frame_update this does not touch
+//  inputs, notifiers or throttling, so calling it once per stepped frame is
+//  not part of the emulation timeline and cannot alter determinism.
+//-------------------------------------------------
+
+void netplay_present_frame()
+{
+	running_machine *machine = current_machine();
+	if (machine != nullptr)
+		machine->video().present_frame();
+}
+
+
+//-------------------------------------------------
+//  netplay_render_now - draw the corrected current
+//  frame after a silent re-simulation (T40)
+//-------------------------------------------------
+
+void netplay_render_now()
+{
+	if (current_machine() == nullptr)
+		return;
+	bool const was_silent = s_silent;
+	s_silent = false;
+	// The last re-simulated frame already drew its screen; only commit/present
+	// the texture. Do not call update_now() here: partial-scan state is part of
+	// the save buffer and must not depend on when presentation happens.
+	netplay_present_frame();
+	s_silent = was_silent;
 }
 
 

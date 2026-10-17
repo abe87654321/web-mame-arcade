@@ -1,5 +1,5 @@
 diff --git a/src/emu/machine.cpp b/src/emu/machine.cpp
-index bf451940..fdd6ccdc 100644
+index bf451940..d5b659b0 100644
 --- a/src/emu/machine.cpp
 +++ b/src/emu/machine.cpp
 @@ -23,6 +23,7 @@
@@ -10,7 +10,7 @@ index bf451940..fdd6ccdc 100644
  #include "network.h"
  #include "render.h"
  #include "romload.h"
-@@ -1404,6 +1405,19 @@ void running_machine::emscripten_main_loop()
+@@ -1404,6 +1405,25 @@ void running_machine::emscripten_main_loop()
  
  	auto profile = g_profiler.start(PROFILER_EXTRA);
  
@@ -19,8 +19,14 @@ index bf451940..fdd6ccdc 100644
 +	// video and wait. When netplay is inactive the stock 60Hz path below is used.
 +	if (netplay_input_active())
 +	{
-+		if (!netplay_try_run_frame(*machine, netplay_next_frame()))
-+			machine->m_video->frame_update();
++		// Present every displayed frame. Rollback can step on every animation
++		// tick (it predicts instead of waiting), so presenting only on the
++		// "not ready" branch would freeze video while audio keeps playing.
++		// `netplay_present_frame` only commits textures + OSD; it deliberately
++		// skips frame_update's input/notifier/throttle side effects.
++		netplay_try_run_frame(*machine, netplay_next_frame());
++		if (!netplay_is_silent())
++			netplay_present_frame();
 +
 +		if (machine->exit_pending())
 +			emscripten_cancel_main_loop();

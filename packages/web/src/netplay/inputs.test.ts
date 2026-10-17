@@ -83,6 +83,38 @@ describe("createFrameTable", () => {
     expect(table.ready(3)).toBe(false);
     expect(table.set(0, 5, mask(3))).toBe(true);
   });
+
+  it("distinguishes a confirmed mask from a missing one", () => {
+    const table = createFrameTable([0, 1]);
+    expect(table.has(0, 5)).toBe(false);
+    table.set(0, 5, 0);
+    expect(table.has(0, 5)).toBe(true);
+    expect(table.at(0, 5)).toBe(0);
+    expect(table.has(1, 5)).toBe(false);
+    expect(table.at(1, 5)).toBeUndefined();
+    expect(table.at(0, 6)).toBeUndefined();
+  });
+
+  it("finds the newest confirmed mask strictly before a frame", () => {
+    const table = createFrameTable([0, 1]);
+    expect(table.lastBefore(0, 10)).toBeUndefined();
+    table.set(0, 4, mask(1));
+    table.set(0, 7, mask(2));
+    table.set(0, 9, mask(3));
+    expect(table.lastBefore(0, 5)).toBe(1);
+    expect(table.lastBefore(0, 10)).toBe(3);
+    expect(table.lastBefore(0, 9)).toBe(2);
+    expect(table.lastBefore(1, 10)).toBeUndefined();
+  });
+
+  it("does not return pruned frames from the query methods", () => {
+    const table = createFrameTable([0]);
+    table.set(0, 3, mask(1));
+    table.prune(5);
+    expect(table.has(0, 3)).toBe(false);
+    expect(table.at(0, 3)).toBeUndefined();
+    expect(table.lastBefore(0, 5)).toBeUndefined();
+  });
 });
 
 describe("applyPacket", () => {

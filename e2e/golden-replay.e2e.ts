@@ -60,7 +60,7 @@ const DRIVERS = (
   process.env.WMA_E2E_DRIVERS
     ? process.env.WMA_E2E_DRIVERS.split(",")
     : games
-        .filter((game) => game.supportsSave && game.netplayMode === "lockstep")
+        .filter((game) => game.supportsSave && game.netplayMode !== "none")
         .map((game) => game.driver)
 ).map((driver) => driver.trim()).filter((driver) => driver.length > 0);
 

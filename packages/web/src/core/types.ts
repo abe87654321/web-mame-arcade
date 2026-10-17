@@ -50,6 +50,13 @@ export interface Core {
   /** CRC32 of main RAM at the current frame. Needs the T20 core. */
   hash(): StateHash;
   /**
+   * Suppress driver video rendering while rollback re-simulates frames the
+   * player already saw (T40). Optional: older cores render normally.
+   */
+  setSilent?(on: boolean): void;
+  /** Render the corrected current frame after a silent re-simulation (T40). */
+  renderNow?(): void;
+  /**
    * Current score for player `slot`, decoded via that driver's scoremap
    * (T32b). Throws `CoreCapabilityError` on a core/driver with no scoremap.
    */

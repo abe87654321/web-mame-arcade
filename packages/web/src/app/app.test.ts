@@ -11,6 +11,7 @@ import {
   installAudioUnlock,
   matchStatusText,
   netplayFromEnv,
+  rollbackConfig,
   type AppEnv,
   type NetplayEnv,
 } from "./app";
@@ -548,6 +549,24 @@ describe("installAudioUnlock", () => {
     expect(ctx.resume).not.toHaveBeenCalled();
     listeners.get("pointerdown")?.();
     expect(ctx.resume).toHaveBeenCalledOnce();
+  });
+});
+
+describe("rollbackConfig (T40)", () => {
+  it("enables rollback from the catalogue mode", () => {
+    expect(
+      rollbackConfig({ ...entry, netplayMode: "rollback", rollbackWindow: 4 }, {}),
+    ).toEqual({ rollback: true, rollbackWindow: 4 });
+  });
+
+  it("does not enable rollback for lockstep games", () => {
+    expect(rollbackConfig(entry, {})).toEqual({ rollback: false });
+  });
+
+  it("lets the dev/e2e hook force rollback", () => {
+    expect(rollbackConfig(entry, { forceRollback: true })).toEqual({
+      rollback: true,
+    });
   });
 });
 

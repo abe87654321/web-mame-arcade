@@ -16,8 +16,9 @@
 import { decodeInput, type PlayerPause, type RoomState } from "@wma/protocol";
 import type { Core } from "../core/types";
 import { selectInputDelay } from "./delay";
-import { createLockstep, type Lockstep } from "./lockstep";
+import { createLockstep, type LockstepDeps, type NetplayLoop } from "./lockstep";
 import { createMetrics, type Metrics, type MetricsSnapshot } from "./metrics";
+import { createRollback, type RollbackDegradeReason } from "./rollback";
 import { createSession, type NetplaySession } from "./session";
 import { createScoreboard, isSampleDue, type ScoreRow } from "./scoreboard";
 import type { NetplayConfig, RtcFactory, WebSocketFactory } from "./types";
@@ -80,6 +81,10 @@ export interface MatchDeps {
   now: () => number;
   /** Local input delay D (docs/03: 2-3); default 2. */
   inputDelay?: number;
+  /** Use rollback instead of delay lockstep (T40, per-game catalogue flag). */
+  rollback?: boolean;
+  /** Rollback correctable-frame window, 2..8; defaults to 8 (T40). */
+  rollbackWindow?: number;
   /** First frame to simulate; default 0. */
   startFrame?: number;
   onStatus?: (status: MatchStatus) => void;
@@ -180,6 +185,8 @@ const RESYNC_INTERVAL_MS = 1000;
 const DEFAULT_METRICS_INTERVAL_MS = 250;
 /** Milliseconds between a player's own live-score samples (T32). */
 const DEFAULT_SCORE_INTERVAL_MS = 1000;
+/** Rollback keeps the minimum input delay; prediction hides network RTT (T40). */
+const ROLLBACK_INPUT_DELAY = 2;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
@@ -220,7 +227,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       return new Uint8Array(await response.arrayBuffer());
     });
 
-  let lockstep: Lockstep | null = null;
+  let lockstep: NetplayLoop | null = null;
   let coreReady = false;
   let closed = false;
   let disconnected = false;
@@ -411,7 +418,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     scoreboard.clear();
     lastScoreAt = null;
     const players = roster.length > 0 ? roster.map((p) => p.slot) : [self];
-    lockstep = createLockstep({
+    const loopDeps: LockstepDeps = {
       core: deps.core,
       mySlot: self,
       players,
@@ -452,7 +459,23 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         log?.("stall-escalate", { frame });
         sendRecoverySnapshot(frame - 1, "stall-escalate");
       },
-    });
+    };
+    if (deps.rollback) {
+      try {
+        lockstep = createRollback({
+          ...loopDeps,
+          core: deps.core,
+          ...(deps.rollbackWindow !== undefined
+            ? { window: deps.rollbackWindow }
+            : {}),
+          onDegrade: (reason: RollbackDegradeReason) =>
+            log?.("rollback-degraded", { reason }),
+        });
+      } catch (error) {
+        log?.("rollback-unavailable", { error: String(error) });
+      }
+    }
+    lockstep ??= createLockstep(loopDeps);
     metrics = createMetrics({ mySlot: self, players, now: deps.now });
     lastMetricsAt = null;
     if (localPaused) {
@@ -681,7 +704,7 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
             return;
           }
           deps.core.load(bytes, message.frame);
-          lockstep?.resync(message.frame);
+          lockstep?.resync(message.frame, bytes);
           lastAppliedSnapshotFrame = message.frame;
           log?.("resync-applied", { frame: message.frame });
         })
@@ -753,8 +776,11 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       // The host sizes D from the lobby RTTs it measured (T29); an explicit
       // `deps.inputDelay` (tests/e2e) overrides it. Every peer steps the agreed
       // value carried by `game.start`, so this stays deterministic.
+      // Rollback hides RTT with prediction, so it keeps the minimum delay; the
+      // RTT-sized delay is only needed by wait-based lockstep (T40).
       const delay =
-        deps.inputDelay ?? selectInputDelay(Object.values(measuredRtts));
+        deps.inputDelay ??
+        (deps.rollback ? ROLLBACK_INPUT_DELAY : selectInputDelay(Object.values(measuredRtts)));
       if (!session.send({ t: "game.start", startFrame, inputDelay: delay })) {
         return false;
       }

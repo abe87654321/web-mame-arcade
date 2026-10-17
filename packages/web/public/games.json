@@ -2,7 +2,7 @@
   {
     "driver": "gridlee",
     "title": "Gridlee",
-    "coreVersion": "6e534d0907da817c795b8a1cb85b48470c7579566a53b9c75975433d3cde28ca",
+    "coreVersion": "c348baacacd156577b8bee817634a7353c5f7b6e50efdfb29a209d388973efbc",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e",
     "supportsSave": true,
@@ -28,15 +28,16 @@
   {
     "driver": "raiden",
     "title": "Raiden",
-    "coreVersion": "0ef30978914388e32a428cfa80e2539a0b85116dbd9d42d965c17afd0347965a",
+    "coreVersion": "1626476d224bce168c981a82d0604379fea0e1f2c35ee8bf2426425e7dd59c86",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "88d477dd0cba42aa441b81c9b137926f145357d6c55ab73c3affa4db3d32e8a8",
     "supportsSave": true,
-    "netplayMode": "lockstep",
+    "netplayMode": "rollback",
     "maxPlayers": 2,
     "romLicensed": false,
     "coreBaseUrl": "/static/cores/raiden",
-    "romZipUrl": "/roms/raiden.zip"
+    "romZipUrl": "/roms/raiden.zip",
+    "rollbackWindow": 8
   },
   {
     "driver": "raiden2",
@@ -67,7 +68,7 @@
   {
     "driver": "commando",
     "title": "Commando",
-    "coreVersion": "24d9f792b4469b1e3761bd41ff43e1afb24fca0e56210fe89af07bbc4282170c",
+    "coreVersion": "2e6e511fc51852cec6a4113eb81c3ba5220c674dfd9cabe4956bba789c72f4b7",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "ba945a5f16371a61de226a6a5d8903fb10a46ccb5139bc30bf0517ae50649393",
     "supportsSave": true,
