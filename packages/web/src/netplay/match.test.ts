@@ -186,6 +186,34 @@ describe("createMatch", () => {
     match.close();
   });
 
+  it("predicts missing peer input in rollback mode instead of waiting", async () => {
+    const { socket, core, match } = harness(0, { rollback: true });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    // No peer packet: lockstep would wait, rollback steps with peer mask 0.
+    match.tick(0x04);
+
+    expect(core.steps).toEqual([{ frame: 0, inputs: [0x04, 0, 0, 0] }]);
+    match.close();
+  });
+
+  it("starts rollback with the fixed two-frame input delay", async () => {
+    const { socket, match } = harness(undefined, { rollback: true });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
+    await flush();
+
+    expect(match.start()).toBe(true);
+    expect(socket.sent).toContain(
+      JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 2 }),
+    );
+    match.close();
+  });
+
   it("holds game.start until the core has loaded", async () => {
     const socket = new FakeWebSocket();
     const pc = new FakePeerConnection();

@@ -105,7 +105,7 @@ export interface NetplayLoop {
 }
 
 /** Delay-based lockstep loop (T24): waits for every input before stepping. */
-export interface Lockstep extends NetplayLoop {}
+export type Lockstep = NetplayLoop;
 
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_MAX_LOOKAHEAD = 256;

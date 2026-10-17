@@ -62,6 +62,29 @@ describe("parseCatalogue", () => {
     ).toThrow(/netplayMode/);
   });
 
+  it("accepts rollback with a save-capable driver and a bounded window", () => {
+    const entry = parseCatalogue([
+      valid({ netplayMode: "rollback", rollbackWindow: 4 }),
+    ])[0];
+    expect(entry?.netplayMode).toBe("rollback");
+    expect(entry?.rollbackWindow).toBe(4);
+  });
+
+  it("rejects rollback without save support", () => {
+    expect(() =>
+      parseCatalogue([valid({ netplayMode: "rollback", supportsSave: false })]),
+    ).toThrow(/rollback/);
+  });
+
+  it.each([1, 9, 2.5, "4"])(
+    "rejects an invalid rollback window (%s)",
+    (window) => {
+      expect(() =>
+        parseCatalogue([valid({ netplayMode: "rollback", rollbackWindow: window })]),
+      ).toThrow(/rollbackWindow/);
+    },
+  );
+
   it("rejects a non-positive maxPlayers", () => {
     expect(() => parseCatalogue([valid({ maxPlayers: 0 })])).toThrow(
       /maxPlayers/,

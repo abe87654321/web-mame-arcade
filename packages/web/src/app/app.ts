@@ -53,6 +53,23 @@ import { buildViewer, type ViewerViewState } from "./viewer-view";
 import { readInputScript } from "./test-input";
 
 /**
+ * Resolve the netplay loop a catalogue entry asks for (T40). The catalogue flag
+ * wins in production; the dev/e2e hook can force rollback for testing a driver
+ * that has not passed the per-driver budget gate yet.
+ */
+export function rollbackConfig(
+  entry: GameEntry,
+  env: { forceRollback?: boolean },
+): { rollback: boolean; rollbackWindow?: number } {
+  return {
+    rollback: entry.netplayMode === "rollback" || env.forceRollback === true,
+    ...(entry.rollbackWindow !== undefined
+      ? { rollbackWindow: entry.rollbackWindow }
+      : {}),
+  };
+}
+
+/**
  * Composition root (T13): route between the catalogue and a play page, booting
  * the core on demand. All browser globals are injected via `AppEnv`, so the
  * wiring is exercised in tests with fakes; `startApp` builds the real env.
@@ -97,6 +114,11 @@ export interface AppEnv {
    * `window.__WMA_TEST_INPUT__` by `startApp`. Absent in normal play.
    */
   inputScript?: (slot: number, frame: number) => number;
+  /**
+   * Dev/e2e only: force rollback even when the catalogue says lockstep (T40).
+   * Set from `window.__WMA_TEST_ROLLBACK__` by `startApp`.
+   */
+  forceRollback?: boolean;
   /**
    * Page-visibility source for the collaborative pause (T29). `startApp`
    * wires it to `document`; tests omit it, so no listener is attached.
@@ -572,6 +594,7 @@ export function createApp(deps: AppDeps): AppController {
               : undefined;
           match = createMatch({
             core,
+            ...rollbackConfig(entry, deps.env),
             config: {
               relayUrl: netplay.relayUrl,
               token: netplay.token,
@@ -906,6 +929,9 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   const netplay = options.netplay ?? netplayFromEnv();
   // e2e input hook (T26): dev-only (see the hooks note above).
   const inputScript = devEnv?.DEV ? readInputScript(win) : undefined;
+  const forceRollback =
+    devEnv?.DEV === true &&
+    (win as { __WMA_TEST_ROLLBACK__?: unknown }).__WMA_TEST_ROLLBACK__ === true;
 
   // Per-session input wiring (T12): persisted device/button overrides + gamepad
   // hot-plug. Attached here so assignment survives route changes.
@@ -956,6 +982,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       attachVideo: createVideoAttacher(appEl, doc),
       ...(netplay ? { netplay } : {}),
       ...(inputScript ? { inputScript } : {}),
+      ...(forceRollback ? { forceRollback: true } : {}),
       ...(devEnv?.DEV === true ? { devOverlay: true } : {}),
     },
   });

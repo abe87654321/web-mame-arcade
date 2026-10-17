@@ -50,6 +50,21 @@ function parseEntry(value: unknown): GameEntry {
     fail("bad netplayMode");
   }
   const netplayMode = e.netplayMode as NetplayMode;
+  let rollbackWindow: number | undefined;
+  if (e.rollbackWindow !== undefined) {
+    if (
+      typeof e.rollbackWindow !== "number" ||
+      !Number.isInteger(e.rollbackWindow) ||
+      e.rollbackWindow < 2 ||
+      e.rollbackWindow > 8
+    ) {
+      fail("bad rollbackWindow");
+    }
+    rollbackWindow = e.rollbackWindow;
+  }
+  if (netplayMode === "rollback" && !supportsSave) {
+    fail("rollback requires supportsSave");
+  }
   if (typeof e.maxPlayers !== "number" || !Number.isInteger(e.maxPlayers) || e.maxPlayers < 1) {
     fail("bad maxPlayers");
   }
@@ -67,6 +82,7 @@ function parseEntry(value: unknown): GameEntry {
     romHash,
     supportsSave,
     netplayMode,
+    ...(rollbackWindow !== undefined ? { rollbackWindow } : {}),
     maxPlayers,
     romLicensed,
     coreBaseUrl,
