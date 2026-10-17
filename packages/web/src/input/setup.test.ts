@@ -94,6 +94,20 @@ describe("createInputSetup", () => {
     expect(setup.config().devices[0]).toEqual({ kind: "gamepad", index: 0 });
   });
 
+  it("moves a pad between slots (a device lives in one slot)", () => {
+    const pads = fakePads([pad(0)]);
+    const setup = createInputSetup({ gamepads: pads.provider, storage: fakeStorage() });
+    setup.attach();
+    expect(setup.config().devices[0]).toEqual({ kind: "gamepad", index: 0 });
+    // Move it to P2, then back to P1 by assigning it there.
+    setup.ui.setDevice(1, { kind: "gamepad", index: 0 });
+    expect(setup.config().devices[1]).toEqual({ kind: "gamepad", index: 0 });
+    expect(setup.config().devices[0]).not.toEqual({ kind: "gamepad", index: 0 });
+    setup.ui.setDevice(0, { kind: "gamepad", index: 0 });
+    expect(setup.config().devices[0]).toEqual({ kind: "gamepad", index: 0 });
+    expect(setup.config().devices[1]).toBeNull();
+  });
+
   it("persists assignment to storage so it survives a reload", () => {
     const storage = fakeStorage();
     const pads = fakePads([pad(2)]);

@@ -106,6 +106,19 @@ export function createRemapUi(
         ? DEFAULT_KEYBOARD_BINDINGS
         : mergeBindings(DEFAULT_KEYBOARD_BINDINGS, DEFAULT_GAMEPAD_BINDINGS);
   const assignDevice = (slot: number, device: InputDevice | null): void => {
+    // A physical pad belongs to exactly one slot: assigning it here takes it
+    // from wherever it was (and that slot reverts to its default). This makes
+    // "move gamepad 0 to P1" one click instead of clear-then-assign.
+    if (device?.kind === "gamepad") {
+      const resolved = config();
+      for (let other = 0; other < PLAYER_SLOTS; other++) {
+        if (other === slot) continue;
+        const d = resolved.devices[other];
+        if (d?.kind === "gamepad" && d.index === device.index) {
+          overrides = resetSlot(overrides, other);
+        }
+      }
+    }
     overrides = setDevice(overrides, slot, device);
     overrides = setPlayerBindings(overrides, slot, bindingsFor(device));
   };
@@ -144,27 +157,24 @@ export function createRemapUi(
     return Array.from({ length: PLAYER_SLOTS }, (_, slot) => {
       const device = resolved.devices[slot] ?? null;
       const bindings = resolved.players[slot];
-      const assignedPads = new Set(
-        resolved.devices
-          .filter(
-            (d): d is { kind: "gamepad"; index: number } =>
-              d?.kind === "gamepad",
-          )
-          .map((d) => d.index),
-      );
+      const currentPad = device?.kind === "gamepad" ? device.index : null;
+      // Every connected pad is listed for every slot: clicking one moves it
+      // here (removing it from its previous slot), so a pad mistakenly placed on
+      // P2 can be moved to P1 in one click.
       const controls: ViewNode[] = [
         {
           tag: "button",
           text: "use keyboard",
           onClick: () => ui.assignKeyboard(slot),
         },
-        ...pads
-          .filter((index) => !assignedPads.has(index))
-          .map((index) => ({
-            tag: "button",
-            text: `assign gamepad ${index}`,
-            onClick: () => ui.setDevice(slot, { kind: "gamepad", index }),
-          })),
+        ...pads.map((index) => ({
+          tag: "button",
+          text:
+            index === currentPad
+              ? `gamepad ${index} (current)`
+              : `assign gamepad ${index}`,
+          onClick: () => ui.setDevice(slot, { kind: "gamepad", index }),
+        })),
         { tag: "button", text: "clear", onClick: () => ui.setDevice(slot, null) },
         { tag: "button", text: "reset", onClick: () => ui.resetSlot(slot) },
       ];
