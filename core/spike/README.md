@@ -202,3 +202,29 @@ ROLLBACK-BUDGET {"driver":"gridlee","bytes":...,"saveMs":...,"loadMs":...,
 `windowMs` is the steady per-frame cost at window 8; `worstMs` adds one load. The probe is
 machine-specific (JIT, CPU, browser); record the table for the machine that produced the enabled
 catalogue entries.
+
+### Result (2026-10, headless Chromium + SwiftShader, WASM build `d26f80aa…` lineage)
+
+Warmed with 60 frames before measuring. `stepMs` here includes the full emulated frame (video
+included), so it is the cost a rollback re-sim pays per corrected frame.
+
+| Driver | State bytes | save ms | load ms | step ms | window-8 ms | suggested window | verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| gridlee | 1 848 362 | 5.20 | 2.92 | 16.15 | 134.4 | 0 | FAIL |
+| twinbee | 18 917 002 | 20.70 | 8.82 | 15.29 | 143.0 | 0 | FAIL |
+| raiden | 330 511 | 1.15 | 0.86 | 14.54 | 117.4 | 0 | FAIL |
+| raiden2 | 1 284 471 | 2.00 | 1.12 | 14.97 | 121.8 | 0 | FAIL |
+| twincobr | 292 905 | 1.17 | 4.25 | 27.92 | 224.5 | 0 | FAIL |
+| commando | 4 081 958 | 4.59 | 1.98 | 11.12 | 93.5 | 0 | FAIL |
+| jackal | 494 255 | 1.06 | 0.63 | 14.62 | 118.0 | 0 | FAIL |
+| rygar | 1 862 400 | 6.37 | 3.45 | 18.02 | 150.5 | 0 | FAIL |
+| tankfrce | 14 514 719 | 18.02 | 7.28 | 16.53 | 150.3 | 0 | FAIL |
+| gwar | 489 407 | 1.37 | 0.93 | 14.28 | 115.6 | 0 | FAIL |
+| geminij | 1 798 400 | 2.47 | 1.15 | 13.42 | 109.8 | 0 | FAIL |
+| tigerh | 4 549 752 | 5.61 | 2.46 | 16.71 | 139.3 | 0 | FAIL |
+
+Even the minimum window (2) costs more than 16 ms because the emulated frame itself takes
+11-28 ms in this headless/SwiftShader setup. Per the enablement rule, **no driver is switched to
+rollback from this machine**; `games.json` stays lockstep and the e2e rollback gate runs through
+`WMA_E2E_ROLLBACK_DRIVERS=<driver>`. Re-run the probe on the target hardware (GPU, production
+build) before enabling a driver.

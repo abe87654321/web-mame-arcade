@@ -94,14 +94,19 @@ for (const entry of games) {
           return (now() - start) / iters;
         };
 
-        const bytes = core.save().length;
+        // Warm the WASM/JIT paths on the stepper first: the first frames after
+        // boot include one-off compilation and are not the steady-state cost.
+        const boot = core.save();
+        for (let i = 0; i < 60; i++) core.step(i, [0, 0, 0, 0]);
+        core.load(boot, -1);
+
+        const bytes = boot.length;
         const saveMs = avg(() => {
           core.save();
         });
 
         const stepStart = now();
         for (let i = 0; i < iters; i++) core.step(i, [0, 0, 0, 0]);
-        core.save(); // let the JIT settle on the final state
         const stepMs = (now() - stepStart) / iters;
 
         const snapshot = core.save();

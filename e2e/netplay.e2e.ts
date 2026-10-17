@@ -7,8 +7,13 @@
  *   - neither tab received a `desync` from the relay.
  *
  * T46 generalised this to every catalogue driver that can netplay
- * (`supportsSave && netplayMode === "lockstep"`); a driver without an input
- * fixture is skipped. Override the set with `WMA_E2E_DRIVERS=gridlee`.
+ * (`supportsSave && netplayMode !== "none"`); a driver without an input fixture
+ * is skipped. Override the lockstep set with `WMA_E2E_DRIVERS=gridlee`.
+ *
+ * T40 adds the same gate for rollback. Catalogue rollback drivers run
+ * automatically; a driver that has not passed the per-driver budget can still
+ * be exercised with `WMA_E2E_ROLLBACK_DRIVERS=gridlee` (sets the DEV-only
+ * `window.__WMA_TEST_ROLLBACK__` hook).
  *
  * Distinct per-slot streams model two players acting independently. Because the
  * masks are keyed on the frame (not on when an animation tick fired), the
@@ -52,14 +57,29 @@ const games = JSON.parse(
   readFileSync(resolve(here, "../packages/web/public/games.json"), "utf8"),
 ) as GameEntry[];
 
+function list(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((driver) => driver.trim())
+    .filter((driver) => driver.length > 0);
+}
+
+const FORCED_ROLLBACK = new Set(list(process.env.WMA_E2E_ROLLBACK_DRIVERS));
 /** Catalogue drivers that can netplay; overridable for a focused run. */
-const DRIVERS = (
+const LOCKSTEP_DRIVERS = (
   process.env.WMA_E2E_DRIVERS
-    ? process.env.WMA_E2E_DRIVERS.split(",")
+    ? list(process.env.WMA_E2E_DRIVERS)
     : games
         .filter((game) => game.supportsSave && game.netplayMode === "lockstep")
         .map((game) => game.driver)
-).map((driver) => driver.trim()).filter((driver) => driver.length > 0);
+).filter((driver) => !FORCED_ROLLBACK.has(driver));
+
+const ROLLBACK_DRIVERS = [
+  ...new Set([
+    ...games.filter((game) => game.netplayMode === "rollback").map((game) => game.driver),
+    ...FORCED_ROLLBACK,
+  ]),
+];
 
 /**
  * Wait until this tab has reported `min` per-60-frame hashes, or fail with what
@@ -88,7 +108,10 @@ async function awaitHashes(
   }
 }
 
-for (const driver of DRIVERS) {
+function defineNetplaySuite(
+  driver: string,
+  mode: "lockstep" | "rollback",
+): void {
   const entry = games.find((game) => game.driver === driver);
   const coreDir = entry
     ? resolve(here, `../packages/web/public/static/cores/${driver}/${entry.coreVersion}`)
@@ -96,8 +119,9 @@ for (const driver of DRIVERS) {
   // Commercial ROMs live in the gitignored repo-root roms/, not public/.
   const romZip = resolve(here, `../roms/${driver}.zip`);
   const fixturePath = resolve(here, `fixtures/inputs/${driver}.e2e.json`);
+  const forceRollback = FORCED_ROLLBACK.has(driver);
 
-  test.describe(`netplay lockstep: ${driver}`, () => {
+  test.describe(`netplay ${mode}: ${driver}`, () => {
     test.skip(
       entry === undefined || !existsSync(coreDir) || !existsSync(romZip),
       `missing core/ROM for ${driver}; build with core/build-wasm.sh ${driver}`,
@@ -121,12 +145,15 @@ for (const driver of DRIVERS) {
           }
         });
         await page.addInitScript(
-          (players) => {
-            (window as unknown as { __WMA_TEST_INPUT__?: unknown }).__WMA_TEST_INPUT__ = {
-              players,
+          ({ players, force }) => {
+            const win = window as unknown as {
+              __WMA_TEST_INPUT__?: unknown;
+              __WMA_TEST_ROLLBACK__?: unknown;
             };
+            win.__WMA_TEST_INPUT__ = { players };
+            if (force) win.__WMA_TEST_ROLLBACK__ = true;
           },
-          fixture.players,
+          { players: fixture.players, force: forceRollback || mode === "rollback" },
         );
         await page.goto(`/?token=${mintToken(SECRET, sub)}#/game/${driver}/room/${room}`);
         return page;
@@ -179,3 +206,6 @@ for (const driver of DRIVERS) {
     });
   });
 }
+
+for (const driver of LOCKSTEP_DRIVERS) defineNetplaySuite(driver, "lockstep");
+for (const driver of ROLLBACK_DRIVERS) defineNetplaySuite(driver, "rollback");
