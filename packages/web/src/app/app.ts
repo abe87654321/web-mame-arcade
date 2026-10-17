@@ -203,6 +203,7 @@ export function createApp(deps: AppDeps): AppController {
   let replay: Replay | null = null;
   let replayHandle: number | null = null;
   let detachVisibility: (() => void) | null = null;
+  let inputHudTimer: ReturnType<typeof setInterval> | null = null;
   let token = 0;
 
   const setStatus = (text: string): void => {
@@ -229,6 +230,10 @@ export function createApp(deps: AppDeps): AppController {
   };
 
   const teardown = (): void => {
+    if (inputHudTimer !== null) {
+      clearInterval(inputHudTimer);
+      inputHudTimer = null;
+    }
     detachVisibility?.();
     detachVisibility = null;
     match?.close();
@@ -661,6 +666,30 @@ export function createApp(deps: AppDeps): AppController {
           (
             globalThis as unknown as { __WMA_INPUTS__?: () => readonly number[] }
           ).__WMA_INPUTS__ = () => controller.inputs();
+          // DEV HUD: live per-slot mask + raw gamepad state, so a control that
+          // is not reaching the app can be seen in-game without DevTools.
+          const hud = deps.env.doc.createElement("div");
+          hud.className = "input-hud";
+          deps.env.root.append(hud);
+          inputHudTimer = setInterval(() => {
+            const pads =
+              (
+                globalThis as unknown as {
+                  navigator?: { getGamepads?: () => (Gamepad | null)[] };
+                }
+              ).navigator?.getGamepads?.() ?? [];
+            const padText = Array.from(pads)
+              .filter((p): p is Gamepad => p !== null)
+              .map((p) => {
+                const buttons = Array.from(p.buttons)
+                  .map((b, i) => (b.pressed ? i : -1))
+                  .filter((i) => i >= 0);
+                const axes = Array.from(p.axes).map((v) => Number(v).toFixed(2));
+                return `#${p.index} map=${p.mapping || "-"} btn=[${buttons.join(",")}] ax=[${axes.join(",")}]`;
+              })
+              .join(" ");
+            hud.textContent = `P1..4=${controller.inputs().join(",")} ${padText}`;
+          }, 100);
         }
       })
       .catch((error: unknown) => {
