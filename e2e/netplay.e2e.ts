@@ -25,6 +25,7 @@
  * mask 0, so a fixture's first non-zero mask must sit at frame >= inputDelay;
  * the gridlee fixture is zero for the first 80 frames, well clear of that window.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,6 +88,26 @@ const ROLLBACK_DRIVERS = [
  * diagnosable rather than a bare timeout. Polling both tabs concurrently keeps
  * the total bounded by one timeout.
  */
+/** Hash of the composited canvas pixels; changes only when video is presented. */
+async function canvasSignature(page: Page): Promise<string> {
+  const png = await page.locator("#canvas").screenshot();
+  return createHash("sha1").update(png).digest("hex");
+}
+
+/**
+ * Sample the canvas for a while and return how many distinct frames were
+ * presented. Catches "audio keeps playing but video froze" (T40): the emulated
+ * state and hashes advance, yet the OSD never commits a new texture.
+ */
+async function distinctCanvasFrames(page: Page): Promise<number> {
+  const seen = new Set<string>();
+  for (let i = 0; i < 5; i++) {
+    seen.add(await canvasSignature(page));
+    await page.waitForTimeout(1500);
+  }
+  return seen.size;
+}
+
 async function awaitHashes(
   page: Page,
   hashes: Map<number, number>,
@@ -197,6 +218,16 @@ function defineNetplaySuite(
 
       expect(d1, "p1 saw a desync").toEqual([]);
       expect(d2, "p2 saw a desync").toEqual([]);
+
+      // Audio can keep playing while the canvas freezes if a stepped frame is
+      // never presented (rollback predicts without waiting). Both peers must
+      // show distinct frames over time, not just advance their hash stream.
+      const [frames1, frames2] = await Promise.all([
+        distinctCanvasFrames(p1),
+        distinctCanvasFrames(p2),
+      ]);
+      expect(frames1, "p1 canvas did not update").toBeGreaterThan(1);
+      expect(frames2, "p2 canvas did not update").toBeGreaterThan(1);
 
       const common = [...h1.keys()].filter((frame) => h2.has(frame)).sort((a, b) => a - b);
       expect(common.length, "no overlapping hash frames").toBeGreaterThanOrEqual(MIN_HASHES);
