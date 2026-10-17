@@ -2,11 +2,14 @@ import { PLAYER_SLOTS, type Button } from "@wma/protocol";
 import { type ViewNode } from "../ui/view";
 import {
   ALL_BUTTONS,
+  DEFAULT_GAMEPAD_BINDINGS,
+  DEFAULT_KEYBOARD_BINDINGS,
   resolveInputConfig,
   type Binding,
   type InputConfig,
   type InputDevice,
   type LocalInputConfig,
+  type PlayerBindings,
 } from "./bindings";
 import { findConflicts, type Conflict } from "./devices";
 import {
@@ -14,6 +17,7 @@ import {
   resetSlot,
   saveLocalConfig,
   setDevice,
+  setPlayerBindings,
   type StorageLike,
 } from "./remap";
 
@@ -87,6 +91,21 @@ export function createRemapUi(
   let capture: CaptureTarget | null = null;
 
   const config = (): InputConfig => resolveInputConfig(hostDefault, overrides);
+
+  // A slot's device and its button bindings must agree. The base config has
+  // keyboard bindings on slot 0 and gamepad bindings on slots 1-3, so swapping
+  // only the device would leave a pad feeding *keyboard* bindings (no input at
+  // all). Assigning a device also selects that device kind's default bindings.
+  const bindingsFor = (device: InputDevice | null): PlayerBindings | undefined =>
+    device === null
+      ? undefined
+      : device.kind === "keyboard"
+        ? DEFAULT_KEYBOARD_BINDINGS
+        : DEFAULT_GAMEPAD_BINDINGS;
+  const assignDevice = (slot: number, device: InputDevice | null): void => {
+    overrides = setDevice(overrides, slot, device);
+    overrides = setPlayerBindings(overrides, slot, bindingsFor(device));
+  };
 
   const commit = (): void => {
     if (options.storage) saveLocalConfig(options.storage, overrides);
@@ -193,7 +212,7 @@ export function createRemapUi(
     },
     captureBinding: applyBinding,
     setDevice: (slot, device) => {
-      overrides = setDevice(overrides, slot, device);
+      assignDevice(slot, device);
       commit();
     },
     assignKeyboard: (slot) => {
@@ -223,10 +242,7 @@ export function createRemapUi(
             ? preferredSlot
             : resolved.devices.indexOf(null);
         if (slot !== -1) {
-          overrides = setDevice(overrides, slot, {
-            kind: "gamepad",
-            index,
-          });
+          assignDevice(slot, { kind: "gamepad", index });
         }
       }
       status = `gamepad ${index} connected`;
@@ -238,7 +254,7 @@ export function createRemapUi(
       const resolved = config();
       resolved.devices.forEach((device, slot) => {
         if (device?.kind === "gamepad" && device.index === index) {
-          overrides = setDevice(overrides, slot, null);
+          assignDevice(slot, null);
         }
       });
       status = `gamepad ${index} disconnected`;

@@ -58,6 +58,19 @@ describe("createInputSetup", () => {
     expect(setup.config().devices[0]).toEqual({ kind: "gamepad", index: 0 });
   });
 
+  it("gives P1 gamepad bindings once a pad takes it (not the keyboard's)", () => {
+    // Regression: swapping only the device left the pad feeding keyboard
+    // bindings, so the pad produced no input.
+    const pads = fakePads([pad(0)]);
+    const setup = createInputSetup({ gamepads: pads.provider, storage: fakeStorage() });
+    setup.attach();
+    const up = setup.config().players[0]?.up ?? [];
+    expect(up.some((b) => b.kind === "gamepadAxis" || b.kind === "gamepadButton")).toBe(
+      true,
+    );
+    expect(up.some((b) => b.kind === "key")).toBe(false);
+  });
+
   it("assigns the second pad to P2 (first free slot)", () => {
     const pads = fakePads([pad(0), pad(1)]);
     const setup = createInputSetup({ gamepads: pads.provider, storage: fakeStorage() });

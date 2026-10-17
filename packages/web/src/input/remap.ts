@@ -51,6 +51,18 @@ export function setDevice(
   return { ...local, devices };
 }
 
+/** Override a slot's button bindings (undefined = inherit the default). */
+export function setPlayerBindings(
+  local: LocalInputConfig,
+  slot: number,
+  bindings: PlayerBindings | undefined,
+): LocalInputConfig {
+  if (slot < 0 || slot >= PLAYER_SLOTS) return local;
+  const players = [...local.players];
+  players[slot] = bindings;
+  return { ...local, players };
+}
+
 /** Drop every override for a slot, returning it to the host/default config. */
 export function resetSlot(
   local: LocalInputConfig,
