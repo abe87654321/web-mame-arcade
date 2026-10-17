@@ -44,9 +44,10 @@ bool s_active = false;
 // Set by netplay_enable() even before the machine exists, so a netplay build
 // can be armed at load and activated on the first main-loop tick (docs/03).
 bool s_arm_requested = false;
-// T40: while true, screen updates skip the driver's draw (video.h's
-// skip_this_frame consults this). Re-simulating already-shown frames does not
-// need to redraw them; the corrected final frame is rendered explicitly.
+// T40: while true, the main loop skips OSD presentation for frames that
+// rollback is re-simulating (the player has already seen them). The driver's
+// draw still runs, because screen partial-update state is part of the save
+// buffer (and therefore the cross-peer hash).
 bool s_silent = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
@@ -235,20 +236,37 @@ void netplay_set_silent(int on)
 
 
 //-------------------------------------------------
+//  netplay_present_frame - commit textures + OSD
+//  for the current frame
+//
+//  Presentation only: unlike video_manager::frame_update this does not touch
+//  inputs, notifiers or throttling, so calling it once per stepped frame is
+//  not part of the emulation timeline and cannot alter determinism.
+//-------------------------------------------------
+
+void netplay_present_frame()
+{
+	running_machine *machine = current_machine();
+	if (machine != nullptr)
+		machine->video().present_frame();
+}
+
+
+//-------------------------------------------------
 //  netplay_render_now - draw the corrected current
 //  frame after a silent re-simulation (T40)
 //-------------------------------------------------
 
 void netplay_render_now()
 {
-	running_machine *machine = current_machine();
-	if (machine == nullptr)
+	if (current_machine() == nullptr)
 		return;
 	bool const was_silent = s_silent;
 	s_silent = false;
-	for (screen_device &screen : screen_device_enumerator(machine->root_device()))
-		screen.update_now();
-	machine->video().frame_update();
+	// The last re-simulated frame already drew its screen; only commit/present
+	// the texture. Do not call update_now() here: partial-scan state is part of
+	// the save buffer and must not depend on when presentation happens.
+	netplay_present_frame();
 	s_silent = was_silent;
 }
 

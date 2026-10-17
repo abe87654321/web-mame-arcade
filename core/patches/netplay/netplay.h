@@ -56,6 +56,7 @@ NETPLAY_API int      netplay_debug_state(uint8_t *out, int maxlen);
 // Internal hooks used by the patched emulation core (machine.cpp, ioport.cpp).
 bool netplay_input_active();
 bool netplay_is_silent();
+void netplay_present_frame();
 uint32_t netplay_next_frame();
 bool netplay_try_run_frame(running_machine &machine, uint32_t frame);
 

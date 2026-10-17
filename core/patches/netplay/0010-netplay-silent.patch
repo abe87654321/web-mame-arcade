@@ -1,21 +1,37 @@
+diff --git a/src/emu/video.cpp b/src/emu/video.cpp
+index 7d63bf91..58e5252c 100644
+--- a/src/emu/video.cpp
++++ b/src/emu/video.cpp
+@@ -213,6 +213,18 @@ void video_manager::set_frameskip(int frameskip)
+ //  operations
+ //-------------------------------------------------
+ 
++void video_manager::present_frame()
++{
++	// Commit the textures/quads for the frame that has already been drawn by
++	// the emulation step, then ask the OSD to present. Deliberately does not
++	// call finish_screen_updates(): that can run screen_update, and the screen
++	// partial-scan state is part of the save buffer / cross-peer hash.
++	for (device_video_output_interface &output : video_output_interface_enumerator(machine().root_device()))
++		output.video_output_update();
++	machine().osd().update(false);
++}
++
++
+ void video_manager::frame_update(bool from_debugger)
+ {
+ 	// only render sound and video if we're in the running phase
 diff --git a/src/emu/video.h b/src/emu/video.h
-index af9048cf..1750c710 100644
+index af9048cf..c93ad821 100644
 --- a/src/emu/video.h
 +++ b/src/emu/video.h
-@@ -14,6 +14,7 @@
- #define MAME_EMU_VIDEO_H
+@@ -66,6 +66,9 @@ public:
  
- #include "recording.h"
-+#include "netplay.h"
+ 	// render a frame
+ 	void frame_update(bool from_debugger = false);
++	/// Commit screen textures and ask the OSD to present them. Presentation
++	/// only: no input, notifier or throttle side effects (T40 rollback).
++	void present_frame();
  
- #include <system_error>
- 
-@@ -43,7 +44,7 @@ public:
- 
- 	// getters
- 	running_machine &machine() const { return m_machine; }
--	bool skip_this_frame() const { return m_skipping_this_frame; }
-+	bool skip_this_frame() const { return m_skipping_this_frame || netplay_is_silent(); }
- 	int speed_factor() const { return m_speed; }
- 	int frameskip() const { return m_auto_frameskip ? -1 : m_frameskip_level; }
- 	bool throttled() const { return m_throttled; }
+ 	// current speed helpers
+ 	std::string speed_text();

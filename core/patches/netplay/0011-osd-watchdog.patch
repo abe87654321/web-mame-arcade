@@ -1,0 +1,26 @@
+diff --git a/src/osd/modules/lib/osdobj_common.cpp b/src/osd/modules/lib/osdobj_common.cpp
+index 9625bae6..fcdc143f 100644
+--- a/src/osd/modules/lib/osdobj_common.cpp
++++ b/src/osd/modules/lib/osdobj_common.cpp
+@@ -25,6 +25,9 @@
+ #include "watchdog.h"
+ 
+ #include "emu.h"
++
++// Implemented in src/emu/netplay.cpp; avoids pulling the emu header into OSD.
++bool netplay_input_active();
+ #include "../frontend/mame/ui/menuitem.h"
+ 
+ #include <iostream>
+@@ -489,7 +492,10 @@ void osd_common_t::update(bool skip_redraw)
+ 	// or games with asynchronous updates).
+ 	//
+ 	m_output->update();
+-	if (m_watchdog != nullptr)
++	// Presentation is local and can happen at different times on different
++	// peers. Never let it reset the emulated watchdog: that would make the
++	// machine state depend on local render timing (netplay rollback, T40).
++	if (m_watchdog != nullptr && !netplay_input_active())
+ 		m_watchdog->reset();
+ }
+ 
