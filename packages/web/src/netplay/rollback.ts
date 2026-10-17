@@ -1,0 +1,385 @@
+/**
+ * Rollback netplay loop (T40, docs/03-netplay-protocol.md). Unlike delay-based
+ * lockstep, a missing remote input does not stall the match: the loop predicts
+ * it from that player's last confirmed mask, steps ahead, and rewinds when the
+ * real packet arrives.
+ *
+ * Invariants:
+ * - Only `core.step(frame, inputs)` advances the machine. Prediction changes
+ *   *when* a frame runs, never which inputs it ends up with.
+ * - A frame can be corrected only while its predecessor's snapshot is still in
+ *   the ring, so the loop never runs more than `window` frames ahead of the
+ *   slowest confirmed peer. This keeps every late packet recoverable.
+ * - Hashes are reported only for frames that can no longer be corrected. The
+ *   relay drops stale frames (`frame < hashFrame`), so a predicted hash for a
+ *   still-correctable frame could trigger a false desync.
+ * - The injected clock is used for the wait UX and the local over-load meter
+ *   only; it never reaches the emulation path.
+ */
+import { MAX_FRAMES } from "@wma/protocol";
+import type { Core, FrameInputs } from "../core/types";
+import { applyPacket, buildInputPacket, createFrameTable } from "./inputs";
+import type { LockstepStatus, NetplayLoop } from "./lockstep";
+
+export interface RollbackDeps {
+  /** The loop owns the frame clock; snapshots make corrections possible. */
+  core: Pick<Core, "step" | "save" | "load">;
+  mySlot: number;
+  players: readonly number[];
+  /** Local input delay D in frames; the host announces it in `game.start`. */
+  inputDelay: number;
+  /** First frame to simulate; 0 for a fresh boot. */
+  startFrame: number;
+  /** Send one encoded packet to every peer and to the relay. */
+  sendInput: (packet: Uint8Array) => void;
+  /** Milliseconds clock for the wait timer only. */
+  now: () => number;
+  /** Status transitions ("waiting"/"running"); never called every tick. */
+  onStatus?: (status: LockstepStatus) => void;
+  /** CRC32 of the machine state at the frame just stepped. */
+  hash?: () => number;
+  /** Report a hash every this many frames; default 60. */
+  hashInterval?: number;
+  /** Receives `(frame, crc32)` once the frame can no longer be corrected. */
+  onHash?: (frame: number, crc32: number) => void;
+  /** Report "waiting" after this many ms without progress. */
+  waitTimeoutMs?: number;
+  /** Called once when the loop stalls (prediction budget exhausted). */
+  onStall?: (frame: number) => void;
+  /** Called when a stall persists past `stallEscalateMs`. */
+  onStallEscalate?: (frame: number) => void;
+  /** Escalate a still-stalled loop after this many ms; default 6000. */
+  stallEscalateMs?: number;
+  /** Cap how far the local schedule may run ahead of the simulation. */
+  maxLookahead?: number;
+  /**
+   * Correctable-frame window, 2..8; default 8. A smaller window costs less CPU
+   * (fewer frames to re-simulate) but tolerates less jitter.
+   */
+  window?: number;
+  /** Refuse to start when the ring would exceed this many bytes; default 64 MiB. */
+  maxMemoryBytes?: number;
+}
+
+export interface RollbackStats {
+  /** Number of rewinds performed. */
+  rollbacks: number;
+  /** Number of slot/frame inputs that were predicted (including re-sims). */
+  predictions: number;
+  /** Set when the loop gave up predicting for the rest of the match (T40). */
+  degraded: boolean;
+  /** Exponentially weighted per-frame rollback cost in ms (local telemetry). */
+  emaCostMs: number;
+}
+
+export interface RollbackLoop extends NetplayLoop {
+  stats(): RollbackStats;
+}
+
+const DEFAULT_WAIT_TIMEOUT_MS = 2000;
+const DEFAULT_MAX_LOOKAHEAD = 256;
+const DEFAULT_HASH_INTERVAL = 60;
+const DEFAULT_STALL_ESCALATE_MS = 6000;
+const DEFAULT_WINDOW = 8;
+const MIN_WINDOW = 2;
+const MAX_WINDOW = 8;
+const DEFAULT_MAX_MEMORY_BYTES = 64 * 1024 * 1024;
+
+interface Snapshot {
+  /** Last stepped frame this state belongs to. */
+  frame: number;
+  state: Uint8Array;
+}
+
+export function createRollback(deps: RollbackDeps): RollbackLoop {
+  const { core, mySlot, players, inputDelay, startFrame, sendInput, now } = deps;
+  const waitTimeoutMs = deps.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+  const maxLookahead = deps.maxLookahead ?? DEFAULT_MAX_LOOKAHEAD;
+  const hashInterval = deps.hashInterval ?? DEFAULT_HASH_INTERVAL;
+  const stallEscalateMs = deps.stallEscalateMs ?? DEFAULT_STALL_ESCALATE_MS;
+  const window = Math.min(
+    MAX_WINDOW,
+    Math.max(MIN_WINDOW, Math.floor(deps.window ?? DEFAULT_WINDOW)),
+  );
+  const maxMemoryBytes = deps.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES;
+
+  const table = createFrameTable(players);
+  const history = new Map<number, FrameInputs>();
+  const ring: Snapshot[] = [];
+  const pendingHashes = new Map<number, number>();
+  const dirty = new Set<number>();
+  /** Masks for consecutive local frames ending at scheduleHead-1 (packet window). */
+  const frames: number[] = [];
+
+  let current = startFrame;
+  let scheduleHead = startFrame + inputDelay;
+  // The delay frames are neutral on every peer, so the first real input lands D
+  // frames after the start without anyone inventing a mask.
+  for (let frame = startFrame; frame < scheduleHead; frame++) {
+    table.set(mySlot, frame, 0);
+    frames.push(0);
+  }
+
+  let boot: Uint8Array;
+  try {
+    boot = core.save();
+  } catch (error) {
+    throw new Error(`rollback unavailable: ${String(error)}`);
+  }
+  if (!boot || boot.length === 0) {
+    throw new Error("rollback unavailable: the core has no save state");
+  }
+  if (boot.length * (window + 2) > maxMemoryBytes) {
+    throw new Error(
+      `rollback memory budget exceeded: ${boot.length} bytes × ${window + 2}`,
+    );
+  }
+  ring.push({ frame: startFrame - 1, state: boot });
+
+  let status: LockstepStatus = "running";
+  let waitSince: number | null = null;
+  let lastEscalateAt: number | null = null;
+  let paused = false;
+  const stats: RollbackStats = {
+    rollbacks: 0,
+    predictions: 0,
+    degraded: false,
+    emaCostMs: 0,
+  };
+
+  function updateStatus(ready: boolean): void {
+    if (ready) {
+      if (waitSince === null) return;
+      waitSince = null;
+      lastEscalateAt = null;
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
+      }
+      return;
+    }
+    if (waitSince === null) {
+      waitSince = now();
+      return;
+    }
+    if (status !== "waiting" && now() - waitSince >= waitTimeoutMs) {
+      status = "waiting";
+      deps.onStatus?.("waiting");
+      deps.onStall?.(current);
+      lastEscalateAt = now();
+      return;
+    }
+    if (status === "waiting") {
+      const at = now();
+      if (lastEscalateAt === null) lastEscalateAt = at;
+      if (at - lastEscalateAt >= stallEscalateMs) {
+        lastEscalateAt = at;
+        deps.onStallEscalate?.(current);
+      }
+    }
+  }
+
+  /** Newest confirmed frame for `player` before `frame`; `startFrame - 1` if none. */
+  function lastConfirmedFrame(player: number, frame: number): number {
+    const floor = Math.max(startFrame - 1, frame - 1 - window);
+    for (let candidate = frame - 1; candidate >= floor; candidate--) {
+      if (table.has(player, candidate)) return candidate;
+    }
+    return startFrame - 1;
+  }
+
+  /** True once every peer is confirmed or within the prediction window. */
+  function canStep(frame: number): boolean {
+    for (const player of players) {
+      if (table.has(player, frame)) continue;
+      if (frame - lastConfirmedFrame(player, frame) > window) return false;
+    }
+    return true;
+  }
+
+  /** Inputs for `frame`: confirmed masks, otherwise last-confirmed prediction. */
+  function resolve(frame: number): { inputs: FrameInputs; predicted: number } {
+    const inputs: number[] = [];
+    let predicted = 0;
+    for (let slot = 0; slot < 4; slot++) {
+      let value = 0;
+      if (players.includes(slot)) {
+        const confirmed = table.at(slot, frame);
+        if (confirmed === undefined) {
+          value = table.lastBefore(slot, frame) ?? 0;
+          predicted += 1;
+        } else {
+          value = confirmed;
+        }
+      }
+      inputs.push(value);
+    }
+    return {
+      inputs: inputs as unknown as FrameInputs,
+      predicted,
+    };
+  }
+
+  function savePoint(frame: number): void {
+    ring.push({ frame, state: core.save() });
+    // Keep the point for `current - window - 1`: it is the earliest state a
+    // still-correctable frame may need.
+    const oldest = current - window - 1;
+    while (ring.length > 0 && ring[0]!.frame < oldest) ring.shift();
+  }
+
+  function noteHash(frame: number): void {
+    if (!deps.hash || !deps.onHash) return;
+    if (frame <= 0 || frame % hashInterval !== 0) return;
+    pendingHashes.set(frame, deps.hash());
+  }
+
+  function flushHashes(): void {
+    if (!deps.onHash) return;
+    const framesToSend = [...pendingHashes.keys()].sort((a, b) => a - b);
+    for (const frame of framesToSend) {
+      // Final once no snapshot for frame - 1 is retained: the earliest
+      // rewind target is `current - window`.
+      if (frame > current - window - 1) break;
+      deps.onHash(frame, pendingHashes.get(frame)!);
+      pendingHashes.delete(frame);
+    }
+  }
+
+  function stepFrame(frame: number): void {
+    const { inputs, predicted } = resolve(frame);
+    core.step(frame, inputs);
+    history.set(frame, inputs);
+    stats.predictions += predicted;
+    current = frame + 1;
+    savePoint(frame);
+    noteHash(frame);
+  }
+
+  /** Find the earliest dirty frame whose re-simulated inputs would change. */
+  function earliestMismatch(): number | null {
+    let earliest: number | null = null;
+    for (const frame of dirty) {
+      if (frame > current - 1) continue;
+      const used = history.get(frame);
+      if (!used) continue;
+      for (const player of players) {
+        const actual = table.at(player, frame);
+        if (actual !== undefined && actual !== used[player]) {
+          if (earliest === null || frame < earliest) earliest = frame;
+          break;
+        }
+      }
+    }
+    return earliest;
+  }
+
+  /** Rewind to `frame - 1` and re-simulate through the last stepped frame. */
+  function rewindTo(frame: number): void {
+    const target = frame - 1;
+    const point = ring.find((snapshot) => snapshot.frame === target);
+    if (!point) return;
+    const lastStepped = current - 1;
+    core.load(point.state, point.frame);
+    current = frame;
+    // Drop snapshots and hashes from the abandoned timeline; the replay below
+    // rebuilds them from `frame` on.
+    while (ring.length > 0 && ring[ring.length - 1]!.frame >= target) ring.pop();
+    ring.push(point);
+    for (const pending of [...pendingHashes.keys()]) {
+      if (pending >= frame) pendingHashes.delete(pending);
+    }
+    for (let at = frame; at <= lastStepped; at++) stepFrame(at);
+    stats.rollbacks += 1;
+  }
+
+  function reconcile(): void {
+    if (dirty.size === 0) return;
+    const earliest = earliestMismatch();
+    if (earliest !== null) rewindTo(earliest);
+    // Frames whose confirmed value already matches (or that are now in the
+    // past and were covered by the replay) carry no further work.
+    dirty.clear();
+  }
+
+  return {
+    tick(localMask: number): void {
+      if (paused) return;
+      reconcile();
+      if (scheduleHead - current < maxLookahead) {
+        const mask = localMask & 0xffff;
+        if (table.set(mySlot, scheduleHead, mask)) frames.push(mask);
+        scheduleHead += 1;
+      }
+      if (frames.length > 0) {
+        sendInput(
+          buildInputPacket({
+            player: mySlot,
+            // Informational: rollback needs actual frames, not a per-peer ack.
+            ackFrame: Math.max(0, current - 1),
+            frames,
+            endFrame: scheduleHead - 1,
+          }),
+        );
+        if (frames.length > MAX_FRAMES) {
+          frames.splice(0, frames.length - MAX_FRAMES);
+        }
+      }
+
+      while (current < scheduleHead && canStep(current)) stepFrame(current);
+      flushHashes();
+      const stalled = current < scheduleHead && !canStep(current);
+      updateStatus(!stalled);
+    },
+
+    onBytes(bytes: Uint8Array): void {
+      try {
+        const packet = applyPacket(table, bytes, mySlot);
+        if (packet.player !== mySlot) {
+          packet.inputs.forEach((_value, i) => dirty.add(packet.firstFrame + i));
+        }
+      } catch {
+        // Malformed or foreign-version packets are dropped.
+      }
+    },
+
+    resync(frame: number, state?: Uint8Array): void {
+      current = frame + 1;
+      table.clear(current);
+      history.clear();
+      pendingHashes.clear();
+      dirty.clear();
+      frames.length = 0;
+      scheduleHead = current;
+      ring.splice(0, ring.length, { frame, state: state ?? core.save() });
+      waitSince = null;
+      lastEscalateAt = null;
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
+      }
+    },
+
+    pause(): void {
+      paused = true;
+      waitSince = null;
+      lastEscalateAt = null;
+    },
+
+    resume(): void {
+      paused = false;
+      waitSince = null;
+      lastEscalateAt = null;
+      if (status === "waiting") {
+        status = "running";
+        deps.onStatus?.("running");
+      }
+    },
+
+    paused: () => paused,
+    frame: () => current,
+    scheduledFrame: () => scheduleHead,
+    status: () => status,
+    stats: () => ({ ...stats }),
+  };
+}

@@ -63,7 +63,11 @@ export interface LockstepDeps {
   maxLookahead?: number;
 }
 
-export interface Lockstep {
+/**
+ * The loop surface shared by delay-based lockstep and rollback (T40). Both own
+ * the frame clock and drive `core.step`; the match only depends on this shape.
+ */
+export interface NetplayLoop {
   /**
    * One animation tick: schedule the freshly sampled local mask for this
    * browser's own slot, send, and advance every ready frame.
@@ -74,8 +78,10 @@ export interface Lockstep {
   /**
    * Resume after the machine was restored to the state at `frame` (desync
    * recovery, T25). Drops the stepped history and continues from `frame + 1`.
+   * `state` is the restored snapshot when the caller already holds it (T40);
+   * lockstep ignores it.
    */
-  resync(frame: number): void;
+  resync(frame: number, state?: Uint8Array): void;
   /** The next frame to simulate. */
   frame(): number;
   /**
@@ -97,6 +103,9 @@ export interface Lockstep {
   /** Whether the loop is currently paused. */
   paused(): boolean;
 }
+
+/** Delay-based lockstep loop (T24): waits for every input before stepping. */
+export interface Lockstep extends NetplayLoop {}
 
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_MAX_LOOKAHEAD = 256;
