@@ -27,6 +27,11 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
 - [x] **T11 Core wrapper** – `web/src/core/` typed `Core` interface (load, step, save, load, hash, readScore) around the
   stock WASM build; ROM zip mounted into FS. Docs: 02. Depends: T10.
 - [x] **T12 Input layer** – keyboard + Gamepad API → 16-bit mask per contract; remapping UI. Docs: contracts/input-packet. Depends: T11.
+  Note: the remapping UI was only a module until T52 wired it into the app (`input/setup.ts`): the play
+  page now has a **Controls** panel, gamepads hot-plug and persist per browser, and a freshly connected
+  pad takes **P1** while P1 is still the default keyboard (otherwise the lowest free slot). P2–P4 are
+  gamepads; there is no keyboard binding for P2 because one device serves one slot, and in netplay each
+  player is a separate browser/token (not a key).
 - [x] **T13 Game page + catalogue** – game list from a static JSON, play page, Nginx dev config with COOP/COEP. Depends: T11.
 
 ## Phase 2 · Two-player lockstep
@@ -168,7 +173,22 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   and `pnpm --filter @wma/e2e test:e2e -g boot`; commit. Docs: 02, 03, 05, contracts/scoremap. Depends:
   T49, T46 (save-integrity gate), T47. Helper: `core/onboard-game.mjs`
   (`core/test/onboard-game.test.mjs`).
-  Note: currently pending intake — `commando`, `geminij`, `gwar`, `jackal`, `rygar`, `tankfrce`, `tigerh`.
+  Note: onboarded all seven — `commando`, `jackal`, `rygar`, `tankfrce`, `geminij` (split clone;
+  `extraRomZips` mounts the parent `gemini.zip`) and `tigerh` (device ROM; `extraRomZips` mounts
+  `m68705p5.zip`) as lockstep (ROM + save-integrity OK), plus `gwar` solo-only (MAME omits
+  `MACHINE_SUPPORTS_SAVE`). The `extraRomZips` catalogue field (parent set / bios·device ROM mounted
+  by name under `-rompath`) is the general fix for clones and MCU-bearing drivers. Netplay reliability
+  of the new lockstep drivers is tracked by T53.
+- [ ] **T53 Cross-peer lockstep is intermittent (reliability, bug)** – the two-tab `e2e/netplay.e2e.ts`
+  is flaky even for the reference driver: one run had `gridlee`/`jackal` pass while `commando`/`rygar`/
+  `tankfrce`/`gwar` FAILED with repeated `desync` at frames 60/120/180/240, and `raiden` failed once then
+  passed on rerun. A direct two-core probe (two pages, identical `core.step` inputs, compare `hash()`)
+  gave **non-correlating** results (`gridlee`/`commando` equal, `jackal`/`rygar` diverge), so this is a
+  cross-peer **frame-0/arming alignment race** in the delay-lockstep, not a per-driver emulation bug
+  (`e2e/save-integrity.e2e.ts` PASSes for every one of them single-instance). Impact: constant
+  `stall-escalate` resyncs → stutter, and it does not scale to >2 players. Fix path: a deterministic
+  start barrier (all peers pinned to a common frame 0 before the gate opens) and **rollback** (T40);
+  re-run the two-tab e2e as the gate. Docs: 03, 04. Depends: T24, T25, T29, T40.
 - [x] **T49 follow-up · raiden/raiden2 netplay re-enabled** – the T46 "raiden/raiden2 `Core.save()`
   throws" finding was a downstream symptom of the bad ROMs (T49): MAME never started, so
   `netplay_state_size()` returned 0. With the corrected 0.289 sets, `Core.save()` returns 330 KB / 1.3 MB

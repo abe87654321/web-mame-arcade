@@ -89,6 +89,21 @@ describe("parseCatalogue", () => {
   it("rejects duplicate drivers so lookups stay unambiguous", () => {
     expect(() => parseCatalogue([valid(), valid()])).toThrow(/duplicate/);
   });
+
+  it("accepts and preserves extraRomZips (parent/device ROMs)", () => {
+    const extra = [{ url: "/roms/gemini.zip", name: "gemini.zip" }];
+    const parsed = parseCatalogue([valid({ extraRomZips: extra })]);
+    expect(parsed[0]?.extraRomZips).toEqual(extra);
+  });
+
+  it("rejects a malformed extraRomZips entry", () => {
+    expect(() => parseCatalogue([valid({ extraRomZips: "gemini.zip" })])).toThrow(
+      /extraRomZips/,
+    );
+    expect(() =>
+      parseCatalogue([valid({ extraRomZips: [{ url: "" }] })]),
+    ).toThrow(/extraRomZips\[0\]\.url/);
+  });
 });
 
 describe("committed catalogue (packages/web/public/games.json)", () => {
@@ -108,20 +123,48 @@ describe("committed catalogue (packages/web/public/games.json)", () => {
       "raiden",
       "raiden2",
       "twincobr",
+      "commando",
+      "jackal",
+      "rygar",
+      "tankfrce",
+      "gwar",
+      "geminij",
+      "tigerh",
     ]);
   });
 
   it("marks the commercial ROMs unlicensed for local-dev only", () => {
-    for (const driver of ["twinbee", "raiden", "raiden2", "twincobr"]) {
+    for (const driver of [
+      "twinbee",
+      "raiden",
+      "raiden2",
+      "twincobr",
+      "commando",
+      "jackal",
+      "rygar",
+      "tankfrce",
+      "gwar",
+    ]) {
       expect(findGame(games, driver)?.romLicensed).toBe(false);
     }
     expect(findGame(games, "gridlee")?.romLicensed).toBe(true);
   });
 
-  it("catalogues twincobr as solo-only (no MACHINE_SUPPORTS_SAVE)", () => {
-    const twinCobra = findGame(games, "twincobr");
-    expect(twinCobra?.supportsSave).toBe(false);
-    expect(twinCobra?.netplayMode).toBe("none");
+  it("catalogues twincobr and gwar as solo-only (no MACHINE_SUPPORTS_SAVE)", () => {
+    for (const driver of ["twincobr", "gwar"]) {
+      const entry = findGame(games, driver);
+      expect(entry?.supportsSave).toBe(false);
+      expect(entry?.netplayMode).toBe("none");
+    }
+  });
+
+  it("geminij mounts its parent set and tigerh its device ROM", () => {
+    expect(findGame(games, "geminij")?.extraRomZips).toEqual([
+      { url: "/roms/gemini.zip", name: "gemini.zip" },
+    ]);
+    expect(findGame(games, "tigerh")?.extraRomZips).toEqual([
+      { url: "/roms/m68705p5.zip", name: "m68705p5.zip" },
+    ]);
   });
 });
 

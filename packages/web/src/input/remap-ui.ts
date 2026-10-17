@@ -2,11 +2,15 @@ import { PLAYER_SLOTS, type Button } from "@wma/protocol";
 import { type ViewNode } from "../ui/view";
 import {
   ALL_BUTTONS,
+  DEFAULT_GAMEPAD_BINDINGS,
+  DEFAULT_KEYBOARD_BINDINGS,
+  mergeBindings,
   resolveInputConfig,
   type Binding,
   type InputConfig,
   type InputDevice,
   type LocalInputConfig,
+  type PlayerBindings,
 } from "./bindings";
 import { findConflicts, type Conflict } from "./devices";
 import {
@@ -14,6 +18,7 @@ import {
   resetSlot,
   saveLocalConfig,
   setDevice,
+  setPlayerBindings,
   type StorageLike,
 } from "./remap";
 
@@ -71,7 +76,7 @@ export interface RemapUi {
   setDevice(slot: number, device: InputDevice | null): void;
   assignKeyboard(slot: number): void;
   resetSlot(slot: number): void;
-  connectGamepad(index: number): void;
+  connectGamepad(index: number, preferredSlot?: number): void;
   disconnectGamepad(index: number): void;
   view(): ViewNode;
 }
@@ -87,6 +92,36 @@ export function createRemapUi(
   let capture: CaptureTarget | null = null;
 
   const config = (): InputConfig => resolveInputConfig(hostDefault, overrides);
+
+  // A slot's device and its button bindings must agree. The base config has
+  // keyboard bindings on slot 0 and gamepad bindings on slots 1-3, so swapping
+  // only the device would leave a pad feeding *keyboard* bindings (no input at
+  // all). Assigning a device also selects that device kind's default bindings.
+  // A gamepad slot keeps the keyboard bindings too, so keyboard and pad work
+  // together (the sampler ORs both); see sample.ts.
+  const bindingsFor = (device: InputDevice | null): PlayerBindings | undefined =>
+    device === null
+      ? undefined
+      : device.kind === "keyboard"
+        ? DEFAULT_KEYBOARD_BINDINGS
+        : mergeBindings(DEFAULT_KEYBOARD_BINDINGS, DEFAULT_GAMEPAD_BINDINGS);
+  const assignDevice = (slot: number, device: InputDevice | null): void => {
+    // A physical pad belongs to exactly one slot: assigning it here takes it
+    // from wherever it was (and that slot reverts to its default). This makes
+    // "move gamepad 0 to P1" one click instead of clear-then-assign.
+    if (device?.kind === "gamepad") {
+      const resolved = config();
+      for (let other = 0; other < PLAYER_SLOTS; other++) {
+        if (other === slot) continue;
+        const d = resolved.devices[other];
+        if (d?.kind === "gamepad" && d.index === device.index) {
+          overrides = resetSlot(overrides, other);
+        }
+      }
+    }
+    overrides = setDevice(overrides, slot, device);
+    overrides = setPlayerBindings(overrides, slot, bindingsFor(device));
+  };
 
   const commit = (): void => {
     if (options.storage) saveLocalConfig(options.storage, overrides);
@@ -122,27 +157,24 @@ export function createRemapUi(
     return Array.from({ length: PLAYER_SLOTS }, (_, slot) => {
       const device = resolved.devices[slot] ?? null;
       const bindings = resolved.players[slot];
-      const assignedPads = new Set(
-        resolved.devices
-          .filter(
-            (d): d is { kind: "gamepad"; index: number } =>
-              d?.kind === "gamepad",
-          )
-          .map((d) => d.index),
-      );
+      const currentPad = device?.kind === "gamepad" ? device.index : null;
+      // Every connected pad is listed for every slot: clicking one moves it
+      // here (removing it from its previous slot), so a pad mistakenly placed on
+      // P2 can be moved to P1 in one click.
       const controls: ViewNode[] = [
         {
           tag: "button",
           text: "use keyboard",
           onClick: () => ui.assignKeyboard(slot),
         },
-        ...pads
-          .filter((index) => !assignedPads.has(index))
-          .map((index) => ({
-            tag: "button",
-            text: `assign gamepad ${index}`,
-            onClick: () => ui.setDevice(slot, { kind: "gamepad", index }),
-          })),
+        ...pads.map((index) => ({
+          tag: "button",
+          text:
+            index === currentPad
+              ? `gamepad ${index} (current)`
+              : `assign gamepad ${index}`,
+          onClick: () => ui.setDevice(slot, { kind: "gamepad", index }),
+        })),
         { tag: "button", text: "clear", onClick: () => ui.setDevice(slot, null) },
         { tag: "button", text: "reset", onClick: () => ui.resetSlot(slot) },
       ];
@@ -193,7 +225,7 @@ export function createRemapUi(
     },
     captureBinding: applyBinding,
     setDevice: (slot, device) => {
-      overrides = setDevice(overrides, slot, device);
+      assignDevice(slot, device);
       commit();
     },
     assignKeyboard: (slot) => {
@@ -203,7 +235,7 @@ export function createRemapUi(
       overrides = resetSlot(overrides, slot);
       commit();
     },
-    connectGamepad: (index) => {
+    connectGamepad: (index, preferredSlot) => {
       if (pads.includes(index)) return;
       pads = [...pads, index];
       const resolved = config();
@@ -211,12 +243,19 @@ export function createRemapUi(
         (d) => d?.kind === "gamepad" && d.index === index,
       );
       if (!known) {
-        const free = resolved.devices.indexOf(null);
-        if (free !== -1) {
-          overrides = setDevice(overrides, free, {
-            kind: "gamepad",
-            index,
-          });
+        // A caller-provided slot (e.g. P1 for a fresh joystick) wins unless it
+        // already holds a different gamepad; otherwise fill the lowest free one.
+        const preferredOk =
+          preferredSlot !== undefined &&
+          preferredSlot >= 0 &&
+          preferredSlot < PLAYER_SLOTS &&
+          resolved.devices[preferredSlot]?.kind !== "gamepad";
+        const slot =
+          preferredOk && preferredSlot !== undefined
+            ? preferredSlot
+            : resolved.devices.indexOf(null);
+        if (slot !== -1) {
+          assignDevice(slot, { kind: "gamepad", index });
         }
       }
       status = `gamepad ${index} connected`;
@@ -228,7 +267,7 @@ export function createRemapUi(
       const resolved = config();
       resolved.devices.forEach((device, slot) => {
         if (device?.kind === "gamepad" && device.index === index) {
-          overrides = setDevice(overrides, slot, null);
+          assignDevice(slot, null);
         }
       });
       status = `gamepad ${index} disconnected`;
@@ -266,6 +305,15 @@ export function createRemapUi(
         tag: "div",
         className: "remap",
         children: [
+          {
+            tag: "p",
+            className: "help",
+            text:
+              "Online, each browser is one player. Keyboard and gamepad work " +
+              "together. Coin: key 5 or pad Select; start: key 1 or pad Start. " +
+              "To fix a pad whose buttons/axes differ: click 'rebind', then press " +
+              "that control on the pad (or key) to capture it.",
+          },
           { tag: "p", className: "status", text: status },
           ...captureNode,
           ...conflictNodes,

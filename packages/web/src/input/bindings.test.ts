@@ -36,15 +36,17 @@ describe("default bindings", () => {
     ]);
   });
 
-  it("maps the standard gamepad layout", () => {
+  it("maps the standard gamepad layout (stick + D-pad)", () => {
     expect(DEFAULT_GAMEPAD_BINDINGS.b1).toEqual([
       { kind: "gamepadButton", index: 0 },
     ]);
     expect(DEFAULT_GAMEPAD_BINDINGS.up).toEqual([
       { kind: "gamepadAxis", axis: 1, dir: "-" },
+      { kind: "gamepadButton", index: 12 },
     ]);
     expect(DEFAULT_GAMEPAD_BINDINGS.right).toEqual([
       { kind: "gamepadAxis", axis: 0, dir: "+" },
+      { kind: "gamepadButton", index: 15 },
     ]);
     expect(DEFAULT_GAMEPAD_BINDINGS.start).toEqual([
       { kind: "gamepadButton", index: 9 },

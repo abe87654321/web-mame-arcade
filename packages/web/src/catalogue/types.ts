@@ -7,6 +7,17 @@
 
 export type NetplayMode = "none" | "lockstep" | "rollback";
 
+/**
+ * A ROM zip MAME needs in addition to the driver's own zip: the parent set of a
+ * clone (e.g. `gemini.zip` for `geminij`) or a required device/bios ROM (e.g.
+ * `m68705p5.zip` for `tigerh`). `name` must match the MAME set name because
+ * MAME selects sets by the zip's base name under `-rompath`.
+ */
+export interface RomZipRef {
+  url: string;
+  name: string;
+}
+
 export interface GameEntry {
   /** MAME driver name, e.g. "gridlee". Unique across the catalogue. */
   driver: string;
@@ -25,4 +36,9 @@ export interface GameEntry {
   coreBaseUrl: string;
   /** URL of the ROM zip mounted into the core. */
   romZipUrl: string;
+  /**
+   * Extra zips MAME needs (parent set / device ROM); mounted alongside
+   * `romZipUrl` under `-rompath`. Omitted when the game is a self-contained set.
+   */
+  extraRomZips?: readonly RomZipRef[];
 }

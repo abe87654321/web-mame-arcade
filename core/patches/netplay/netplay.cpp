@@ -66,13 +66,29 @@ running_machine *current_machine()
 #endif
 }
 
+// Which wire player slot a field belongs to. Controller types use the player
+// set by PORT_PLAYER; start/coin are numbered per player in the TYPE
+// (IPT_START1..10 / IPT_COIN1..12), because some drivers (e.g. Konami's
+// KONAMI8_SYSTEM_10 used by jackal) declare START2/COIN2 without PORT_PLAYER,
+// leaving field.player() at 0 — player two then could never coin or start.
+int wire_player(ioport_field &field)
+{
+	ioport_type const type = field.type();
+	if (type >= IPT_START1 && type <= IPT_START10)
+		return int(type) - int(IPT_START1);
+	if (type >= IPT_COIN1 && type <= IPT_COIN12)
+		return int(type) - int(IPT_COIN1);
+	return field.player();
+}
+
 // Map an ioport field to its wire bit, or -1 if it is not a player control.
 int bit_for_field(ioport_field &field)
 {
-	int const player = field.player();
+	ioport_type const type = field.type();
+	int const player = wire_player(field);
 	if (player < 0 || player > 3)
 		return -1;
-	switch (field.type())
+	switch (type)
 	{
 	case IPT_JOYSTICK_UP:    return 0;
 	case IPT_JOYSTICK_DOWN:  return 1;
@@ -86,10 +102,9 @@ int bit_for_field(ioport_field &field)
 	case IPT_BUTTON6:        return 9;
 	default: break;
 	}
-	// Start/coin slots are numbered per player (IPT_START1..4 / IPT_COIN1..4).
-	if (field.type() == ioport_type(IPT_START1 + player))
+	if (type == ioport_type(IPT_START1 + player))
 		return 10;
-	if (field.type() == ioport_type(IPT_COIN1 + player))
+	if (type == ioport_type(IPT_COIN1 + player))
 		return 11;
 	return -1;
 }
@@ -109,9 +124,10 @@ void build_bindings(running_machine &machine)
 		for (ioport_field &field : fields)
 		{
 			int const bit = bit_for_field(field);
-			if (bit >= 0)
+			int const player = wire_player(field);
+			if (bit >= 0 && player >= 0 && player <= 3)
 			{
-				s_fields[field.player()][bit].push_back(&field);
+				s_fields[player][bit].push_back(&field);
 				s_bound.push_back(&field);
 				ioport_port *p = &field.port();
 				if (std::find(s_ports.begin(), s_ports.end(), p) == s_ports.end())

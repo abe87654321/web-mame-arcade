@@ -10,6 +10,12 @@ export interface BrowserCoreInit {
   coreBaseUrl: string;
   /** URL of the ROM zip for the driver. */
   romZipUrl: string;
+  /**
+   * Extra zips MAME needs beside the driver's own (a clone's parent set, or a
+   * device/bios ROM). Mounted into the same `-rompath`; `name` must be the MAME
+   * set name (the zip base name MAME matches on).
+   */
+  extraRomZips?: readonly { url: string; name: string }[];
   driver: string;
   /** Fixed args from buildMameArgs(). */
   args: readonly string[];
@@ -97,6 +103,16 @@ export async function loadBrowserCore(
   const romZip = new Uint8Array(
     await (await doFetch(init.romZipUrl)).arrayBuffer(),
   );
+  // Parent-set / device ROMs are separate zips MAME looks up by name; fetch and
+  // mount them alongside the game zip so a clone or MCU-bearing driver boots.
+  const extraRoms = await Promise.all(
+    (init.extraRomZips ?? []).map(async (ref) => ({
+      name: ref.name,
+      bytes: new Uint8Array(
+        await (await doFetch(ref.url)).arrayBuffer(),
+      ),
+    })),
+  );
   // The scoremap is optional (T32b): a 404 or a malformed file must not stop the
   // game from booting, so a parse error is logged and the driver just has no
   // live score.
@@ -159,6 +175,14 @@ export async function loadBrowserCore(
               init.romZipName,
               romZip,
             );
+            for (const extra of extraRoms) {
+              mountRom(
+                config as unknown as CoreModule,
+                init.romPath,
+                extra.name,
+                extra.bytes,
+              );
+            }
           } catch (error) {
             abort(error instanceof Error ? error : new Error(String(error)));
             return;

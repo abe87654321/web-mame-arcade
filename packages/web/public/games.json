@@ -2,7 +2,7 @@
   {
     "driver": "gridlee",
     "title": "Gridlee",
-    "coreVersion": "7770b7e94d99ecad988ca840efd100b97457cf1dd1a309929118dada4bfd3ec6",
+    "coreVersion": "6e534d0907da817c795b8a1cb85b48470c7579566a53b9c75975433d3cde28ca",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e",
     "supportsSave": true,
@@ -15,7 +15,7 @@
   {
     "driver": "twinbee",
     "title": "TwinBee",
-    "coreVersion": "6dded98fb171dc9c4d8bfe7eea7266f5d5a60f8099e98776ac8d85eb34799710",
+    "coreVersion": "08cf30164a58914e370288a86075e3610596e7698469437969c0e4ed7fa61fd9",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "2beca5f6c8fe71736b742f154e5ecb1af78dfb98d4bfefa578854ccb6bafd4a8",
     "supportsSave": true,
@@ -28,7 +28,7 @@
   {
     "driver": "raiden",
     "title": "Raiden",
-    "coreVersion": "8789dcfe7525b79bbf2bb0f2605a9ad4769ec1a23716c5696214150306e71759",
+    "coreVersion": "0ef30978914388e32a428cfa80e2539a0b85116dbd9d42d965c17afd0347965a",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "88d477dd0cba42aa441b81c9b137926f145357d6c55ab73c3affa4db3d32e8a8",
     "supportsSave": true,
@@ -41,7 +41,7 @@
   {
     "driver": "raiden2",
     "title": "Raiden II",
-    "coreVersion": "00297b6fbc7f6cbba1b91c8c746b41747164d02d31323add097e1543d9005c42",
+    "coreVersion": "f2ccb057dcb82b27bdc4a4fe6d8f04ce5022c191c321a5cc56c70afdd9bb09dc",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "7186bc00bb7fb6aea90e8892db29e87f1d02ce5c3acefd77a3239a0ca9d4dfc4",
     "supportsSave": true,
@@ -54,7 +54,7 @@
   {
     "driver": "twincobr",
     "title": "Twin Cobra",
-    "coreVersion": "2fd978fb5fadcc85dbbb9f07a6e344f1dd88c40b14a7bc7deee485cc53a5a563",
+    "coreVersion": "fc428e78450160eb25c2bf119f58bdbf4bc6e0e6135482925c9bda32335c4c5b",
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "7bec391859fe08b14f1dc296ad491d5a6291781d7b3924707710aa4ae8521c87",
     "supportsSave": false,
@@ -63,5 +63,108 @@
     "romLicensed": false,
     "coreBaseUrl": "/static/cores/twincobr",
     "romZipUrl": "/roms/twincobr.zip"
+  },
+  {
+    "driver": "commando",
+    "title": "Commando",
+    "coreVersion": "24d9f792b4469b1e3761bd41ff43e1afb24fca0e56210fe89af07bbc4282170c",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "ba945a5f16371a61de226a6a5d8903fb10a46ccb5139bc30bf0517ae50649393",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/commando",
+    "romZipUrl": "/roms/commando.zip"
+  },
+  {
+    "driver": "jackal",
+    "title": "Jackal",
+    "coreVersion": "dd302fdbc1f1d163e060d0daa3718da02d11beddb7ad5851e10654b2c9057b32",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "702e154c35ee94de3a1ce7cec8101f605913b9d0b2140d74941fc28dd6fed91b",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/jackal",
+    "romZipUrl": "/roms/jackal.zip"
+  },
+  {
+    "driver": "rygar",
+    "title": "Rygar",
+    "coreVersion": "54199ffc9c9faddde7cd0bade9f80298588dbdc7a9cdf55873ced396031ab82b",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "880dc3d7d3bea4683e9da12429041af265d504d17662a076cf7b0e53c109dc0a",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/rygar",
+    "romZipUrl": "/roms/rygar.zip"
+  },
+  {
+    "driver": "tankfrce",
+    "title": "Tank Force",
+    "coreVersion": "307611a72a6c60bd5bc4506d12ad5c1b434cff7ea9d4ff8bf3ea415342079259",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "0f9193d4b81eb0d32b4314c49fb535086f6c0c4382309a5b2cd43a8ae6407eda",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/tankfrce",
+    "romZipUrl": "/roms/tankfrce.zip"
+  },
+  {
+    "driver": "gwar",
+    "title": "Guerrilla War",
+    "coreVersion": "ab73ac9673df2d3d2da775532fdd94103294d04b0f33b659b4053a6ad1fe33e4",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "890a4902fe35754860b256e8ff481439cb6cc6434525a3bbdf487e2b8b4672c4",
+    "supportsSave": false,
+    "netplayMode": "none",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/gwar",
+    "romZipUrl": "/roms/gwar.zip"
+  },
+  {
+    "driver": "geminij",
+    "title": "Gemini Wing",
+    "coreVersion": "54199ffc9c9faddde7cd0bade9f80298588dbdc7a9cdf55873ced396031ab82b",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "be6ad4887cccb75ec6ebd6d696154bace41a23488a37ef01cec17ad46c51a8e7",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/geminij",
+    "romZipUrl": "/roms/geminij.zip",
+    "extraRomZips": [
+      {
+        "url": "/roms/gemini.zip",
+        "name": "gemini.zip"
+      }
+    ]
+  },
+  {
+    "driver": "tigerh",
+    "title": "Tiger-Heli",
+    "coreVersion": "7021cb103c1546755ec6c932c7d3243cf26041ff2eed90f47292dd15d982834e",
+    "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
+    "romHash": "259fb2b8b09b5308653a8b8d618d8e678cfbb6bcf6735ea3956d815bd627650f",
+    "supportsSave": true,
+    "netplayMode": "lockstep",
+    "maxPlayers": 2,
+    "romLicensed": false,
+    "coreBaseUrl": "/static/cores/tigerh",
+    "romZipUrl": "/roms/tigerh.zip",
+    "extraRomZips": [
+      {
+        "url": "/roms/m68705p5.zip",
+        "name": "m68705p5.zip"
+      }
+    ]
   }
 ]

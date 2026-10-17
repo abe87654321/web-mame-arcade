@@ -4,8 +4,10 @@ import { gunzip } from "../core";
 import { buildMameArgs } from "../core/options";
 import { loadBrowserCore } from "../core/browser";
 import type { Core } from "../core/types";
-import type { GamepadsProvider } from "../input/gamepad";
+import type { GamepadEventTarget, GamepadsProvider } from "../input/gamepad";
+import { createInputSetup, type InputSetup } from "../input/setup";
 import type { KeyboardTarget } from "../input/keyboard";
+import type { StorageLike } from "../input/remap";
 import {
   browserRtcFactory,
   browserWebSocketFactory,
@@ -79,6 +81,11 @@ export interface AppEnv {
   scheduler: FrameScheduler;
   keyboard: KeyboardTarget;
   gamepads: GamepadsProvider;
+  /**
+   * Per-session input wiring (device assignment + hot-plug + Controls panel);
+   * set by `startApp`. Absent in solo-only tests, which use the default config.
+   */
+  inputSetup?: InputSetup;
   /** Set by `startApp`; absent in solo-only tests. */
   netplay?: NetplayEnv;
   /** Render the dev netplay metrics overlay (T28); set by `startApp` in Dev. */
@@ -196,6 +203,7 @@ export function createApp(deps: AppDeps): AppController {
   let replay: Replay | null = null;
   let replayHandle: number | null = null;
   let detachVisibility: (() => void) | null = null;
+  let inputHudTimer: ReturnType<typeof setInterval> | null = null;
   let token = 0;
 
   const setStatus = (text: string): void => {
@@ -222,6 +230,10 @@ export function createApp(deps: AppDeps): AppController {
   };
 
   const teardown = (): void => {
+    if (inputHudTimer !== null) {
+      clearInterval(inputHudTimer);
+      inputHudTimer = null;
+    }
     detachVisibility?.();
     detachVisibility = null;
     match?.close();
@@ -457,6 +469,36 @@ export function createApp(deps: AppDeps): AppController {
     const screenUi = deps.env.screen ? wrapElement(deps.env.screen) : null;
     if (screenUi) deps.env.root.append(screenUi);
 
+    // Controls panel (T12): assign a keyboard/gamepad per player and rebind
+    // keys. Present on every play route; re-rendered after any in-panel action.
+    const inputSetup = deps.env.inputSetup;
+    if (inputSetup && route.kind === "play") {
+      const panel = deps.env.doc.createElement("div");
+      panel.className = "controls-host";
+      const toggle = deps.env.doc.createElement("button");
+      toggle.className = "controls-toggle";
+      toggle.textContent = "Controls";
+      const body = deps.env.doc.createElement("div");
+      body.className = "controls-body";
+      const rerender = (): void => {
+        body.textContent = "";
+        body.append(renderTree(deps.env.doc, inputSetup.ui.view()));
+      };
+      rerender();
+      toggle.addEventListener("click", () => {
+        body.className =
+          body.className.indexOf("open") === -1
+            ? "controls-body open"
+            : "controls-body";
+      });
+      body.addEventListener("click", () => {
+        setTimeout(rerender, 0);
+      });
+      panel.append(toggle);
+      panel.append(body);
+      deps.env.root.append(panel);
+    }
+
     // The lobby overlay is a fixed-position element the match re-renders from
     // its `onLobby` snapshots (T27); created before the core loads so it can be
     // appended on top of the canvas.
@@ -611,10 +653,44 @@ export function createApp(deps: AppDeps): AppController {
           keyboard: deps.env.keyboard,
           gamepads: deps.env.gamepads,
           onStatus: setStatus,
+          ...(inputSetup ? { inputConfig: () => inputSetup.config() } : {}),
           ...(match ? { lockstep: match } : {}),
           ...(screenUi ? { screen: screenUi } : {}),
         });
         if (!screenUi) deps.env.root.append(play.screen);
+        // DEV-only: expose the sampled per-slot mask so a stuck control (e.g. a
+        // gamepad the browser is not delivering) can be diagnosed from the
+        // console: `__WMA_INPUTS__()` while pressing a button.
+        if (deps.env.devOverlay === true) {
+          const controller = play;
+          (
+            globalThis as unknown as { __WMA_INPUTS__?: () => readonly number[] }
+          ).__WMA_INPUTS__ = () => controller.inputs();
+          // DEV HUD: live per-slot mask + raw gamepad state, so a control that
+          // is not reaching the app can be seen in-game without DevTools.
+          const hud = deps.env.doc.createElement("div");
+          hud.className = "input-hud";
+          deps.env.root.append(hud);
+          inputHudTimer = setInterval(() => {
+            const pads =
+              (
+                globalThis as unknown as {
+                  navigator?: { getGamepads?: () => (Gamepad | null)[] };
+                }
+              ).navigator?.getGamepads?.() ?? [];
+            const padText = Array.from(pads)
+              .filter((p): p is Gamepad => p !== null)
+              .map((p) => {
+                const buttons = Array.from(p.buttons)
+                  .map((b, i) => (b.pressed ? i : -1))
+                  .filter((i) => i >= 0);
+                const axes = Array.from(p.axes).map((v) => Number(v).toFixed(2));
+                return `#${p.index} map=${p.mapping || "-"} btn=[${buttons.join(",")}] ax=[${axes.join(",")}]`;
+              })
+              .join(" ");
+            hud.textContent = `P1..4=${controller.inputs().join(",")} ${padText}`;
+          }, 100);
+        }
       })
       .catch((error: unknown) => {
         if (myToken !== token) return;
@@ -709,6 +785,7 @@ function browserCoreLoader(entry: GameEntry, options: LoadCoreOptions): Promise<
   return loadBrowserCore({
     coreBaseUrl: coreDirUrl(entry),
     romZipUrl: entry.romZipUrl,
+    ...(entry.extraRomZips ? { extraRomZips: entry.extraRomZips } : {}),
     driver: entry.driver,
     args: buildMameArgs({ driver: entry.driver, romPath, sessionPath }),
     romPath,
@@ -787,6 +864,19 @@ export function installAudioUnlock(win: Window): void {
   win.addEventListener("keydown", unlock);
 }
 
+/** localStorage if it is usable (private mode / disabled storage throws). */
+function safeStorage(win: Window): StorageLike | undefined {
+  try {
+    const storage = win.localStorage;
+    const probe = "__wma_probe__";
+    storage.setItem(probe, "1");
+    storage.removeItem(probe);
+    return storage;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Wire the app to real browser globals and the static catalogue. */
 export async function startApp(options: StartOptions = {}): Promise<AppController> {
   const doc = options.doc ?? document;
@@ -817,6 +907,17 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
   // e2e input hook (T26): dev-only (see the hooks note above).
   const inputScript = devEnv?.DEV ? readInputScript(win) : undefined;
 
+  // Per-session input wiring (T12): persisted device/button overrides + gamepad
+  // hot-plug. Attached here so assignment survives route changes.
+  const storage = safeStorage(win);
+  const inputSetup = createInputSetup({
+    ...(storage ? { storage } : {}),
+    gamepads: win.navigator,
+    events: win as unknown as GamepadEventTarget,
+    keyboard: win,
+  });
+  const detachGamepads = inputSetup.attach();
+
   // SDL3's emscripten video backend resolves its canvas by the CSS selector
   // `#canvas` (`document.querySelector`); MAME's WebGL context creation fails
   // without it, so the shared render canvas carries that id.
@@ -825,7 +926,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
 
   const liveKit = liveKitFactoryFromEnv();
 
-  return createApp({
+  const controller = createApp({
     games,
     loadCore,
     loadReplay: options.loadReplay ?? browserReplayLoader(),
@@ -841,6 +942,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       scheduler: browserScheduler(),
       keyboard: win,
       gamepads: win.navigator,
+      inputSetup,
       visibility: {
         hidden: () => doc.hidden,
         onChange: (listener) => {
@@ -857,6 +959,12 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
       ...(devEnv?.DEV === true ? { devOverlay: true } : {}),
     },
   });
+  return {
+    destroy: () => {
+      detachGamepads();
+      controller.destroy();
+    },
+  };
 }
 
 /**

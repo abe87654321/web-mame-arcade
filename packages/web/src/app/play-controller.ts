@@ -46,8 +46,11 @@ export interface PlayDeps {
   scheduler: FrameScheduler;
   keyboard: KeyboardTarget;
   gamepads: GamepadsProvider;
-  /** Effective input config; defaults to the built-in keyboard P1 config. */
-  inputConfig?: InputConfig;
+  /**
+   * Effective input config, or a getter for live re-assignment (device
+   * hot-plug / the Controls panel); defaults to the built-in keyboard P1 config.
+   */
+  inputConfig?: InputConfig | (() => InputConfig);
   /** Netplay lockstep loop; when present it drives `core.step` (T24). */
   lockstep?: { tick(localMask: number): void };
   /**
@@ -81,7 +84,11 @@ function boundKeyCodes(config: InputConfig): Set<string> {
 }
 
 export function createPlayController(deps: PlayDeps): PlayController {
-  const config = deps.inputConfig ?? DEFAULT_INPUT_CONFIG;
+  const getConfig = (): InputConfig =>
+    typeof deps.inputConfig === "function"
+      ? deps.inputConfig()
+      : deps.inputConfig ?? DEFAULT_INPUT_CONFIG;
+  const config = getConfig();
   const screen = deps.screen ?? deps.document.createElement("canvas");
   screen.className = "screen";
 
@@ -97,7 +104,7 @@ export function createPlayController(deps: PlayDeps): PlayController {
 
   const tick = (): void => {
     if (!running) return;
-    current = sampleFrameInputs(config, keys, deps.gamepads.getGamepads(), sampleState);
+    current = sampleFrameInputs(getConfig(), keys, deps.gamepads.getGamepads(), sampleState);
     // Netplay: this browser's own controls come from the local slot-0 config;
     // the lockstep attributes them to our room slot. Solo leaves `current` for
     // the local multi-slot view.
