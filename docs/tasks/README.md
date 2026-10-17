@@ -146,9 +146,11 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   (`pnpm --filter @wma/e2e test:rollback-budget`) gates on `save + one step <= 16 ms`; on the
   headless/SwiftShader dev machine gridlee, raiden, commando, jackal, rygar and geminij fit the CPU
   budget, while twinbee/raiden2/twincobr/tankfrce/gwar/tigerh stayed `lockstep`. After the two-tab
-  gate (and `tc netem "100ms 1%"` via a NET_ADMIN container), only **raiden** and **commando** are
-  enabled for rollback (`rollbackWindow: 8`); geminij failed without netem and gridlee/jackal/rygar
-  under netem, all with the T53 start/arming race, so they stay `lockstep` until T53. The silent-render
+  gate (and `tc netem "100ms 1%"` via a NET_ADMIN container), only **raiden** is enabled for
+  rollback (`rollbackWindow: 8`); geminij/commando failed without netem or under netem and
+  gridlee/jackal/rygar under netem, all with the T53 start/arming race, so they stay `lockstep`
+  until T53. Presentation is committed once per stepped frame (`present_frame`), and netplay skips
+  the OSD watchdog reset so local render timing can never change machine state. The silent-render
   step is a T40 core patch (`0010-netplay-silent.patch`); only gridlee's core was rebuilt locally
   (it stays lockstep, but the rebuilt core is harmless).
 - [x] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
