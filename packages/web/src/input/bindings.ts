@@ -56,6 +56,27 @@ export function bindingKey(binding: Binding): string {
   return `padAxis:${binding.axis}:${binding.dir}`;
 }
 
+/** Concatenate two binding sets per button (deduped), so a slot can be driven
+ * by a keyboard and a gamepad at the same time. */
+export function mergeBindings(
+  a: PlayerBindings,
+  b: PlayerBindings,
+): PlayerBindings {
+  const out = {} as PlayerBindings;
+  for (const button of ALL_BUTTONS) {
+    const seen = new Set<string>();
+    const list: Binding[] = [];
+    for (const binding of [...a[button], ...b[button]]) {
+      const key = bindingKey(binding);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push(binding);
+    }
+    out[button] = list;
+  }
+  return out;
+}
+
 /** A binding set with the given buttons bound and every other button empty. */
 export function playerBindings(
   bindings: Partial<Record<Button, Binding[]>>,

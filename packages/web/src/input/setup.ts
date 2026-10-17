@@ -1,8 +1,10 @@
+import { attachCapture } from "./capture";
 import {
   attachGamepadEvents,
   type GamepadEventTarget,
   type GamepadsProvider,
 } from "./gamepad";
+import type { KeyboardTarget } from "./keyboard";
 import { createRemapUi, type RemapUi } from "./remap-ui";
 import {
   DEFAULT_INPUT_CONFIG,
@@ -30,6 +32,8 @@ export interface InputSetupDeps {
   gamepads?: GamepadsProvider;
   /** Hot-plug event target (window). */
   events?: GamepadEventTarget;
+  /** Key source for rebinding capture (window). */
+  keyboard?: KeyboardTarget;
   hostDefault?: InputConfig;
   onChange?: (config: InputConfig) => void;
 }
@@ -70,11 +74,21 @@ export function createInputSetup(deps: InputSetupDeps = {}): InputSetup {
       for (const index of connectedPads(deps.gamepads)) {
         ui.connectGamepad(index, preferredSlot());
       }
-      if (!deps.events) return () => {};
-      return attachGamepadEvents(deps.events, {
-        onConnect: (index) => ui.connectGamepad(index, preferredSlot()),
-        onDisconnect: (index) => ui.disconnectGamepad(index),
+      const detachCapture = attachCapture({
+        ui,
+        ...(deps.keyboard ? { keyboard: deps.keyboard } : {}),
+        ...(deps.gamepads ? { gamepads: deps.gamepads } : {}),
       });
+      const detachPads = deps.events
+        ? attachGamepadEvents(deps.events, {
+            onConnect: (index) => ui.connectGamepad(index, preferredSlot()),
+            onDisconnect: (index) => ui.disconnectGamepad(index),
+          })
+        : () => {};
+      return () => {
+        detachCapture();
+        detachPads();
+      };
     },
   };
 }

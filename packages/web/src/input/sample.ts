@@ -69,23 +69,31 @@ export function sampleFrameInputs(
       state.axes[slot] = createAxisState();
       state.live[slot] = null;
     }
-    if (!device || !bindings) return 0;
-    if (device.kind === "keyboard") {
-      return playerMaskFromKeys(bindings, pressed);
+    if (!bindings) return 0;
+    // The keyboard is always live from its key bindings, so a player can use
+    // the keyboard AND an assigned gamepad at the same time; an assigned pad
+    // adds its own bits on top.
+    let mask = playerMaskFromKeys(bindings, pressed);
+    if (device?.kind === "gamepad") {
+      const gamepad = findGamepad(gamepads, device.index);
+      // `navigator.getGamepads()` already returns only connected pads (null for
+      // empty slots); some Gamepad objects lack a usable `connected` flag, so
+      // do not gate on it.
+      const live = gamepad ?? null;
+      const liveId = live ? live.index : null;
+      // Reset when the live pad appears/disappears or is replaced, so a
+      // reconnect at the same index cannot inherit stale axis directions.
+      if ((state.live[slot] ?? null) !== liveId) {
+        state.live[slot] = liveId;
+        state.axes[slot] = createAxisState();
+      }
+      if (live) {
+        const axisState = state.axes[slot] ?? createAxisState();
+        state.axes[slot] = axisState;
+        mask |= playerMaskFromPad(bindings, live, axisState, options);
+      }
     }
-    const gamepad = findGamepad(gamepads, device.index);
-    const live = gamepad && gamepad.connected ? gamepad : null;
-    const liveId = live ? live.index : null;
-    // Reset when the live pad appears/disappears or is replaced, so a
-    // reconnect at the same index cannot inherit stale axis directions.
-    if ((state.live[slot] ?? null) !== liveId) {
-      state.live[slot] = liveId;
-      state.axes[slot] = createAxisState();
-    }
-    if (!live) return 0;
-    const axisState = state.axes[slot] ?? createAxisState();
-    state.axes[slot] = axisState;
-    return playerMaskFromPad(bindings, live, axisState, options);
+    return mask;
   });
   return [
     toWireMask(masks[0] ?? 0),

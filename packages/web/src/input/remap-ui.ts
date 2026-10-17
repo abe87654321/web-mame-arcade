@@ -4,6 +4,7 @@ import {
   ALL_BUTTONS,
   DEFAULT_GAMEPAD_BINDINGS,
   DEFAULT_KEYBOARD_BINDINGS,
+  mergeBindings,
   resolveInputConfig,
   type Binding,
   type InputConfig,
@@ -96,12 +97,14 @@ export function createRemapUi(
   // keyboard bindings on slot 0 and gamepad bindings on slots 1-3, so swapping
   // only the device would leave a pad feeding *keyboard* bindings (no input at
   // all). Assigning a device also selects that device kind's default bindings.
+  // A gamepad slot keeps the keyboard bindings too, so keyboard and pad work
+  // together (the sampler ORs both); see sample.ts.
   const bindingsFor = (device: InputDevice | null): PlayerBindings | undefined =>
     device === null
       ? undefined
       : device.kind === "keyboard"
         ? DEFAULT_KEYBOARD_BINDINGS
-        : DEFAULT_GAMEPAD_BINDINGS;
+        : mergeBindings(DEFAULT_KEYBOARD_BINDINGS, DEFAULT_GAMEPAD_BINDINGS);
   const assignDevice = (slot: number, device: InputDevice | null): void => {
     overrides = setDevice(overrides, slot, device);
     overrides = setPlayerBindings(overrides, slot, bindingsFor(device));
@@ -296,9 +299,10 @@ export function createRemapUi(
             tag: "p",
             className: "help",
             text:
-              "Online, each browser is one player. Insert a coin: key 5 or pad " +
-              "button 8 (Select/Back); start: key 1 or pad button 9 (Start). A pad " +
-              "without a Select button cannot coin up — rebind 'coin' below.",
+              "Online, each browser is one player. Keyboard and gamepad work " +
+              "together. Coin: key 5 or pad Select; start: key 1 or pad Start. " +
+              "To fix a pad whose buttons/axes differ: click 'rebind', then press " +
+              "that control on the pad (or key) to capture it.",
           },
           { tag: "p", className: "status", text: status },
           ...captureNode,

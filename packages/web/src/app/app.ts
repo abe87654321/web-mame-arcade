@@ -653,6 +653,15 @@ export function createApp(deps: AppDeps): AppController {
           ...(screenUi ? { screen: screenUi } : {}),
         });
         if (!screenUi) deps.env.root.append(play.screen);
+        // DEV-only: expose the sampled per-slot mask so a stuck control (e.g. a
+        // gamepad the browser is not delivering) can be diagnosed from the
+        // console: `__WMA_INPUTS__()` while pressing a button.
+        if (deps.env.devOverlay === true) {
+          const controller = play;
+          (
+            globalThis as unknown as { __WMA_INPUTS__?: () => readonly number[] }
+          ).__WMA_INPUTS__ = () => controller.inputs();
+        }
       })
       .catch((error: unknown) => {
         if (myToken !== token) return;
@@ -876,6 +885,7 @@ export async function startApp(options: StartOptions = {}): Promise<AppControlle
     ...(storage ? { storage } : {}),
     gamepads: win.navigator,
     events: win as unknown as GamepadEventTarget,
+    keyboard: win,
   });
   const detachGamepads = inputSetup.attach();
 
