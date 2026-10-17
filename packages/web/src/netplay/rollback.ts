@@ -102,6 +102,8 @@ const DEGRADE_EMA_TICKS = 60;
 const DEGRADE_FRAME_WINDOW = 60;
 /** Rewinds within one frame window that indicate a storm. */
 const DEGRADE_ROLLBACKS = 20;
+/** How many already-sent local masks a resync keeps for the input log (T40). */
+const OWN_HISTORY_FRAMES = 600;
 
 interface Snapshot {
   /** Last stepped frame this state belongs to. */
@@ -129,6 +131,8 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   const dirty = new Set<number>();
   /** Masks for consecutive local frames ending at scheduleHead-1 (packet window). */
   const frames: number[] = [];
+  // Local masks already sent, for replaying them after a resync (T40).
+  const ownMasks = new Map<number, number>();
 
   let current = startFrame;
   let scheduleHead = startFrame + inputDelay;
@@ -137,6 +141,7 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   for (let frame = startFrame; frame < scheduleHead; frame++) {
     table.set(mySlot, frame, 0);
     frames.push(0);
+    ownMasks.set(frame, 0);
   }
 
   let boot: Uint8Array;
@@ -368,8 +373,17 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
       reconcile();
       if (scheduleHead - current < maxLookahead) {
         const mask = localMask & 0xffff;
-        if (table.set(mySlot, scheduleHead, mask)) frames.push(mask);
+        if (table.set(mySlot, scheduleHead, mask)) {
+          frames.push(mask);
+          ownMasks.set(scheduleHead, mask);
+        }
         scheduleHead += 1;
+        if (scheduleHead % OWN_HISTORY_FRAMES === 0) {
+          const floor = scheduleHead - OWN_HISTORY_FRAMES;
+          for (const own of ownMasks.keys()) {
+            if (own < floor) ownMasks.delete(own);
+          }
+        }
       }
       if (frames.length > 0) {
         sendInput(
@@ -405,6 +419,14 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     },
 
     resync(frame: number, state?: Uint8Array): void {
+      // Keep the local masks for frames after the snapshot: they were already
+      // sent and the relay log holds them first-wins (T40).
+      const own: number[] = [];
+      for (let at = frame + 1; at < scheduleHead; at++) {
+        const mask = ownMasks.get(at);
+        if (mask === undefined) break;
+        own.push(mask);
+      }
       current = frame + 1;
       table.clear(current);
       history.clear();
@@ -412,6 +434,11 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
       dirty.clear();
       frames.length = 0;
       scheduleHead = current;
+      if (own.length > 0) {
+        own.forEach((mask, i) => table.set(mySlot, current + i, mask));
+        scheduleHead = current + own.length;
+        frames.push(...own.slice(-MAX_FRAMES));
+      }
       ring.splice(0, ring.length, { frame, state: state ?? core.save() });
       waitSince = null;
       lastEscalateAt = null;

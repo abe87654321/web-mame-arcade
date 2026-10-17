@@ -299,6 +299,27 @@ describe("createRollback", () => {
     expect(rollback.frame()).toBe(2);
   });
 
+  it("keeps already-sent local inputs across a resync", () => {
+    const core = fakeMachine();
+    const rollback = createRollback(deps(core, { players: [0], inputDelay: 0 }));
+
+    for (let i = 0; i < 5; i++) rollback.tick(0x10 + i);
+    expect(rollback.frame()).toBe(5);
+
+    // The caller restores the machine to frame 2 before calling resync.
+    core.load(core.save(), 2);
+    rollback.resync(2);
+    expect(rollback.frame()).toBe(3);
+    expect(rollback.scheduledFrame()).toBe(5);
+
+    rollback.tick(0x99);
+    expect(core.steps.slice(-3)).toEqual([
+      { frame: 3, inputs: [0x13, 0, 0, 0] },
+      { frame: 4, inputs: [0x14, 0, 0, 0] },
+      { frame: 5, inputs: [0x99, 0, 0, 0] },
+    ]);
+  });
+
   it("degrades to wait-only after sustained slow ticks", () => {
     const core = fakeMachine();
     let t = 0;
