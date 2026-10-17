@@ -135,7 +135,17 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   golden (two-slot fixture ready). Docs: 05, contracts/input-log, contracts/scoremap. Depends: T33.
 
 ## Phase 4 · Scale and polish
-- [ ] **T40 Rollback** (per game flag) – Docs: 03. Depends: T25.
+- [x] **T40 Rollback** (per game flag) – Docs: 03. Depends: T25.
+  Note: bounded rollback loop (`packages/web/src/netplay/rollback.ts`): last-confirmed prediction,
+  2..8 frame correctable window (per-driver `rollbackWindow`), boot-frame correction, deferred hashes,
+  fixed `inputDelay = 2`, and a local over-load meter that degrades to wait-only for the rest of the
+  match (>20 ms for 1 s, or >20 rewinds per 60 frames). Resync now re-uses the local masks already sent
+  for frames after the snapshot, closing the verifier/input-log gap previously deferred here. The
+  per-driver probe (`pnpm --filter @wma/e2e test:rollback-budget`) found **no driver under 16 ms on
+  the headless/SwiftShader dev machine** (the emulated frame alone costs 11–28 ms), so the catalogue
+  stays `lockstep`; the two-tab gate passes with `WMA_E2E_ROLLBACK_DRIVERS=gridlee`, and a driver
+  should only be switched to `"rollback"` after the probe passes on its target hardware. Netem run not
+  executed locally (sudo password required).
 - [x] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
 - [ ] **T42 Production deploy** – docker-compose for Ubuntu 24.04, TLS, backups, monitoring (Prometheus + Grafana). Docs: 06. Depends: T23, T34.
 - [ ] **T43 Load test** – 1 000 simulated viewers on one relay (k6 or a Node script). Docs: 04. Depends: T30.
