@@ -179,3 +179,26 @@ separate harness/boot-race issue, tracked outside T46.)
 **raiden / raiden2** (`Core.save()` throws with an empty save buffer) is a
 separate, still-open anomaly; they are catalogued `supportsSave:false` /
 `netplayMode:"none"` until then.
+
+## T40 rollback budget probe
+
+`e2e/rollback-budget.e2e.ts` boots each catalogue driver's frozen netplay core and measures
+`save()`, `step()` and `load()` on the WASM build. From those it derives the largest correctable
+window `w` in `[2, 8]` with `saveMs + w × stepMs ≤ 16 ms`, which is what `rollbackWindow` in
+`games.json` should be. A driver without a fitting window stays `lockstep`.
+
+```sh
+pnpm --filter @wma/e2e test:rollback-budget   # needs built cores + ROMs
+```
+
+Each run prints one line per driver:
+
+```text
+ROLLBACK-BUDGET {"driver":"gridlee","bytes":...,"saveMs":...,"loadMs":...,
+                 "stepMs":...,"windowMs":...,"worstMs":...,"suggestedWindow":...,
+                 "verdict":"PASS|FAIL"}
+```
+
+`windowMs` is the steady per-frame cost at window 8; `worstMs` adds one load. The probe is
+machine-specific (JIT, CPU, browser); record the table for the machine that produced the enabled
+catalogue entries.

@@ -63,16 +63,40 @@ override (tests/e2e) wins over the measurement. `ack_frame` remains play-time te
   further interval, the **host** escalates: it saves its last stepped frame and broadcasts a
   full `state.snapshot` (T25 path), so peers still stuck on a frame both sides lost re-load one
   authority's state and resume from it. Escalation is skipped while the room is paused.
-  - **Known limitation (deferred to T30/T33/T40).** After any resync the loop re-samples this
-    client's own masks for the first frames after the snapshot frame. If the relay's first-wins
-    input log already holds a different value for one of those frames, a verifier replay could
-    diverge. Reconciling it (preserve our own already-sent masks with a coordinated frame clock,
-    or let the log follow the snapshot) is the input-log/rollback work, not this task.
+  - **Resync and the input log (fixed in T40).** After a resync the loop re-uses the local masks
+    it already sent for frames after the snapshot frame instead of re-sampling the device. Those
+    values are first-wins in the relay log, so a verifier replay now sees exactly the inputs the
+    recovered simulation used.
 
-## Rollback (opt-in per game)
-Predict missing remote input = last known; save state every frame in a ring of 8; on mismatch load the
-state of that frame and re-simulate up to now in one browser tick. Enable only if save + 8 re-sim frames
-fit in 16 ms on a mid-range laptop.
+## Rollback (opt-in per game, T40)
+Predict missing remote input = that player's last **confirmed** mask; save state every stepped frame; on
+mismatch load the state from just before the first wrong frame and re-simulate through the last stepped
+frame in one browser tick. Enabled per game with `netplayMode: "rollback"`.
+
+- **Delay.** Rollback keeps `inputDelay = 2` (announced by the host in `game.start`). Prediction hides
+  the rest of the RTT, so the RTT-sized delay used by wait-based lockstep would only add felt latency.
+- **Window.** The correctable window is 2..8 frames (`rollbackWindow`, default 8). A correction for
+  frame `F` needs the snapshot labelled `F - 1`; the loop keeps `window + 1` recent states plus the
+  boot state, and never runs more than `window` frames ahead of the slowest confirmed peer. That bound
+  guarantees every late packet is still recoverable; when it is reached the loop stalls (and falls
+  into the T29 `input.request` / snapshot recovery) instead of predicting past the ring.
+- **Budget.** Each driver is measured by `pnpm --filter @wma/e2e test:rollback-budget`: the largest
+  window `w` with `saveMs + w * stepMs <= 16 ms` is written into `games.json` (`rollbackWindow`). A
+  driver with no fitting window stays `lockstep`. The probe is machine-specific; record results in
+  `core/spike/README.md`.
+- **Hashes.** A frame's hash is reported only after it can no longer be corrected
+  (`frame <= current - window - 1`). The relay drops hashes older than its current comparison frame,
+  so reporting a predicted hash early could hide the comparison or raise a false `desync`.
+- **Overload.** A local, wall-clock-only meter stops prediction for the rest of the match when the
+  measured per-tick rollback cost stays above 20 ms for one second, or after more than 20 rewinds in
+  60 frames. Degraded rollback waits for real inputs (like lockstep) but keeps the window/ring so
+  predictions made before degradation can still be corrected. The clock never reaches `core.step`.
+- **Fallback.** If the core cannot save (empty/throwing state) or the ring would exceed the memory
+  budget, the client runs wait-based lockstep for that match. Mixed peers are safe: rollback only
+  changes when a frame runs, not the inputs it ends up with.
+- **Input log.** Only real inputs are sent, so the relay log and verifier replay are unchanged. On any
+  resync the client re-uses the local masks it already sent for frames after the snapshot (they are
+  first-wins in the relay log) instead of re-sampling the device, closing the divergence noted in T29.
 
 ## Desync detection
 Every 60 frames each peer sends `netplay_hash()` to the relay (`hash {frame, crc32}`). The relay
