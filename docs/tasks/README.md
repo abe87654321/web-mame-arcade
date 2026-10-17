@@ -189,6 +189,10 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   `stall-escalate` resyncs → stutter, and it does not scale to >2 players. Fix path: a deterministic
   start barrier (all peers pinned to a common frame 0 before the gate opens) and **rollback** (T40);
   re-run the two-tab e2e as the gate. Docs: 03, 04. Depends: T24, T25, T29, T40.
+  Scope for the follow-up session: (a) the **frame-0/alignent race** (this task) and (b) **input
+  responsiveness**: in delay-based lockstep the felt latency is `inputDelay + RTT` (worse with 3-4
+  players), so a gamepad feels laggy — **rollback (T40)** is the fix, not pushing video. Measure with the
+  T28 metrics + the two-tab/3-tab e2e after each change.
 - [x] **T49 follow-up · raiden/raiden2 netplay re-enabled** – the T46 "raiden/raiden2 `Core.save()`
   throws" finding was a downstream symptom of the bad ROMs (T49): MAME never started, so
   `netplay_state_size()` returned 0. With the corrected 0.289 sets, `Core.save()` returns 330 KB / 1.3 MB
