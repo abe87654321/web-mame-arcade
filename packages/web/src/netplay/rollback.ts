@@ -59,7 +59,17 @@ export interface RollbackDeps {
   window?: number;
   /** Refuse to start when the ring would exceed this many bytes; default 64 MiB. */
   maxMemoryBytes?: number;
+  /**
+   * High-resolution clock for the local over-load meter. Defaults to `now`.
+   * It only decides when to stop predicting; it never reaches `core.step`.
+   */
+  perfNow?: () => number;
+  /** Called once when the loop degrades to wait-only for the rest of the match. */
+  onDegrade?: (reason: RollbackDegradeReason) => void;
 }
+
+/** Why rollback gave up predicting (T40). */
+export type RollbackDegradeReason = "slow" | "rollbacks";
 
 export interface RollbackStats {
   /** Number of rewinds performed. */
@@ -84,6 +94,14 @@ const DEFAULT_WINDOW = 8;
 const MIN_WINDOW = 2;
 const MAX_WINDOW = 8;
 const DEFAULT_MAX_MEMORY_BYTES = 64 * 1024 * 1024;
+/** EMA per-tick rollback cost that triggers degradation. */
+const DEGRADE_EMA_MS = 20;
+/** Consecutive metered ticks above the threshold before degrading. */
+const DEGRADE_EMA_TICKS = 60;
+/** Frame span used for the rollback-storm detector. */
+const DEGRADE_FRAME_WINDOW = 60;
+/** Rewinds within one frame window that indicate a storm. */
+const DEGRADE_ROLLBACKS = 20;
 
 interface Snapshot {
   /** Last stepped frame this state belongs to. */
@@ -102,6 +120,7 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     Math.max(MIN_WINDOW, Math.floor(deps.window ?? DEFAULT_WINDOW)),
   );
   const maxMemoryBytes = deps.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES;
+  const perfNow = deps.perfNow ?? now;
 
   const table = createFrameTable(players);
   const history = new Map<number, FrameInputs>();
@@ -146,6 +165,45 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     degraded: false,
     emaCostMs: 0,
   };
+  let emaTicks = 0;
+  let framesSinceCheck = 0;
+  let rollbacksSinceCheck = 0;
+  let rollbacksAtLastCheck = 0;
+
+  function degrade(reason: RollbackDegradeReason): void {
+    if (stats.degraded) return;
+    stats.degraded = true;
+    deps.onDegrade?.(reason);
+  }
+
+  /**
+   * Update the local over-load meter. Prediction only changes *when* a frame
+   * runs, never the inputs it ends up with, so this cannot affect determinism.
+   */
+  function meter(startedAt: number, stepped: number): void {
+    const cost = Math.max(0, perfNow() - startedAt);
+    stats.emaCostMs =
+      emaTicks === 0 ? cost : stats.emaCostMs * 0.95 + cost * 0.05;
+    emaTicks += 1;
+    framesSinceCheck += stepped;
+    rollbacksSinceCheck += stats.rollbacks - rollbacksAtLastCheck;
+    rollbacksAtLastCheck = stats.rollbacks;
+    if (!stats.degraded && emaTicks >= DEGRADE_EMA_TICKS && stats.emaCostMs > DEGRADE_EMA_MS) {
+      degrade("slow");
+    }
+    if (framesSinceCheck >= DEGRADE_FRAME_WINDOW) {
+      if (!stats.degraded && rollbacksSinceCheck > DEGRADE_ROLLBACKS) {
+        degrade("rollbacks");
+      }
+      framesSinceCheck = 0;
+      rollbacksSinceCheck = 0;
+    }
+  }
+
+  /** When degraded, wait for every real input instead of predicting. */
+  function readyToStep(frame: number): boolean {
+    return stats.degraded ? table.ready(frame) : canStep(frame);
+  }
 
   function updateStatus(ready: boolean): void {
     if (ready) {
@@ -305,6 +363,8 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   return {
     tick(localMask: number): void {
       if (paused) return;
+      const startedAt = perfNow();
+      const frameBefore = current;
       reconcile();
       if (scheduleHead - current < maxLookahead) {
         const mask = localMask & 0xffff;
@@ -326,9 +386,10 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
         }
       }
 
-      while (current < scheduleHead && canStep(current)) stepFrame(current);
+      while (current < scheduleHead && readyToStep(current)) stepFrame(current);
       flushHashes();
-      const stalled = current < scheduleHead && !canStep(current);
+      meter(startedAt, current - frameBefore);
+      const stalled = current < scheduleHead && !readyToStep(current);
       updateStatus(!stalled);
     },
 

@@ -58,7 +58,12 @@ export type {
   NetplayLoop,
 } from "./lockstep";
 export { createRollback } from "./rollback";
-export type { RollbackDeps, RollbackLoop, RollbackStats } from "./rollback";
+export type {
+  RollbackDegradeReason,
+  RollbackDeps,
+  RollbackLoop,
+  RollbackStats,
+} from "./rollback";
 export { createMatch } from "./match";
 export type {
   LobbyPlayer,

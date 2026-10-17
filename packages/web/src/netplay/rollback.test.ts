@@ -299,6 +299,86 @@ describe("createRollback", () => {
     expect(rollback.frame()).toBe(2);
   });
 
+  it("degrades to wait-only after sustained slow ticks", () => {
+    const core = fakeMachine();
+    let t = 0;
+    const rollback = createRollback(
+      deps(core, {
+        players: [0],
+        inputDelay: 0,
+        perfNow: () => {
+          t += 25;
+          return t;
+        },
+      }),
+    );
+
+    for (let i = 0; i < 60; i++) rollback.tick(i & 0xffff);
+
+    expect(rollback.stats().degraded).toBe(true);
+    expect(rollback.stats().emaCostMs).toBeGreaterThan(20);
+  });
+
+  it("stops predicting new frames once degraded", () => {
+    const core = fakeMachine();
+    let t = 0;
+    const rollback = createRollback(
+      deps(core, {
+        inputDelay: 0,
+        perfNow: () => {
+          t += 25;
+          return t;
+        },
+      }),
+    );
+
+    for (let i = 0; i < 60; i++) {
+      rollback.onBytes(packet(1, i, [0]));
+      rollback.tick(0x01);
+    }
+    expect(rollback.stats().degraded).toBe(true);
+
+    const stepped = core.steps.length;
+    rollback.tick(0x02); // peer frame 60 is missing
+    expect(core.steps.length).toBe(stepped);
+    expect(rollback.frame()).toBe(60);
+  });
+
+  it("degrades after a rollback storm", () => {
+    const core = fakeMachine();
+    const rollback = createRollback(
+      deps(core, { inputDelay: 0, perfNow: () => 0 }),
+    );
+
+    for (let i = 0; i < 62; i++) {
+      rollback.tick(0x01);
+      rollback.onBytes(packet(1, i, [i + 1]));
+    }
+
+    expect(rollback.stats().rollbacks).toBeGreaterThan(20);
+    expect(rollback.stats().degraded).toBe(true);
+  });
+
+  it("does not meter paused ticks", () => {
+    const core = fakeMachine();
+    let t = 0;
+    const rollback = createRollback(
+      deps(core, {
+        players: [0],
+        inputDelay: 0,
+        perfNow: () => {
+          t += 25;
+          return t;
+        },
+      }),
+    );
+
+    rollback.pause();
+    for (let i = 0; i < 100; i++) rollback.tick(0);
+    expect(rollback.stats().emaCostMs).toBe(0);
+    expect(rollback.stats().degraded).toBe(false);
+  });
+
   it("resumes from a resync frame with a fresh window", () => {
     const core = fakeMachine();
     const rollback = createRollback(deps(core, { inputDelay: 0 }));
