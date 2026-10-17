@@ -144,11 +144,13 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   slows down instead. Resync now re-uses the local masks already sent for frames after the snapshot,
   closing the verifier/input-log gap previously deferred here. The per-driver probe
   (`pnpm --filter @wma/e2e test:rollback-budget`) gates on `save + one step <= 16 ms`; on the
-  headless/SwiftShader dev machine that enabled gridlee, raiden, commando, jackal and rygar
-  (`rollbackWindow: 8`), while twinbee/raiden2/twincobr/tankfrce/gwar/tigerh stayed `lockstep`. geminij
-  fits the budget but failed the two-tab gate (desync at frame 60), so it stays `lockstep` pending T53.
-  The silent-render step is a T40 core patch (`0010-netplay-silent.patch`); only gridlee's core was
-  rebuilt locally. Netem run not executed locally (sudo password required).
+  headless/SwiftShader dev machine gridlee, raiden, commando, jackal, rygar and geminij fit the CPU
+  budget, while twinbee/raiden2/twincobr/tankfrce/gwar/tigerh stayed `lockstep`. After the two-tab
+  gate (and `tc netem "100ms 1%"` via a NET_ADMIN container), only **raiden** and **commando** are
+  enabled for rollback (`rollbackWindow: 8`); geminij failed without netem and gridlee/jackal/rygar
+  under netem, all with the T53 start/arming race, so they stay `lockstep` until T53. The silent-render
+  step is a T40 core patch (`0010-netplay-silent.patch`); only gridlee's core was rebuilt locally
+  (it stays lockstep, but the rebuilt core is harmless).
 - [x] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
 - [ ] **T42 Production deploy** – docker-compose for Ubuntu 24.04, TLS, backups, monitoring (Prometheus + Grafana). Docs: 06. Depends: T23, T34.
 - [ ] **T43 Load test** – 1 000 simulated viewers on one relay (k6 or a Node script). Docs: 04. Depends: T30.

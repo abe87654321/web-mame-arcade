@@ -6,12 +6,11 @@
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e",
     "supportsSave": true,
-    "netplayMode": "rollback",
+    "netplayMode": "lockstep",
     "maxPlayers": 2,
     "romLicensed": true,
     "coreBaseUrl": "/static/cores/gridlee",
-    "romZipUrl": "/roms/gridlee.zip",
-    "rollbackWindow": 8
+    "romZipUrl": "/roms/gridlee.zip"
   },
   {
     "driver": "twinbee",
@@ -87,12 +86,11 @@
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "702e154c35ee94de3a1ce7cec8101f605913b9d0b2140d74941fc28dd6fed91b",
     "supportsSave": true,
-    "netplayMode": "rollback",
+    "netplayMode": "lockstep",
     "maxPlayers": 2,
     "romLicensed": false,
     "coreBaseUrl": "/static/cores/jackal",
-    "romZipUrl": "/roms/jackal.zip",
-    "rollbackWindow": 8
+    "romZipUrl": "/roms/jackal.zip"
   },
   {
     "driver": "rygar",
@@ -101,12 +99,11 @@
     "mameCommit": "b67e5bcb0b895c0e451e342068b6651af1307d0d",
     "romHash": "880dc3d7d3bea4683e9da12429041af265d504d17662a076cf7b0e53c109dc0a",
     "supportsSave": true,
-    "netplayMode": "rollback",
+    "netplayMode": "lockstep",
     "maxPlayers": 2,
     "romLicensed": false,
     "coreBaseUrl": "/static/cores/rygar",
-    "romZipUrl": "/roms/rygar.zip",
-    "rollbackWindow": 8
+    "romZipUrl": "/roms/rygar.zip"
   },
   {
     "driver": "tankfrce",

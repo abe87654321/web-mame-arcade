@@ -212,14 +212,14 @@ environment, so only the drivers just under the line pass and the rest stay `loc
 
 | Driver | State bytes | save ms | step ms | silent step ms | tick ms | verdict | mode |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| gridlee | 1 848 362 | 2.52 | 13.30 | 15.97 | 15.81 | PASS | rollback |
+| gridlee | 1 848 362 | 2.52 | 13.30 | 15.97 | 15.81 | PASS* | lockstep |
 | twinbee | 18 917 002 | 26.48 | 15.27 | 15.09 | 41.57 | FAIL | lockstep |
 | raiden | 330 511 | 1.08 | 14.65 | 15.87 | 15.73 | PASS | rollback |
 | raiden2 | 1 284 471 | 2.16 | 21.24 | 43.78 | 23.41 | FAIL | lockstep |
 | twincobr | 292 905 | 1.08 | 15.98 | 44.51 | 17.06 | FAIL | none |
 | commando | 4 081 958 | 5.22 | 10.32 | 15.72 | 15.54 | PASS | rollback |
-| jackal | 494 255 | 1.03 | 14.62 | 15.78 | 15.65 | PASS | rollback |
-| rygar | 1 862 400 | 2.74 | 12.95 | 15.94 | 15.68 | PASS | rollback |
+| jackal | 494 255 | 1.03 | 14.62 | 15.78 | 15.65 | PASS* | lockstep |
+| rygar | 1 862 400 | 2.74 | 12.95 | 15.94 | 15.68 | PASS* | lockstep |
 | tankfrce | 14 514 719 | 16.75 | 15.42 | 14.90 | 31.65 | FAIL | lockstep |
 | gwar | 489 407 | 4.37 | 17.86 | 15.70 | 20.07 | FAIL | none |
 | geminij | 1 798 400 | 2.38 | 13.44 | 15.93 | 15.81 | PASS* | lockstep |
@@ -229,6 +229,6 @@ The PASS margins are tight on this headless/SwiftShader machine; the local over-
 a match to wait-only if a tick costs more than 20 ms for a second. Re-run the probe on the target
 hardware before widening the enabled set.
 
-\* geminij fits the CPU budget but failed the two-tab rollback gate with a desync at frame 60
-(and then repeated stall escalations), so it stays `lockstep` until T53 is resolved. The enabled set
-is gridlee, raiden, commando, jackal and rygar.
+\* Fits the CPU budget but failed the two-tab gate (geminij without netem; gridlee/jackal/rygar
+under `tc netem "100ms 1%"`), so they stay `lockstep` until T53's start/arming race is fixed.
+The enabled set after the netem gate is **raiden and commando**.
