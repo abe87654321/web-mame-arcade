@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInputSetup } from "./setup";
 import type { GamepadLike } from "./gamepad";
-import type { StorageLike } from "./remap";
+import { STORAGE_KEY, type StorageLike } from "./remap";
 
 function pad(index: number): GamepadLike {
   return { index, mapping: "standard", connected: true, buttons: [], axes: [] };
@@ -92,6 +92,23 @@ describe("createInputSetup", () => {
     pads.set([pad(0)]);
     events.fire("gamepadconnected", 0);
     expect(setup.config().devices[0]).toEqual({ kind: "gamepad", index: 0 });
+  });
+
+  it("auto-moves a lone pad to P1 even if it was persisted on P2", () => {
+    const storage = fakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        devices: ["~inherit", { kind: "gamepad", index: 0 }, "~inherit", "~inherit"],
+        players: ["~inherit", "~inherit", "~inherit", "~inherit"],
+      }),
+    );
+    const pads = fakePads([pad(0)]);
+    const setup = createInputSetup({ gamepads: pads.provider, storage });
+    setup.attach();
+    expect(setup.config().devices[0]).toEqual({ kind: "gamepad", index: 0 });
+    expect(setup.config().devices[1]).toBeNull();
   });
 
   it("moves a pad between slots (a device lives in one slot)", () => {

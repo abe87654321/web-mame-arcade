@@ -63,9 +63,23 @@ export function createInputSetup(deps: InputSetupDeps = {}): InputSetup {
     ...(deps.onChange ? { onChange: deps.onChange } : {}),
   });
 
-  // Prefer P1 for a new pad only while P1 is still the untouched keyboard.
+  // Prefer P1 for a new pad while P1 is not yet a gamepad (keyboard or empty).
   const preferredSlot = (): number | undefined =>
-    ui.config().devices[0]?.kind === "keyboard" ? 0 : undefined;
+    ui.config().devices[0]?.kind === "gamepad" ? undefined : 0;
+
+  // Safety net: a browser with exactly one pad is a single local player, so that
+  // pad must be the one the local slot-0 controls use (netplay sends slot 0).
+  // Without this, a pad left on P2 (persisted, or moved by a disconnect/reconnect)
+  // silently does nothing for that player.
+  const ensureSinglePadOnP1 = (): void => {
+    const connected = connectedPads(deps.gamepads);
+    if (connected.length !== 1) return;
+    const index = connected[0];
+    if (index === undefined) return;
+    const first = ui.config().devices[0];
+    if (first?.kind === "gamepad" && first.index === index) return;
+    ui.setDevice(0, { kind: "gamepad", index });
+  };
 
   return {
     ui,
@@ -74,6 +88,7 @@ export function createInputSetup(deps: InputSetupDeps = {}): InputSetup {
       for (const index of connectedPads(deps.gamepads)) {
         ui.connectGamepad(index, preferredSlot());
       }
+      ensureSinglePadOnP1();
       const detachCapture = attachCapture({
         ui,
         ...(deps.keyboard ? { keyboard: deps.keyboard } : {}),
@@ -81,8 +96,14 @@ export function createInputSetup(deps: InputSetupDeps = {}): InputSetup {
       });
       const detachPads = deps.events
         ? attachGamepadEvents(deps.events, {
-            onConnect: (index) => ui.connectGamepad(index, preferredSlot()),
-            onDisconnect: (index) => ui.disconnectGamepad(index),
+            onConnect: (index) => {
+              ui.connectGamepad(index, preferredSlot());
+              ensureSinglePadOnP1();
+            },
+            onDisconnect: (index) => {
+              ui.disconnectGamepad(index);
+              ensureSinglePadOnP1();
+            },
           })
         : () => {};
       return () => {
