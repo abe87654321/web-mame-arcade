@@ -25,7 +25,10 @@ export class MameCore implements Core {
         if (typeof np.setFrame !== "function") {
           throw new CoreCapabilityError("load", "T25 (core rebuild)");
         }
-        np.setFrame(frame);
+        // Rollback saves the boot state labelled `startFrame - 1`; the native
+        // hook takes a uint32 and resumes at `frame + 1`, so 0xffffffff wraps
+        // to frame 0 (T40).
+        np.setFrame(frame >>> 0);
       }
       return;
     }
