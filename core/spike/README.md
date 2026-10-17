@@ -183,10 +183,11 @@ separate, still-open anomaly; they are catalogued `supportsSave:false` /
 ## T40 rollback budget probe
 
 `e2e/rollback-budget.e2e.ts` boots each catalogue driver's frozen netplay core and measures
-`save()`, `step()` and `load()` on the WASM build, plus a silent step (rollback re-simulation
-does not redraw frames the player already saw). Replay is incremental (one already-shown frame per
-animation tick), so the gate is the steady tick cost `saveMs + min(stepMs, silentStepMs) ≤ 16 ms`;
-the correctable window is then `rollbackWindow`. A driver without a fitting tick stays `lockstep`.
+`save()`, `step()` and `load()` on the WASM build, plus a presentation-suppressed step (rollback
+still draws the re-simulated frame because screen state is saved/hashed, but skips OSD presentation
+until catch-up finishes). Replay is incremental (one already-shown frame per animation tick), so the
+gate is the steady tick cost `saveMs + min(stepMs, silentStepMs) ≤ 16 ms`; the correctable window is
+then `rollbackWindow`. A driver without a fitting tick stays `lockstep`.
 
 ```sh
 pnpm --filter @wma/e2e test:rollback-budget   # needs built cores + ROMs

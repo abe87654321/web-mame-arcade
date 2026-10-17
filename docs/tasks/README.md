@@ -140,8 +140,8 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   2..8 frame correctable window (per-driver `rollbackWindow`), boot-frame correction, deferred hashes,
   fixed `inputDelay = 2`, and a local over-load meter that degrades to wait-only for the rest of the
   match (>20 ms for 1 s, or >20 rewinds per 60 frames). Re-simulation is incremental (one already-shown
-  frame per tick, silently), so a slow core never re-simulates a whole window in one frame; it briefly
-  slows down instead. Resync now re-uses the local masks already sent for frames after the snapshot,
+  frame per tick; the draw still runs, OSD presentation is suppressed until catch-up finishes), so a
+  slow core never re-simulates a whole window in one frame; it briefly slows down instead. Resync now re-uses the local masks already sent for frames after the snapshot,
   closing the verifier/input-log gap previously deferred here. The per-driver probe
   (`pnpm --filter @wma/e2e test:rollback-budget`) gates on `save + one step <= 16 ms`; on the
   headless/SwiftShader dev machine gridlee, raiden, commando, jackal, rygar and geminij fit the CPU
@@ -150,9 +150,10 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   rollback (`rollbackWindow: 8`); geminij/commando failed without netem or under netem and
   gridlee/jackal/rygar under netem, all with the T53 start/arming race, so they stay `lockstep`
   until T53. Presentation is committed once per stepped frame (`present_frame`), and netplay skips
-  the OSD watchdog reset so local render timing can never change machine state. The silent-render
-  step is a T40 core patch (`0010-netplay-silent.patch`); only gridlee's core was rebuilt locally
-  (it stays lockstep, but the rebuilt core is harmless).
+  the OSD watchdog reset so local render timing can never change machine state. Presentation is a
+  T40 core patch (`0010-netplay-silent.patch` + `0011-osd-watchdog.patch`); `raiden`, `commando` and
+  `gridlee` cores were rebuilt locally with it (only raiden is rollback; the others stay lockstep
+  but use the rebuilt cores).
 - [x] **T41 LiveKit video fallback** – Docs: 04. Depends: T31.
 - [ ] **T42 Production deploy** – docker-compose for Ubuntu 24.04, TLS, backups, monitoring (Prometheus + Grafana). Docs: 06. Depends: T23, T34.
 - [ ] **T43 Load test** – 1 000 simulated viewers on one relay (k6 or a Node script). Docs: 04. Depends: T30.
@@ -160,11 +161,21 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Docs: 04, 06. Depends: T30, T43.
 
 ## Phase 5 · Strong-sync (SLO C): server-authoritative emulation
+- [ ] **T54 Netplay performance strategy (decision spike, no implementation)** – measure where a
+  netplay tick spends its budget (core step vs save/hash/send/OSD/JS), then decide between
+  Worker+OffscreenCanvas+AudioWorklet isolation, the T45 server-authoritative pilot, or neither.
+  Timeboxed: profiling + cheap-optimization assessment + written go/no-go; no production changes
+  until the decision. Trigger: ranked/cross-region/weak-client needs, or main-thread overhead
+  >5–8 ms/tick. Docs: 03, 04, 06, 08, `docs/tasks/T54-netplay-performance-strategy.md`.
+  Depends: T40, T53.
+  Note: T40 currently enables rollback only for raiden; base WASM `core.step` is 10–15 ms on the
+  headless dev machine, so moving work off the main thread cannot make slow drivers fast by itself.
+  The decision memo also records the T45 latency/cost assumptions (RTT + 40–100 ms, per-match GPU/bandwidth).
 - [ ] **T45 Server-authoritative live emulation (SLO C)** – one authoritative native MAME per match on
   the server: input aggregation with a fixed input delay + jitter buffer, frame capture + hardware
   encode, and LiveKit WebRTC publish; clients send inputs and watch video, so synchronization is
   absolute regardless of client tab/CPU/network. Reuses the native build and LiveKit (T41). Cost: one
-  server sim + video bandwidth per match. Depends: T01, T41, T28.
+  server sim + video bandwidth per match. Depends: T01, T41, T28, T54 (go decision).
 
 ## Ongoing · game intake
 - [x] **T51 Onboard a newly-added game (repeatable)** – a runbook + read-only helper for whenever a new

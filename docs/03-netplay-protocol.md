@@ -80,11 +80,12 @@ frame in one browser tick. Enabled per game with `netplayMode: "rollback"`.
   boot state, and never runs more than `window` frames ahead of the slowest confirmed peer. That bound
   guarantees every late packet is still recoverable; when it is reached the loop stalls (and falls
   into the T29 `input.request` / snapshot recovery) instead of predicting past the ring.
-- **Incremental replay.** A correction re-simulates **one already-shown frame per animation tick**
-  (silently, without redrawing it), not the whole window in one tick. The tick budget is therefore
-  `save + one step`, independent of the window; a correction needs up to `window` ticks and briefly
-  slows the local game instead of blowing the frame budget. The corrected current frame is rendered
-  once when catch-up finishes.
+- **Incremental replay.** A correction re-simulates **one already-shown frame per animation tick**,
+  not the whole window in one tick. The driver's draw still runs (screen partial-update state is part
+  of the save buffer and hash), but OSD presentation is suppressed during catch-up so the player does
+  not see the rewind; the corrected current frame is presented once when catch-up finishes. The tick
+  budget is therefore `save + one step`, independent of the window; a correction needs up to `window`
+  ticks and briefly slows the local game instead of blowing the frame budget.
 - **Budget.** Each driver is measured by `pnpm --filter @wma/e2e test:rollback-budget`: it passes when
   `saveMs + min(stepMs, silentStepMs) <= 16 ms`, and the window is then written to `games.json`
   (`rollbackWindow`). A driver with no fitting tick stays `lockstep`. The probe is machine-specific;

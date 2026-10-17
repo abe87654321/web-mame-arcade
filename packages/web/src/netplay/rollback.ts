@@ -180,7 +180,7 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
   let paused = false;
   /** Last frame to re-simulate after a rewind, or null when not catching up. */
   let catchUp: number | null = null;
-  /** True while the driver's draw is suppressed across catch-up ticks. */
+  /** True while OSD presentation is suppressed across catch-up ticks. */
   let renderSuppressed = false;
   const stats: RollbackStats = {
     rollbacks: 0,
@@ -395,8 +395,9 @@ export function createRollback(deps: RollbackDeps): RollbackLoop {
     // If a correction is already in flight, its target is the last frame the
     // original (pre-correction) timeline reached.
     const lastStepped = catchUp !== null ? Math.max(catchUp, current - 1) : current - 1;
-    // Frames the player already saw do not need to be redrawn; the corrected
-    // current frame is rendered once catch-up finishes (T40).
+    // Frames the player already saw are re-simulated (their draw still runs,
+    // because screen state is saved/hashed) but not presented again. The
+    // corrected current frame is presented once catch-up finishes (T40).
     suppressRender(true);
     core.load(point.state, point.frame);
     current = frame;
