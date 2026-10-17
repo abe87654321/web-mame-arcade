@@ -21,6 +21,7 @@ PATCHES=(
   0007-schedule-clock.patch
   0008-schedule-dump.patch
   0009-lua-engine-postload.patch
+  0010-netplay-silent.patch
 )
 
 # src-in-netplay-dir:destination-relative-to-mame

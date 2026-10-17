@@ -1,0 +1,21 @@
+diff --git a/src/emu/video.h b/src/emu/video.h
+index af9048cf..1750c710 100644
+--- a/src/emu/video.h
++++ b/src/emu/video.h
+@@ -14,6 +14,7 @@
+ #define MAME_EMU_VIDEO_H
+ 
+ #include "recording.h"
++#include "netplay.h"
+ 
+ #include <system_error>
+ 
+@@ -43,7 +44,7 @@ public:
+ 
+ 	// getters
+ 	running_machine &machine() const { return m_machine; }
+-	bool skip_this_frame() const { return m_skipping_this_frame; }
++	bool skip_this_frame() const { return m_skipping_this_frame || netplay_is_silent(); }
+ 	int speed_factor() const { return m_speed; }
+ 	int frameskip() const { return m_auto_frameskip ? -1 : m_frameskip_level; }
+ 	bool throttled() const { return m_throttled; }

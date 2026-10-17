@@ -51,6 +51,14 @@ export class MameCore implements Core {
     return this.netplay("hash", "T20").hash();
   }
 
+  setSilent(on: boolean): void {
+    this.module.netplay?.setSilent?.(on);
+  }
+
+  renderNow(): void {
+    this.module.netplay?.renderNow?.();
+  }
+
   /**
    * T46 diagnostic: a one-line dump of the scheduler clock and frame gate. Only
    * the T46-instrumented core provides `info`; an older core returns "".

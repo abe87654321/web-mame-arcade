@@ -127,6 +127,8 @@ describe("MameCore", () => {
       hash: vi.fn(() => 0xdeadbeef),
       step: vi.fn(),
       readMemory: vi.fn(() => new Uint8Array()),
+      setSilent: vi.fn(),
+      renderNow: vi.fn(),
     };
     const core = new MameCore(fakeModule(netplay), options);
     core.step(7, [1, 2, 3, 4]);
@@ -137,6 +139,10 @@ describe("MameCore", () => {
     core.load(new Uint8Array([5]), 42);
     expect(netplay.loadState).toHaveBeenCalledWith(new Uint8Array([5]));
     expect(netplay.setFrame).toHaveBeenCalledWith(42);
+    core.setSilent?.(true);
+    expect(netplay.setSilent).toHaveBeenCalledWith(true);
+    core.renderNow?.();
+    expect(netplay.renderNow).toHaveBeenCalled();
   });
 
   it("loads a boot snapshot labelled startFrame - 1", () => {

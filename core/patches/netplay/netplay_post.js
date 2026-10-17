@@ -63,6 +63,12 @@ var WMA_NETPLAY = (function () {
 		hash: function () {
 			return Module.cwrap('netplay_hash', 'number', [])() >>> 0;
 		},
+		setSilent: function (on) {
+			Module.cwrap('netplay_set_silent', null, ['number'])(on ? 1 : 0);
+		},
+		renderNow: function () {
+			Module.cwrap('netplay_render_now', null, [])();
+		},
 		info: function () {
 			var cap = 256;
 			var ptr = Module._malloc(cap);

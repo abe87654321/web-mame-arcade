@@ -18,6 +18,7 @@
 
 #include "emu.h"
 #include "screen.h"
+#include "video.h"
 #include "endianness.h"
 
 #include "netplay.h"
@@ -43,6 +44,10 @@ bool s_active = false;
 // Set by netplay_enable() even before the machine exists, so a netplay build
 // can be armed at load and activated on the first main-loop tick (docs/03).
 bool s_arm_requested = false;
+// T40: while true, screen updates skip the driver's draw (video.h's
+// skip_this_frame consults this). Re-simulating already-shown frames does not
+// need to redraw them; the corrected final frame is rendered explicitly.
+bool s_silent = false;
 uint32_t s_next_frame = 0;
 std::map<uint32_t, frame_inputs> s_pending;
 field_table s_fields;
@@ -204,6 +209,47 @@ bool netplay_input_active()
 	if (!s_active && s_arm_requested)
 		try_activate();
 	return s_active;
+}
+
+
+//-------------------------------------------------
+//  netplay_is_silent - true while rollback is
+//  re-simulating frames the player already saw
+//-------------------------------------------------
+
+bool netplay_is_silent()
+{
+	return s_silent;
+}
+
+
+//-------------------------------------------------
+//  netplay_set_silent - suppress/restore rendering
+//  during a rollback re-simulation (T40)
+//-------------------------------------------------
+
+void netplay_set_silent(int on)
+{
+	s_silent = on != 0;
+}
+
+
+//-------------------------------------------------
+//  netplay_render_now - draw the corrected current
+//  frame after a silent re-simulation (T40)
+//-------------------------------------------------
+
+void netplay_render_now()
+{
+	running_machine *machine = current_machine();
+	if (machine == nullptr)
+		return;
+	bool const was_silent = s_silent;
+	s_silent = false;
+	for (screen_device &screen : screen_device_enumerator(machine->root_device()))
+		screen.update_now();
+	machine->video().frame_update();
+	s_silent = was_silent;
 }
 
 
