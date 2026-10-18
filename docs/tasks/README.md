@@ -171,6 +171,11 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Note: T40 currently enables rollback only for raiden; base WASM `core.step` is 10–15 ms on the
   headless dev machine, so moving work off the main thread cannot make slow drivers fast by itself.
   The decision memo also records the T45 latency/cost assumptions (RTT + 40–100 ms, per-match GPU/bandwidth).
+  T53's handoff field report (in `docs/tasks/T54-netplay-performance-strategy.md`) records the
+  remaining stutter with two visible localhost windows: ~0.43% / ~1.97% estimated packet gaps on the
+  two clients, a dual-path `lost` metric that can overstate real loss, and an informational
+  `ack_frame` that makes the overlay RTT untrustworthy in lockstep. Phase A must add a real rAF/FPS
+  meter and per-path metrics before any go/no-go.
 - [ ] **T45 Server-authoritative live emulation (SLO C)** – one authoritative native MAME per match on
   the server: input aggregation with a fixed input delay + jitter buffer, frame capture + hardware
   encode, and LiveKit WebRTC publish; clients send inputs and watch video, so synchronization is

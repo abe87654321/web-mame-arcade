@@ -8,8 +8,8 @@ decision is recorded at the bottom of this document.
 - **Option 3** — move emulation/rendering/audio off the browser main thread
   (Web Worker + OffscreenCanvas + AudioWorklet), or
 - **Option 4** — server-authoritative native emulation + video (T45), or
-- neither: keep the current client-side lockstep/rollback and spend effort on T53 and cheaper
-  optimizations.
+- neither: keep the current client-side lockstep/rollback and spend effort on cheaper
+  optimizations and T29-style visibility handling.
 
 This task exists so the decision is made from measurements and product needs, not from the
 frustration of one bad match.
@@ -32,8 +32,60 @@ roughly **3–6 ms of the tick is outside `core.step`** (save, hash, send, OSD/J
 That number is the entire ceiling for Option 3: moving work off the main thread can recover it, but
 cannot make a 14 ms emulated frame cheaper.
 
-Known non-performance blockers: T53 (start/arming race) keeps gridlee/jackal/rygar/commando on
-lockstep; T54 must not be used as a reason to ignore T53.
+T53 (start/arming race + boot-state barrier) is **fixed**: peers now start from the host's frozen
+boot state, so the two-tab and three-tab gates agree on every hash. gridlee/jackal/rygar/commando
+still run lockstep because of the rollback budget/netem gates, not the start race. T54 must not be
+used as a reason to ignore any *new* desync evidence.
+
+---
+
+## Field report from the T53 stutter check (input for Phase A)
+
+T53 fixed the start/desync bug, but a real-match stutter remained. The T53 session deliberately did
+**not** try to fix it; this is the handoff evidence for T54.
+
+**Reproduction**
+
+- Two Chromium windows **side by side and visible**, localhost relay + Vite dev server.
+- `rygar`, two players, after the T53 start barrier was in place (hashes agreed, no `desync`).
+- Compared with native MAME on the same machine, the browser match stutters **visibly**.
+- The stutter type (freeze/wait vs rewind/catch-up) was not classified yet.
+
+**DEV overlay observed**
+
+| Client | `lost` | packets | ratio | notes |
+| --- | ---: | ---: | ---: | --- |
+| P1 | 267 | 62,349 | ~0.43% | relay/P2P counts differ from P2 |
+| P2 | 903 | 45,891 | ~1.97% | relay/P2P counts differ from P1 |
+
+- Both overlays showed **RTT/jitter**, but the user could not find an rAF/FPS number (the overlay
+  does not expose one yet).
+- `lost` is a gap estimate over the packet `firstFrame` series. Because the same packet arrives over
+  **both** P2P and relay, the current metric mixes two paths into one series and can **overstate**
+  real input loss (a gap on one path may already be filled by the other).
+- In lockstep, `ack_frame` is currently informational (the sender's own current frame), so the
+  overlay's RTT is **not** a trustworthy network RTT. Do not use it as a T54 baseline without fixing
+  the metric.
+
+**What Phase A must add before deciding**
+
+1. A real FPS/rAF meter per client (e.g. count `requestAnimationFrame` over 1 s, and record the
+   longest gap), so "visible-but-slow" vs "hidden/occluded" is measured, not guessed.
+2. Per-path packet metrics (P2P and relay separately) with duplicate suppression, so `lost` means
+   *frames still missing after both paths*, not "one path skipped a packet".
+3. A per-tick budget split (`core.step`, save/hash, send, present/OSD, JS/GC) on a real visible tab,
+   not only the headless probe.
+4. Whether Chrome is throttling an occluded-but-not-`document.hidden` window (T29 only reacts to
+   `visibilitychange`; a window behind another can still be throttled without firing it).
+
+**Working hypotheses (not conclusions)**
+
+- Delay-lockstep waiting for one slower peer, amplified by a throttled/occluded window.
+- Dual-path packet gaps or reordering making the lockstep wait longer than the network warrants.
+- Main-thread contention (`core.step` 10–15 ms + save/send/present) leaving too little slack for
+  the 60 Hz tick on a visible tab.
+
+These map directly to Phase A/B and to the T45-vs-Worker decision; none of them is proven yet.
 
 ---
 
@@ -223,7 +275,8 @@ Record in this file and in `docs/08-roadmap-risks.md`:
 - **T45 pilot if:** ranked/competitive/cross-region/weak-device support is required, or a driver
   cannot be made netplay-safe client-side.
 - **Neither if:** the target is same-region casual play, raiden-class rollback is acceptable, and
-  T53 can be fixed cheaply. In that case keep lockstep/rollback and revisit after T53.
+  the T53 field report shows the remaining stutter is cheap to remove (visibility/pacing/metrics).
+  In that case keep lockstep/rollback and fix the cheap items first; revisit after T53 (now done).
 
 ---
 
