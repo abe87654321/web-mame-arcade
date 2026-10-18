@@ -21,14 +21,26 @@ Start with delay-based lockstep; add rollback per game once stable.
   with `use-auth-secret`; the API mints short-lived TURN credentials (T34).
 
 ## Start
-- A netplay (`task lockstep`) core is **frozen at boot**: the loader arms `netplay_enable()` during
-  runtime init, so MAME does not free-run before the match starts. Peers therefore all sit at frame 0
-  with identical machine state; only the lockstep advances frames.
+- A netplay (`task lockstep`) core is **frozen at boot**: the loader calls `netplay_enable()` from
+  `onRuntimeInitialized`, before MAME's generated glue runs `callMain()`. The native hook records the
+  request when no machine exists yet and activates on the first main-loop tick, so MAME never
+  free-runs a stock frame before the lockstep owns the clock (fixed in T53; arming after
+  `loadCoreBundle()` resolved was too late on a slow/throttled tab).
 - Starting is **manual**: the lowest-slot host clicks "Start game" in the lobby once every peer's data
   channel is open, then sends `game.start {startFrame, inputDelay}`. A lone player may start too, which
   plays solo under the lockstep. This avoids the first player entering a room locking out later joiners.
-- `startFrame` is 0: every peer boots the same core + ROM, so frame 0 is the same state everywhere.
-  Mid-game join / resume from a snapshot is T25.
+- **Deterministic start barrier (T53).** The boot save buffer is not guaranteed to be bit-identical
+  across two independently constructed core instances (observed on rygar/jackal even with
+  `t=0`/`next=0`), so "everyone booted the same ROM" is not enough for the cross-peer hash. The host
+  saves its frozen boot state before sending `game.start` and, once the relay has fanned the start
+  out, publishes it as `state.snapshot {frame: startFrame}` (the existing T25 message, no wire change).
+  Every other peer waits for that blob, `core.load(bytes, startFrame - 1)` and only then opens the
+  gate; the host starts immediately. The 0xffffffff wrap makes `startFrame - 1` resume at
+  `startFrame`, the same convention rollback uses for its boot state (T40). Upload failure is
+  fail-open: a non-host that sees no blob for 10 s starts from its own frozen state and logs
+  `boot-sync-timeout`, leaving recovery to T25/T29.
+- `startFrame` is 0: the barrier pins every peer to the host's frame-0 bytes. Mid-game join / resume
+  from a snapshot is T25.
 - The first `inputDelay` frames (`startFrame` .. `startFrame + inputDelay - 1`) are **neutral (mask 0)**
   for every slot, by construction: the lockstep pre-fills them so the first real input lands `D` frames
   after the start without any peer inventing a mask. An input log or a test script must therefore place
