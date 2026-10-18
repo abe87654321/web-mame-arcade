@@ -66,6 +66,29 @@ describe("createLockstep", () => {
     expect(lockstep.scheduledFrame()).toBe(3);
   });
 
+  it("keeps the schedule within one redundancy window while stalled (T53)", () => {
+    const sent: Uint8Array[] = [];
+    const lockstep = createLockstep({
+      core: fakeCore(),
+      mySlot: 0,
+      players: [0, 1],
+      inputDelay: 0,
+      startFrame: 0,
+      sendInput: (packet) => sent.push(packet),
+      now: () => 0,
+    });
+
+    // The peer never sends: the loop cannot step, so it must stop scheduling
+    // once the last-8 window would no longer include the frame the peer needs.
+    for (let i = 0; i < 20; i++) lockstep.tick(0x01);
+
+    expect(lockstep.frame()).toBe(0);
+    expect(lockstep.scheduledFrame()).toBe(8);
+    const last = decodeInput(sent.at(-1)!);
+    expect(last.firstFrame).toBe(0);
+    expect(last.inputs).toHaveLength(8);
+  });
+
   it("blocks until every player's input for the frame is present", () => {
     const core = fakeCore();
     const lockstep = createLockstep({

@@ -230,9 +230,13 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   {frame:startFrame}` after `game.start`, which peers load at `startFrame - 1` before opening the gate
   (fail-open after 10 s; no protocol/relay change). Evidence: `WMA_E2E_DRIVERS=gridlee,commando,jackal,
   rygar` lockstep two-tab passed, and the new `e2e/netplay-3p.e2e.ts` (gridlee, 3 tabs) passed.
+  (3) Lockstep now caps the schedule lead at one `MAX_FRAMES` (8) redundancy window instead of 256, so
+  a peer that starts late or lags can catch up from a recent packet instead of waiting for a resend.
   `test:rollback-budget` passes for gridlee/raiden/commando/jackal, but only gridlee passed the two-tab
   rollback gate and netem could not be run here (needs sudo), so `raiden` remains the only catalogue
-  rollback driver; the remaining lockstep stalls are the T54 performance decision's input.
+  rollback driver. Remaining stutter is not this desync: the e2e metrics show multi-hundred-ms rAF gaps
+  while one tab is throttled/occluded, which is T29/T54 territory (delay lockstep still waits for that
+  peer; rollback/occlusion detection is the responsiveness fix).
 - [x] **T49 follow-up · raiden/raiden2 netplay re-enabled** – the T46 "raiden/raiden2 `Core.save()`
   throws" finding was a downstream symptom of the bad ROMs (T49): MAME never started, so
   `netplay_state_size()` returned 0. With the corrected 0.289 sets, `Core.save()` returns 330 KB / 1.3 MB
