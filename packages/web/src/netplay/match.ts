@@ -13,7 +13,12 @@
  * - lockstep packets go out over the data channels (`broadcast`) and the relay
  *   (`sendBinary`); inbound packets from either path feed `onBytes`.
  */
-import { decodeInput, type PlayerPause, type RoomState } from "@wma/protocol";
+import {
+  decodeInput,
+  type PlayerPause,
+  type RoomState,
+  type StateSnapshot,
+} from "@wma/protocol";
 import type { Core } from "../core/types";
 import { selectInputDelay } from "./delay";
 import { createLockstep, type LockstepDeps, type NetplayLoop } from "./lockstep";
@@ -187,6 +192,12 @@ const DEFAULT_METRICS_INTERVAL_MS = 250;
 const DEFAULT_SCORE_INTERVAL_MS = 1000;
 /** Rollback keeps the minimum input delay; prediction hides network RTT (T40). */
 const ROLLBACK_INPUT_DELAY = 2;
+/**
+ * How long a non-host waits for the host's boot snapshot before starting from
+ * its own frozen state (T53, fail-open). The relay is local/LAN in practice, so
+ * a healthy match never reaches this.
+ */
+const BOOT_SYNC_TIMEOUT_MS = 10_000;
 
 /** Derive the relay HTTP origin from its WebSocket URL (`ws(s)://`→`http(s)://`). */
 function httpBase(relayUrl: string): string {
@@ -235,6 +246,22 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
   let self: number | null = null;
   let roomStatus: RoomState["status"] = "waiting";
   let pendingStart: { startFrame: number; inputDelay: number } | null = null;
+  /**
+   * T53 deterministic start barrier: the host saves its frozen boot state and
+   * broadcasts it as `state.snapshot {frame: startFrame}`. Non-hosts wait for
+   * it before creating their lockstep, so every peer starts from identical
+   * bytes even if the core's boot state is not bit-reproducible across tabs.
+   */
+  let bootState: Uint8Array | null = null;
+  let bootSnapshotPublished = false;
+  /** Set on a non-host between `game.start` and the boot snapshot (or timeout). */
+  let awaitingBoot: {
+    startFrame: number;
+    inputDelay: number;
+    deadline: number;
+  } | null = null;
+  /** A boot snapshot that arrived before this peer's core was ready (T53). */
+  let pendingBoot: StateSnapshot | null = null;
   let startSent = false;
   let gameSetSent = false;
   /** Whether the host is sharing A/V (T41); mirrors the relay's `video.set`. */
@@ -478,6 +505,26 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     lockstep ??= createLockstep(loopDeps);
     metrics = createMetrics({ mySlot: self, players, now: deps.now });
     lastMetricsAt = null;
+    // T53: the host pins every peer to the state it froze at. Publishing is
+    // fire-and-forget; a failure is fail-open (peers time out and use their
+    // own boot state, and T25/T29 recovery still applies).
+    if (isHost() && bootState && !bootSnapshotPublished) {
+      bootSnapshotPublished = true;
+      const boot = bootState;
+      bootState = null;
+      void createSnapshot(boot)
+        .then((blobUrl) => {
+          session.send({
+            t: "state.snapshot",
+            frame,
+            blobUrl,
+          });
+          log?.("boot-snapshot-sent", { frame });
+        })
+        .catch((error) =>
+          log?.("boot-sync-error", { frame, error: String(error) }),
+        );
+    }
     if (localPaused) {
       // The tab was hidden before the start: hold the fresh lockstep paused and
       // tell the relay, so the throttled tab does not stall the other peers.
@@ -530,12 +577,57 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
     }
   }
 
+  /**
+   * Apply the host's boot state (T53), then open the gate. `state.snapshot`
+   * normally means "resume at frame + 1"; for the boot state the host saved
+   * *before* stepping `startFrame`, so resume at `startFrame - 1` (the
+   * 0xffffffff wrap already used for rollback boot states, T40).
+   */
+  function applyBootSnapshot(message: StateSnapshot): void {
+    const waiting = awaitingBoot;
+    if (!waiting) return;
+    void fetchSnapshot(message.blobUrl)
+      .then((bytes) => {
+        // A timeout may have opened the gate while the fetch was in flight.
+        if (!awaitingBoot) return;
+        deps.core.load(bytes, waiting.startFrame - 1);
+        awaitingBoot = null;
+        pendingBoot = null;
+        pendingStart = null;
+        lastAppliedSnapshotFrame = message.frame;
+        log?.("boot-snapshot-applied", { frame: message.frame });
+        startLockstep(waiting.startFrame, waiting.inputDelay);
+      })
+      .catch((error) =>
+        log?.("boot-sync-error", {
+          frame: message.frame,
+          error: String(error),
+        }),
+      );
+  }
+
   function maybeStartPending(): void {
-    if (pendingStart && self !== null && coreReady) {
+    if (!pendingStart || self === null || !coreReady) return;
+    // The host starts immediately and publishes its frozen boot state.
+    if (isHost()) {
       const { startFrame: frame, inputDelay: delay } = pendingStart;
       pendingStart = null;
       startLockstep(frame, delay);
+      return;
     }
+    // A non-host waits for the host's boot snapshot so both peers start from
+    // identical bytes (T53). If it never arrives, `tick` fails open.
+    if (!awaitingBoot) {
+      awaitingBoot = {
+        startFrame: pendingStart.startFrame,
+        inputDelay: pendingStart.inputDelay,
+        deadline: deps.now() + BOOT_SYNC_TIMEOUT_MS,
+      };
+      log?.("boot-snapshot-wait", { frame: pendingStart.startFrame });
+    }
+    const boot = pendingBoot;
+    pendingBoot = null;
+    if (boot) applyBootSnapshot(boot);
   }
 
   /**
@@ -670,7 +762,19 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
         pendingStart = { startFrame: message.startFrame, inputDelay: message.inputDelay };
         return;
       }
-      startLockstep(message.startFrame, message.inputDelay);
+      // The host starts immediately; every other peer waits for the host's
+      // boot snapshot before opening the gate (T53 deterministic start).
+      if (isHost()) {
+        startLockstep(message.startFrame, message.inputDelay);
+        return;
+      }
+      pendingStart = { startFrame: message.startFrame, inputDelay: message.inputDelay };
+      awaitingBoot = {
+        startFrame: message.startFrame,
+        inputDelay: message.inputDelay,
+        deadline: deps.now() + BOOT_SYNC_TIMEOUT_MS,
+      };
+      log?.("boot-snapshot-wait", { frame: message.startFrame });
     },
     onInput: (bytes, source) => {
       if (metrics) {
@@ -695,6 +799,20 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       sendRecoverySnapshot(frame, "desync");
     },
     onStateSnapshot: (message) => {
+      // T53: the host's start snapshot is labelled with `startFrame` and was
+      // saved before that frame stepped, so it is loaded from `startFrame - 1`.
+      if (
+        awaitingBoot &&
+        pendingStart &&
+        message.frame === pendingStart.startFrame
+      ) {
+        if (self === null || !coreReady) {
+          pendingBoot = message;
+          return;
+        }
+        applyBootSnapshot(message);
+        return;
+      }
       void fetchSnapshot(message.blobUrl)
         .then((bytes) => {
           // Snapshots can be in flight at once (desync + escalation intervals);
@@ -751,7 +869,20 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
 
   return {
     tick: (localMask) => {
-      if (!lockstep) return;
+      if (!lockstep) {
+        // T53 fail-open: a missing/failed boot snapshot must not wedge the
+        // lobby forever. Start from this peer's own frozen state and let the
+        // normal resync path handle a resulting desync.
+        if (awaitingBoot && deps.now() >= awaitingBoot.deadline) {
+          const { startFrame: frame, inputDelay: delay } = awaitingBoot;
+          awaitingBoot = null;
+          pendingBoot = null;
+          pendingStart = null;
+          log?.("boot-sync-timeout", { frame });
+          startLockstep(frame, delay);
+        }
+        return;
+      }
       const now = deps.now();
       // Record when our own frame is scheduled so a later peer ack yields RTT.
       metrics?.noteLocalFrame(lockstep.scheduledFrame(), now);
@@ -781,6 +912,16 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       const delay =
         deps.inputDelay ??
         (deps.rollback ? ROLLBACK_INPUT_DELAY : selectInputDelay(Object.values(measuredRtts)));
+      // T53: capture the frozen boot state before any peer may step. The host
+      // broadcasts it right after `game.start` so every peer starts from the
+      // same bytes. A driver that cannot save falls back to no barrier.
+      bootState = null;
+      bootSnapshotPublished = false;
+      try {
+        bootState = deps.core.save();
+      } catch (error) {
+        log?.("boot-sync-unavailable", { error: String(error) });
+      }
       if (!session.send({ t: "game.start", startFrame, inputDelay: delay })) {
         return false;
       }
@@ -819,6 +960,11 @@ export function createMatch(deps: MatchDeps): NetplayMatch {
       closed = true;
       lockstep = null;
       metrics = null;
+      bootState = null;
+      bootSnapshotPublished = false;
+      awaitingBoot = null;
+      pendingBoot = null;
+      pendingStart = null;
       videoEnabled = false;
       paused = false;
       localPaused = false;

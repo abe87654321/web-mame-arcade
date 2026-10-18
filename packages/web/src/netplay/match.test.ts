@@ -86,6 +86,10 @@ function harness(inputDelay?: number, overrides: Partial<MatchDeps> = {}) {
     socketFactory: fakeSocketFactory(socket),
     factory: fakeRtcFactory([pc]),
     now: () => 0,
+    // Boot-sync (T53) uses the generic snapshot seam; keep tests off the
+    // network.
+    createSnapshot: vi.fn(async () => "blob://boot"),
+    fetchSnapshot: vi.fn(async () => new Uint8Array([1, 2, 3])),
     // Omit when undefined so the adaptive path runs (defaults to 2 with no RTT).
     ...(inputDelay === undefined ? {} : { inputDelay }),
     onStatus: (status) => statuses.push(status),
@@ -247,6 +251,85 @@ describe("createMatch", () => {
     match.close();
   });
 
+  it("has the host publish its frozen boot state at game.start (T53)", async () => {
+    const createSnapshot = vi.fn(async () => "blob://boot");
+    const { socket, core, match } = harness(0, { createSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(0, [0, 1], [1])));
+    await flush();
+
+    expect(match.start()).toBe(true);
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 2 }));
+    await flush();
+
+    expect(core.save).toHaveBeenCalled();
+    expect(createSnapshot).toHaveBeenCalledWith(new Uint8Array([9, 9]));
+    expect(jsonSent(socket)).toContainEqual({
+      t: "state.snapshot",
+      frame: 0,
+      blobUrl: "blob://boot",
+    });
+    match.close();
+  });
+
+  it("does not start a non-host before the host's boot state arrives (T53)", async () => {
+    const bytes = new Uint8Array([7, 8]);
+    const fetchSnapshot = vi.fn(async () => bytes);
+    const { socket, core, match } = harness(0, { fetchSnapshot });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    // The peer's frame-0 input and our own tick are not enough: the gate stays
+    // closed until the host's boot bytes are loaded.
+    socket.emitMessage(peerPacket(0, 0, [0x01]));
+    match.tick(0x02);
+    expect(core.steps).toEqual([]);
+
+    socket.emitMessage(
+      JSON.stringify({ t: "state.snapshot", frame: 0, blobUrl: "blob://boot" }),
+    );
+    await flush();
+
+    expect(fetchSnapshot).toHaveBeenCalledWith("blob://boot");
+    // Resume at `startFrame - 1` (the 0xffffffff wrap means frame 0 next).
+    expect(core.load).toHaveBeenCalledWith(bytes, -1);
+
+    // Restage the peer input that was dropped before the gate opened.
+    socket.emitMessage(peerPacket(0, 0, [0x01]));
+    match.tick(0x02);
+    expect(core.steps).toEqual([{ frame: 0, inputs: [0x01, 0x02, 0, 0] }]);
+    match.close();
+  });
+
+  it("falls open when the boot state never arrives (T53)", async () => {
+    let clock = 0;
+    const logs: string[] = [];
+    const { socket, core, match } = harness(0, {
+      now: () => clock,
+      log: (event) => logs.push(event),
+    });
+    await flush();
+    socket.emitMessage(JSON.stringify(roomState(1, [0, 1])));
+    await flush();
+    socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
+    await flush();
+
+    match.tick(0x02);
+    expect(core.steps).toEqual([]);
+
+    clock = 10_000;
+    match.tick(0x02);
+    expect(logs).toContain("boot-sync-timeout");
+
+    socket.emitMessage(peerPacket(0, 0, [0x01]));
+    match.tick(0x02);
+    expect(core.steps).toEqual([{ frame: 0, inputs: [0x01, 0x02, 0, 0] }]);
+    match.close();
+  });
+
   it("reports connection metrics for the dev overlay", async () => {
     const snapshots: MetricsSnapshot[] = [];
     const { socket, match } = harness(0, {
@@ -401,6 +484,8 @@ describe("createMatch", () => {
     await flush();
     socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
     await flush();
+    // Ignore the boot-sync snapshot (T53) this host published at start.
+    createSnapshot.mockClear();
     // Advance the host past the flagged frame; the snapshot must carry the
     // host's own position, not the relay's (older) desync frame.
     for (let i = 0; i < 61; i++) match.tick(0x01);
@@ -500,6 +585,8 @@ describe("createMatch", () => {
     await flush();
     socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
     await flush();
+    // The boot-sync snapshot (T53) is not a live-join snapshot.
+    createSnapshot.mockClear();
     for (let i = 0; i < 5; i++) match.tick(0x01); // arms the interval, publishes nothing yet
     await flush();
     expect(createSnapshot).not.toHaveBeenCalled();
@@ -685,6 +772,8 @@ describe("createMatch", () => {
     await flush();
     socket.emitMessage(JSON.stringify({ t: "game.start", startFrame: 0, inputDelay: 0 }));
     await flush();
+    // Ignore the boot-sync snapshot (T53) this host published at start.
+    createSnapshot.mockClear();
 
     // Peer 1 sends frame 0, then goes silent: the loop stalls at frame 1.
     socket.emitMessage(peerPacket(1, 0, [0x02]));

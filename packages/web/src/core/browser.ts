@@ -187,6 +187,15 @@ export async function loadBrowserCore(
             abort(error instanceof Error ? error : new Error(String(error)));
             return;
           }
+          // T53: arm netplay *during* runtime init, before the generated glue
+          // calls callMain(). callMain constructs MAME and calls
+          // emscripten_set_main_loop(), so arming after loadCoreBundle resolves
+          // can let the machine advance a frame on a slow/throttled tab. The
+          // native hook only records the request when no machine exists yet and
+          // activates on the first main-loop tick (docs/03 "Start").
+          if (init.netplay) {
+            (config as unknown as CoreModule).netplay?.enable();
+          }
           settle(config as unknown as CoreModule);
         },
         onAbort: (what: unknown) =>
@@ -203,10 +212,9 @@ export async function loadBrowserCore(
   trace("verifying artifacts + booting");
   const bundle = await loadCoreBundle(source, init.args);
   trace("runtime ready");
-  // Arm netplay now: the post-js glue has run (so `module.netplay` exists) but
-  // the main loop has not ticked yet, so the machine freezes at boot instead of
-  // free-running ahead of the lockstep (T24, docs/03).
-  if (init.netplay) bundle.module.netplay?.enable();
+  // Netplay was armed in onRuntimeInitialized above, before callMain could let
+  // MAME free-run (T53). If the build has no netplay hooks there is nothing to
+  // arm; the capability error surfaces on the first Core.step.
   return new MameCore(bundle.module, {
     args: init.args,
     romPath: init.romPath,

@@ -211,6 +211,17 @@ function defineNetplaySuite(
       await expect(host.locator(".start-game")).toBeEnabled();
       await press(host, ".start-game");
 
+      // Audio can keep playing while the canvas freezes if a stepped frame is
+      // never presented (rollback predicts without waiting). Sample presented
+      // frames *while the match is producing them*: a fixture whose inputs end
+      // (rygar's attract screen, for example) can legitimately sit on one
+      // static picture later, which would make a post-hash sample a false
+      // negative. Both peers must still show distinct frames overall.
+      const canvasSample = Promise.all([
+        distinctCanvasFrames(p1),
+        distinctCanvasFrames(p2),
+      ]);
+
       await Promise.all([
         awaitHashes(p1, h1, MIN_HASHES, 300_000),
         awaitHashes(p2, h2, MIN_HASHES, 300_000),
@@ -219,13 +230,7 @@ function defineNetplaySuite(
       expect(d1, "p1 saw a desync").toEqual([]);
       expect(d2, "p2 saw a desync").toEqual([]);
 
-      // Audio can keep playing while the canvas freezes if a stepped frame is
-      // never presented (rollback predicts without waiting). Both peers must
-      // show distinct frames over time, not just advance their hash stream.
-      const [frames1, frames2] = await Promise.all([
-        distinctCanvasFrames(p1),
-        distinctCanvasFrames(p2),
-      ]);
+      const [frames1, frames2] = await canvasSample;
       expect(frames1, "p1 canvas did not update").toBeGreaterThan(1);
       expect(frames2, "p2 canvas did not update").toBeGreaterThan(1);
 

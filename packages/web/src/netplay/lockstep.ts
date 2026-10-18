@@ -108,7 +108,11 @@ export interface NetplayLoop {
 export type Lockstep = NetplayLoop;
 
 const DEFAULT_WAIT_TIMEOUT_MS = 2000;
-const DEFAULT_MAX_LOOKAHEAD = 256;
+// A sender that schedules far ahead of the simulation no longer carries the
+// frames a lagging peer needs: each packet only repeats the last MAX_FRAMES.
+// Keep the schedule lead within one redundancy window so a peer that starts
+// late or falls behind can catch up from a single recent packet (T53 stutter).
+const DEFAULT_MAX_LOOKAHEAD = MAX_FRAMES;
 const DEFAULT_HASH_INTERVAL = 60;
 const DEFAULT_STALL_ESCALATE_MS = 6000;
 /** How many already-sent local masks a resync keeps for the input log (T40). */

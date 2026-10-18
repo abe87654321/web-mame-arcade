@@ -171,6 +171,11 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   Note: T40 currently enables rollback only for raiden; base WASM `core.step` is 10–15 ms on the
   headless dev machine, so moving work off the main thread cannot make slow drivers fast by itself.
   The decision memo also records the T45 latency/cost assumptions (RTT + 40–100 ms, per-match GPU/bandwidth).
+  T53's handoff field report (in `docs/tasks/T54-netplay-performance-strategy.md`) records the
+  remaining stutter with two visible localhost windows: ~0.43% / ~1.97% estimated packet gaps on the
+  two clients, a dual-path `lost` metric that can overstate real loss, and an informational
+  `ack_frame` that makes the overlay RTT untrustworthy in lockstep. Phase A must add a real rAF/FPS
+  meter and per-path metrics before any go/no-go.
 - [ ] **T45 Server-authoritative live emulation (SLO C)** – one authoritative native MAME per match on
   the server: input aggregation with a fixed input delay + jitter buffer, frame capture + hardware
   encode, and LiveKit WebRTC publish; clients send inputs and watch video, so synchronization is
@@ -207,7 +212,7 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   `MACHINE_SUPPORTS_SAVE`). The `extraRomZips` catalogue field (parent set / bios·device ROM mounted
   by name under `-rompath`) is the general fix for clones and MCU-bearing drivers. Netplay reliability
   of the new lockstep drivers is tracked by T53.
-- [ ] **T53 Cross-peer lockstep is intermittent (reliability, bug)** – the two-tab `e2e/netplay.e2e.ts`
+- [x] **T53 Cross-peer lockstep is intermittent (reliability, bug)** – the two-tab `e2e/netplay.e2e.ts`
   is flaky even for the reference driver: one run had `gridlee`/`jackal` pass while `commando`/`rygar`/
   `tankfrce`/`gwar` FAILED with repeated `desync` at frames 60/120/180/240, and `raiden` failed once then
   passed on rerun. A direct two-core probe (two pages, identical `core.step` inputs, compare `hash()`)
@@ -221,6 +226,22 @@ Each task: read the listed docs only, plan first (Plan agent), then build, then 
   responsiveness**: in delay-based lockstep the felt latency is `inputDelay + RTT` (worse with 3-4
   players), so a gamepad feels laggy — **rollback (T40)** is the fix, not pushing video. Measure with the
   T28 metrics + the two-tab/3-tab e2e after each change.
+  Note: the new `e2e/two-core.e2e.ts` probe (opt-in `WMA_TWO_CORE=1`) isolated the root cause: the two
+  independent cores are already at `t=0`/`next=0`, but their **boot save buffers differ** before any
+  input (rygar: 5 bytes; jackal: 39 bytes, periodic ~45-byte stride), so the divergence is boot-state
+  nondeterminism, not an arming/frame-0 race. Two fixes landed: (1) `packages/web/src/core/browser.ts`
+  now calls `netplay_enable()` from `onRuntimeInitialized`, before `callMain()` can schedule a stock
+  frame; (2) the host pins every peer to its frozen boot bytes by publishing `state.snapshot
+  {frame:startFrame}` after `game.start`, which peers load at `startFrame - 1` before opening the gate
+  (fail-open after 10 s; no protocol/relay change). Evidence: `WMA_E2E_DRIVERS=gridlee,commando,jackal,
+  rygar` lockstep two-tab passed, and the new `e2e/netplay-3p.e2e.ts` (gridlee, 3 tabs) passed.
+  (3) Lockstep now caps the schedule lead at one `MAX_FRAMES` (8) redundancy window instead of 256, so
+  a peer that starts late or lags can catch up from a recent packet instead of waiting for a resend.
+  `test:rollback-budget` passes for gridlee/raiden/commando/jackal, but only gridlee passed the two-tab
+  rollback gate and netem could not be run here (needs sudo), so `raiden` remains the only catalogue
+  rollback driver. Remaining stutter is not this desync: the e2e metrics show multi-hundred-ms rAF gaps
+  while one tab is throttled/occluded, which is T29/T54 territory (delay lockstep still waits for that
+  peer; rollback/occlusion detection is the responsiveness fix).
 - [x] **T49 follow-up · raiden/raiden2 netplay re-enabled** – the T46 "raiden/raiden2 `Core.save()`
   throws" finding was a downstream symptom of the bad ROMs (T49): MAME never started, so
   `netplay_state_size()` returned 0. With the corrected 0.289 sets, `Core.save()` returns 330 KB / 1.3 MB

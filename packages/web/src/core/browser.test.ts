@@ -123,6 +123,10 @@ describe("loadBrowserCore", () => {
       artifacts: { "mamegridlee.wasm": wasmHash, "mamegridlee.js": jsHash },
     };
     const enable = vi.fn();
+    // T53: the gate must be armed *during* runtime init, before the generated
+    // glue calls callMain() and schedules MAME's first main-loop tick. Arming
+    // after `loadBrowserCore` resolves is too late on a slow/throttled tab.
+    let enableAtInit = -1;
     const loadScript = async () => {
       const mod = (globalThis as Record<string, unknown>).Module as TestModule;
       mod.FS = {
@@ -139,6 +143,11 @@ describe("loadBrowserCore", () => {
       mod._malloc = () => 0;
       mod._free = () => {};
       (mod as TestModule & { netplay?: { enable(): void } }).netplay = { enable };
+      const initialized = mod.onRuntimeInitialized;
+      mod.onRuntimeInitialized = () => {
+        initialized();
+        enableAtInit = enable.mock.calls.length;
+      };
       mod.onRuntimeInitialized();
     };
 
@@ -164,6 +173,10 @@ describe("loadBrowserCore", () => {
     );
 
     expect(enable).toHaveBeenCalledOnce();
+    expect(
+      enableAtInit,
+      "netplay was armed after runtime init (too late for the first main-loop tick)",
+    ).toBe(1);
   });
 
   it("rejects when the runtime aborts instead of hanging", async () => {
